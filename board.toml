@@ -82,12 +82,10 @@ kernel_args = [
   # cpus to 6 did not remove the SpringBoardUI assertion in our earlier test.
   "cpus=8",
   "keepsyms=1",
-  # XNU prints every STARTUP() function it runs:
-  #   kernel_startup_initialize_upto[subsystem, rank]: addr(arg)
-  # plus "kernel_bootstrap: <name>" for each named step in kernel_bootstrap().
-  # This is how a silent stop gets pinned to a function.
-  "startup_debug=1",
-  "-enable_kprintf_spam",
+  # Boot speed (andromeda, 2026-11-06): startup_debug=1 (every STARTUP()
+  # function) and -enable_kprintf_spam were essential until iOS reached
+  # SpringBoard; now they only slow the boot. Put them back to pin a silent
+  # stop to a function.
   "-noprogress",
   "rd=ufsroot0",
   # andromeda, phase 3: userdata now starts with the 16 GiB HFS+ iOS root
@@ -119,7 +117,18 @@ kernel_args = [
   "sweettouchdelay=60",
   "sweettouchrst=54",
   "sweettouchvddio=37",
-  "sweetkeys=0",
+  # andromeda: the touch controller is unpowered until the driver raises its
+  # rails (GPIO37 read 0), and without a reset it answered (chip id 36:39,
+  # active scan ok) but reported no contacts. Linux pulses reset after the
+  # supplies are stable: do the same.
+  "sweettouchreset=1",
+  # Keys and Home as verified on the Mi 9 (patch 0083): power key via PON only,
+  # one synthetic Home press 90 s after start so the lock screen opens even
+  # without touch.
+  "sweetkeys=1",
+  "sweetkeyspononly=1",
+  "sweethidtest=90",
+  "sweethidonce=1",
   # Debug build: keep drawing kernel text over the GUI so the screen shows
   # where it stops. Set to 1 for a clean GUI (the console still reaches the
   # persistent log and the USB live log).
