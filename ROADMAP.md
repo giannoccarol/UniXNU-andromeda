@@ -117,3 +117,17 @@ Chi ha fatto il lavoro su cui costruiamo è elencato in [CREDITS.md](CREDITS.md)
 - **Mai scritture fuori da `userdata`**: bootloader, recovery, modem e `persist` non si toccano; i backup sono in
   `phone/` (fuori da git).
 - **Restituire**: le correzioni valide per tutti gli SM8150 vanno proposte al port del Mi 9 e agli altri.
+
+## Stato al 6 novembre 2026, sera
+
+Pronto nel ramo `andromeda`, da provare sul telefono nell'ordine:
+
+1. **Touch**: prova passo per passo (`sweettouchexp=1`), con l'utente che tocca dalla schermata di blocco per 2 minuti e mezzo.
+2. **CPU** a piena velocità con protezione termica (`andrcpu=1`): leggere `ANDROMEDA CPU: … rate_khz`.
+3. **Batteria** vera per iOS (`sweetbattery=2`): l'icona deve mostrare la percentuale letta dal fuel gauge.
+4. **GPU** gradino 1 (`andrgpu=1`, sola lettura), poi un gradino per avvio fino a 4.
+5. **Ritorno in fastboot** (`andrfastboot=N`): da provare con l'utente presente; se funziona, i test successivi si possono
+   fare anche senza di lui.
+6. **Bluetooth**: la sonda ha mostrato la UART pronta (firmware UART su SE13, clock attivabile). Mancano i voti RPMh di
+   L7A/L2C/L11C (la funzione di ios-sweet accetta solo `ldoc11`: va generalizzata, come fa ios-flame nella patch 0102), i pin
+   43–46 in funzione `qup13`, e la sequenza di accensione del WCN3990 (impulsi `0xC0`/`0xFC`, poi lettura della versione).
