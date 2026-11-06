@@ -11,7 +11,9 @@ screen (image versions v8-v14 in NOTES.md):
 
   launchd.plist   _PanicOnCrash -> _PanicOnCrasX (a crashing daemon must not
                   panic the system); CommCenter jobs removed (no baseband: it
-                  crash-loops and Setup blocks on its CoreTelephony XPC)
+                  crash-loops and Setup blocks on its CoreTelephony XPC);
+                  andromeda: bluetoothd and fairplayd.H2 removed while their
+                  hardware is missing (ANDROMEDA_KEEP_JOBS keeps them)
   containers      /private/var/containers/{Bundle,Data/System,Shared/SystemGroup,Temp}
                   (on iOS they live on the data volume)
   migration       LastSystemVersion so DataMigration does not run for an hour
@@ -67,8 +69,22 @@ def launchd(root):
     removed = [k for k, j in jobs.items() if j.get('Label') == 'com.apple.CommCenter']
     for k in removed:
         del jobs[k]
+    # andromeda: daemons whose hardware is missing crash-loop all boot long
+    # (46 launches each in a few minutes on 6 Nov 2026) and slow the boot.
+    # ANDROMEDA_KEEP_JOBS=bluetoothd keeps a job (e.g. once Bluetooth works).
+    keep = set(filter(None, os.environ.get('ANDROMEDA_KEEP_JOBS', '').split(',')))
+    idle = {'bluetoothd': 'no Bluetooth driver yet',
+            'fairplayd.H2': 'no FairPlay hardware'}
+    parked = []
+    for k, j in list(jobs.items()):
+        program = j.get('Program') or (j.get('ProgramArguments') or [''])[0]
+        name = os.path.basename(program)
+        if name in idle and name not in keep:
+            del jobs[k]
+            parked.append(f'{name} ({idle[name]})')
     save(path, plist, st.st_uid, st.st_gid, st.st_mode & 0o7777)
-    print(f'launchd.plist: {renamed} _PanicOnCrash renamed, {len(removed)} CommCenter jobs removed')
+    print(f'launchd.plist: {renamed} _PanicOnCrash renamed, {len(removed)} CommCenter jobs removed, '
+          f'parked: {", ".join(parked) or "none"}')
 
 
 def containers(root):
