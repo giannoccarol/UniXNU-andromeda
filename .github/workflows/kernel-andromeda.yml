@@ -57,6 +57,7 @@ jobs:
           cp cepheus/xnu/cepheus_bcm.h dxb/patches/
           cp cepheus/xnu/andromeda_probe.c cepheus/xnu/andromeda_cpufreq.c cepheus/xnu/andromeda_cpu_governor.h dxb/patches/
           cp cepheus/xnu/andromeda_gpu.c cepheus/xnu/andromeda_gpu_core.c cepheus/xnu/andromeda_gpu.h dxb/patches/
+          cp cepheus/xnu/SweetAMFI.cpp dxb/patches/
           for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
             cepheus_gpu_memory_state.h \
             cepheus_gmu_upload_mmio.h \
@@ -171,7 +172,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0094-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0094-|0096-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -216,6 +217,10 @@ jobs:
           # andromeda: whole iPhone X canvas scaled onto the panel (sweetfb_fit=1).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0094-andromeda-display-fit.patch'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"sweetfb_fit" in d and b"SWEET FB: fit" in d'
+          # andromeda: AMFI trust-query stand-in (patch 0096, port of ios-flame 0103).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0096-andromeda-amfi-trust.patch'
+          cmp cepheus/xnu/SweetAMFI.cpp dxb/xnu/iokit/Kernel/arm/SweetAMFI.cpp
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"SWEET AMFI:" in d and b"AppleMobileFileIntegrity" in d'
           # andromeda: battery source for SweetBattery (sweetbattery=2).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0091-andromeda-battery.patch'
           grep -F 'andromeda_battery_sample' dxb/xnu/iokit/Kernel/arm/SweetBattery.cpp

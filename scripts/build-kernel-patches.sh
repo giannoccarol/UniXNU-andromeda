@@ -35,6 +35,7 @@ install -m 644 "$ROOT/xnu/0089-andromeda-probe.patch" "$ROOT/xnu/0089-stage-andr
 install -m 644 "$ROOT/xnu/0090-andromeda-gpu.patch" "$ROOT/xnu/0090-stage-andromeda-gpu.sh" "$ROOT/xnu/andromeda_gpu.c" "$ROOT/xnu/andromeda_gpu_core.c" "$ROOT/xnu/andromeda_gpu.h" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0091-andromeda-battery.patch" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0094-andromeda-display-fit.patch" "$DEST/xnu/patches/"
+install -m 644 "$ROOT/xnu/0096-andromeda-amfi-trust.patch" "$ROOT/xnu/0096-stage-andromeda-amfi.sh" "$ROOT/xnu/SweetAMFI.cpp" "$DEST/xnu/patches/"
 for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
     cepheus_gpu_memory_state.h \
     cepheus_gmu_upload_mmio.h \

@@ -135,6 +135,15 @@ def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, 
         ('effective-production-status-ap', u32(0)),
         ('certificate-security-mode', u32(1)),
         ('effective-security-mode-sep', u32(1)),
+        # MobileGestalt's WiFi/Bluetooth/Ethernet addresses (fix found by
+        # ios-flame, Nick Wylynko, tools/mkadt.py, MIT): without them every
+        # WifiAddress answer waits 5 s for a network controller that never
+        # comes, installd takes 5 s per bundle, LaunchServices never finishes
+        # registering extensions and PosterBoard has no poster providers.
+        # Locally administered addresses of our own, not the phone's.
+        ('mac-address-wifi0', bytes([0x02, 0x41, 0x4e, 0x44, 0x52, 0x01])),
+        ('mac-address-bluetooth0', bytes([0x02, 0x41, 0x4e, 0x44, 0x52, 0x02])),
+        ('mac-address-ethernet0', bytes([0x02, 0x41, 0x4e, 0x44, 0x52, 0x03])),
     ], [node('memory-map', [ph()]),
         # Local boot policy (kern_csr.c): SIP relaxed like `csrutil disable`
         # (lp-sip0: untrusted kexts, unrestricted FS, task_for_pid, kernel
