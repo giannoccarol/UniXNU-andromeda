@@ -109,6 +109,8 @@ static const struct { uint8_t sid, periph; const char *name; } ap_allowed[] = {
 	{2, 0x16, "PM8150B MISC"},
 	{2, 0x40, "PM8150B FG BATT_SOC"},
 	{2, 0x41, "PM8150B FG BATT_INFO"},
+	{2, 0x42, "PM8150B FG 0x42"},
+	{2, 0x43, "PM8150B FG 0x43 (MEM_IF?)"},
 	{2, 0x44, "PM8150B FG MEM_IF"},
 	{2, 0x45, "PM8150B FG ADC_RR"},
 };
@@ -260,6 +262,20 @@ ap_pmic(void)
 		}
 		sp_dump(sid, p, ap_allowed[i].name, offs, count);
 	}
+	/*
+	 * Charger configuration that decides whether it charges (docs/research/
+	 * ricarica.md): CHGR charging-enable command 0x42, CFG2 0x51, FCC 0x61,
+	 * FV 0x70, inhibit 0x72, auto-recharge SOC 0x7d, JEITA 0x90; USBIN
+	 * suspend/override 0x40/0x42, HVDCP 0x62, load/ICL mode 0x65/0x66, ICL
+	 * 0x70, AICL 0x80/0x81; MISC watchdog config 0x51/0x53, SMB_EN 0x48,
+	 * thermal regulation 0x70. Reads only: the watchdog is not petted.
+	 */
+	static const uint8_t chgr_cfg[] = {0x42, 0x51, 0x61, 0x70, 0x72, 0x7d, 0x90};
+	static const uint8_t usbin_cfg[] = {0x40, 0x42, 0x58, 0x62, 0x65, 0x66, 0x70, 0x80, 0x81};
+	static const uint8_t misc_cfg[] = {0x48, 0x51, 0x53, 0x61, 0x70};
+	sp_dump(2, 0x10, "PM8150B CHGR cfg", chgr_cfg, AP_N(chgr_cfg));
+	sp_dump(2, 0x13, "PM8150B USBIN cfg", usbin_cfg, AP_N(usbin_cfg));
+	sp_dump(2, 0x16, "PM8150B MISC cfg", misc_cfg, AP_N(misc_cfg));
 }
 
 /* ---- TLMM, GCC and SE13 ------------------------------------------------- */

@@ -17,7 +17,7 @@ Crediti: [CREDITS.md](CREDITS.md).
 | 1. UEFI (Aloha `xiaomi-andromeda` + UniXNU/DarwinBoot) | **funziona sul telefono** (6 novembre 2026): menu UniXNU a schermo |
 | 2. Kernel + ADT | **funziona sul telefono** (6 novembre 2026): XNU arriva al montaggio della root |
 | 3. Sistema iOS su `userdata` | **funziona sul telefono** (6 novembre 2026): `launchd`, backboardd, SpringBoard; **schermata di blocco con l'orario visibile** |
-| 4. Touch | **in diagnosi**: driver adattato (reset GPIO54 nel tile SOUTH, alimentazioni L1C + GPIO37); il chip risponde (`36:39`), accetta la scansione e il reset, ma non segnala contatti riconosciuti. Prossimo passo: eventi grezzi con `sweettouchraw` |
+| 4. Touch | **in diagnosi**: driver adattato (reset GPIO54 nel tile SOUTH, alimentazioni L1C + GPIO37, verificate sul device tree). Il chip risponde (`36:39`), accetta il comando di scansione e manda l'evento "controller pronto" (`03 … 02`), ma toccando lo schermo non arriva **nessun** evento (12.000 letture, 6 novembre). Prossima prova: attesa del "pronto" prima della scansione, registro di tutti gli eventi e della risposta al comando |
 | 4b. Tasti | **funzionano sul telefono** (6 novembre 2026): power, volume e blocco/sblocco schermo (PON, patch 0083 del Mi 9) |
 | 5. Bluetooth, Wi-Fi, ricarica | **sonda pronta** (`xnu/andromeda_probe.c`, `andrprobe=2`): legge pin e clock della UART Bluetooth (SE13, GPIO 43–46), i regolatori Wi-Fi/BT (L1A, L7A, S4A, L2C, L11C) e caricatore/fuel gauge PM8150B via SPMI. Nessuna scrittura sul PMIC; da provare sul telefono |
 | Avvio | misurato: sistema montato a 43 s, SpringBoard a 73 s, schermata di blocco a **116 s** dal `fastboot boot` |

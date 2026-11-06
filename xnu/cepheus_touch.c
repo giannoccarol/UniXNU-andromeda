@@ -103,6 +103,11 @@ static unsigned touch_raw_log;
 static unsigned touch_raw_logged;
 static unsigned touch_raw_polls;
 static unsigned touch_raw_nonempty;
+/* sweettouchscan=N: settings byte of the ST-FTS "scan mode active" command
+ * (Xiaomi fts_521 Sense ON uses 0x01 = multi-touch). Default 0x01. */
+static unsigned touch_scan_settings = 0x01u;
+static unsigned touch_rescans;
+#define FTS_EVT_CONTROLLER_READY 0x03u
 #define TOUCH_I2C_ADDR   0x49u
 #define TOUCH_X_MAX      1080
 #define TOUCH_Y_MAX      2340
@@ -519,6 +524,51 @@ touch_report(uint32_t mask, const int *x, const int *y)
 	st.active = mask;
 }
 
+/* sweettouchraw: print one FIFO event, up to the configured count. */
+static void
+touch_raw_event(const char *why, const uint8_t *e)
+{
+	if (!touch_raw_log || touch_raw_logged >= touch_raw_log) { return; }
+	touch_raw_logged++;
+	printf("SWEET TOUCH (cepheus): %s %02x %02x %02x %02x %02x %02x %02x %02x\n",
+	    why, e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7]);
+}
+
+/* Xiaomi fts_521 Sense ON: setScanMode(SCAN_MODE_ACTIVE, 0x01) = A0 00 01. */
+static int
+touch_scan_on(const char *why)
+{
+	const uint8_t scan[] = {0xa0, 0x00, (uint8_t)touch_scan_settings};
+	int err = touch_msg(TOUCH_I2C_ADDR, scan, sizeof(scan), NULL, 0, false);
+	printf("SWEET TOUCH (cepheus): scan on (%s) settings=%#x err=%d\n",
+	    why, touch_scan_settings, err);
+	return err;
+}
+
+/*
+ * Pop FIFO events one at a time for up to ms milliseconds, logging each.
+ * Returns true once an event with id `want` was seen (0: never stop early).
+ */
+static bool
+touch_drain_log(const char *why, unsigned ms, unsigned want)
+{
+	uint8_t e[FTS_FIFO_EVENT_SIZE];
+	unsigned events = 0;
+	for (unsigned t = 0; t < ms;) {
+		if (fts_read_cmd(FTS_CMD_READ_ALL_EVENTS, e, sizeof(e)) != 0) { return false; }
+		if (e[0] != 0) {
+			if (++events > 2u * FTS_FIFO_DEPTH) { return false; } /* never spin */
+			printf("SWEET TOUCH (cepheus): %s +%ums %02x %02x %02x %02x %02x %02x %02x %02x\n",
+			    why, t, e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7]);
+			if (want && e[0] == want) { return true; }
+			continue; /* more may be queued: read again at once */
+		}
+		touch_wait(10);
+		t += 10;
+	}
+	return false;
+}
+
 /*
  * Drain the ST-FTS event FIFO. Returns 0 on success, or an errno. A single
  * read may carry up to FIFO_DEPTH events; event[7] bits 0..4 say how many
@@ -537,14 +587,11 @@ touch_fts(void)
 		touch_raw_polls++;
 		if (buf[0] != 0) {
 			touch_raw_nonempty++;
-			if (touch_raw_logged < touch_raw_log) {
-				touch_raw_logged++;
-				printf("SWEET TOUCH (cepheus): raw %02x %02x %02x %02x %02x %02x %02x %02x\n",
-				    buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
-			}
 		}
 		if ((touch_raw_polls % 3000u) == 0) {
-			printf("SWEET TOUCH (cepheus): polls=%u nonempty=%u\n", touch_raw_polls, touch_raw_nonempty);
+			printf("SWEET TOUCH (cepheus): polls=%u nonempty=%u irq-pin=%u\n",
+			    touch_raw_polls, touch_raw_nonempty,
+			    touch_rd(st.south, TOUCH_GPIO_IO(TOUCH_PIN_IRQ)) & 1u);
 		}
 	}
 	unsigned remaining = buf[7] & 0x1fu;
@@ -556,12 +603,21 @@ touch_fts(void)
 		    remaining * FTS_FIFO_EVENT_SIZE);
 		if (err) { return err; }
 	}
+	bool rescan = false;
 	for (unsigned i = 0; i <= remaining; ++i) {
 		const uint8_t *e = buf + i * FTS_FIFO_EVENT_SIZE;
 		if (e[0] == 0) { break; }
+		touch_raw_event("raw", e);
+		/* Controller ready = the IC rebooted (ESD, watchdog, late boot) and
+		 * is back in its default sense-off state: switch scanning on again. */
+		if (e[0] == FTS_EVT_CONTROLLER_READY) { rescan = true; }
 		if (cepheus_fts_event(&frame, e)) { return EIO; }
 	}
 	touch_report(frame.active, frame.x, frame.y);
+	if (rescan && touch_rescans < 5) {
+		touch_rescans++;
+		(void)touch_scan_on("controller ready while polling");
+	}
 	return 0;
 }
 
@@ -789,11 +845,17 @@ touch_thread(void *arg, wait_result_t result)
 	}
 	/* Vendor setScanMode(SCAN_MODE_ACTIVE, ACTIVE_MULTI_TOUCH). Not firmware
 	 * upload or flash erase. After reset the controller does not scan by default.
+	 * Like Xiaomi fts_system_reset(), first wait for the controller-ready
+	 * event (Linux allows 100 ms; give it 1 s), logging whatever the FIFO
+	 * holds; then log what the IC answers to the scan command.
 	 */
-	const uint8_t scan[] = {0xa0, 0x00, 0x01};
-	int scan_error = touch_msg(TOUCH_I2C_ADDR, scan, sizeof(scan), NULL, 0, false);
+	bool ready = touch_drain_log("boot event", 1000, FTS_EVT_CONTROLLER_READY);
+	printf("SWEET TOUCH (cepheus): controller ready %s\n", ready ? "seen" : "NOT seen in 1 s");
+	(void)touch_drain_log("pending event", 50, 0);
+	int scan_error = touch_scan_on("after reset");
 	printf("SWEET TOUCH (cepheus): active scan err=%d\n", scan_error);
 	if (scan_error) { goto out; }
+	(void)touch_drain_log("scan answer", 200, 0);
 	printf("SWEET TOUCH (cepheus): selected ST-FTS, %dx%d, poll=10ms irq-hint=%d\n",
 	    TOUCH_X_MAX, TOUCH_Y_MAX, st.irq_hint);
 	unsigned errors = 0, ticks = 0;
@@ -850,6 +912,8 @@ sweet_touch_init(void)
 	(void)PE_parse_boot_argn("sweettouchrst", &pin_reset, sizeof(pin_reset));
 	(void)PE_parse_boot_argn("sweettouchvddio", &pin_vddio, sizeof(pin_vddio));
 	(void)PE_parse_boot_argn("sweettouchraw", &touch_raw_log, sizeof(touch_raw_log));
+	(void)PE_parse_boot_argn("sweettouchscan", &touch_scan_settings, sizeof(touch_scan_settings));
+	touch_scan_settings &= 0xffu;
 	if ((pin_reset != 12u && pin_reset != 54u) || (pin_vddio != 84u && pin_vddio != 37u)) {
 		printf("SWEET TOUCH (cepheus): refusing pins reset=%u vddio=%u (allowed 12/54, 84/37)\n",
 		    pin_reset, pin_vddio);
