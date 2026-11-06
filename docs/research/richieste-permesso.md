@@ -1,4 +1,9 @@
-# Richieste di permesso agli autori (bozze, da approvare prima di pubblicarle)
+# Richieste di permesso agli autori
+
+| Progetto | Stato (6 novembre 2026) |
+|---|---|
+| `nomorecoolnicknames/hakios-sm8150` | **inviata**: [issue #1](https://github.com/nomorecoolnicknames/hakios-sm8150/issues/1) |
+| `MakrSas/ios-topaz` | issue e Discussions disattivate; l'unico contatto indicato è X (`makrotasuss`): messaggio da inviare dal proprietario del progetto (testo breve sotto) |
 
 Due progetti da cui vorremmo riprendere codice non dichiarano una licenza: senza permesso possiamo solo usarli come
 riferimento e riscrivere. Bozze delle issue da aprire sui loro repository (in inglese, come i loro progetti).
@@ -21,6 +26,15 @@ riferimento e riscrivere. Bozze delle issue da aprire sui loro repository (in in
 > license? If you prefer we only use them as a reference and write our own code, we will do that.
 >
 > Thanks either way!
+
+---
+
+**Versione breve per X (messaggio diretto):**
+
+> Hi Makr, thanks for ios-topaz! I'm porting the same ios-sweet / iOS 16.7.16 base to the Xiaomi Mi Mix 3 5G (SM8150):
+> github.com/giannoccarol/UniXNU-cepheus (branch andromeda). Your Wi-Fi patches (0113-0130, 0900) are the best
+> reference for our WCN3990. The repo has no license: may we adapt them, with full credit? If not, we'll only use them
+> as a reference and write our own. Thanks!
 
 ---
 
