@@ -27,6 +27,8 @@
 #include <kern/sched_prim.h>
 #include <machine/machine_routines.h>
 #include <pexpert/pexpert.h>
+#include <IOKit/IOLocks.h>
+#include <libkern/OSAtomic.h>
 #include "cepheus_clock_status.h"
 
 extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
@@ -143,9 +145,38 @@ sp_find_apid(unsigned ppid)
 	return found;
 }
 
+/*
+ * The probe thread and the battery service (SweetBattery, sweetbattery=2)
+ * share these lanes: initialise once, and serialise every observer command.
+ */
+static IOLock *sp_lock;
+static volatile UInt32 sp_state; /* 0 idle, 1 initialising, 2 ready, 3 failed */
+
+static bool sp_init_hw(void);
+
 static bool
 sp_init(void)
 {
+	if (OSCompareAndSwap(0, 1, &sp_state)) {
+		bool ok = sp_init_hw();
+		__asm__ volatile("dmb ish" ::: "memory");
+		sp_state = ok ? 2 : 3;
+		return ok;
+	}
+	for (unsigned i = 0; i < 2000 && sp_state == 1; ++i) {
+		delay(1000);
+	}
+	return sp_state == 2;
+}
+
+static bool
+sp_init_hw(void)
+{
+	sp_lock = IOLockAlloc();
+	if (!sp_lock) {
+		printf(AP_TAG " SPMI lock allocation failed\n");
+		return false;
+	}
 	sp_core = ml_io_map(AP_SPMI_CORE_PA, 0x2000);
 	sp_cfg = ml_io_map(AP_SPMI_CFG_PA, 0x1000);
 	sp_obs = ml_io_map(AP_SPMI_OBS_PA, 0x10000); /* EE 0, 512 * 0x80 */
@@ -164,14 +195,26 @@ sp_init(void)
 	return true;
 }
 
+static int sp_read_locked(unsigned sid, unsigned addr, uint8_t *out);
+
 /* 0 on success; -1 not allowed/no lane; -2 error status; -3 timeout. */
 static int
 sp_read(unsigned sid, unsigned addr, uint8_t *out)
 {
 	unsigned periph = (addr >> 8) & 0xffu;
-	if (!sp_ready || addr > 0xffffu || !sp_allowed(sid, periph)) {
+	if (!sp_ready || !sp_lock || addr > 0xffffu || !sp_allowed(sid, periph)) {
 		return -1;
 	}
+	IOLockLock(sp_lock);
+	int err = sp_read_locked(sid, addr, out);
+	IOLockUnlock(sp_lock);
+	return err;
+}
+
+static int
+sp_read_locked(unsigned sid, unsigned addr, uint8_t *out)
+{
+	unsigned periph = (addr >> 8) & 0xffu;
 	uint16_t apid = sp_find_apid((sid << 8) | periph);
 	if (apid == AP_NO_APID || apid >= 512 || sp_poisoned[apid]) {
 		return -1;
@@ -276,6 +319,85 @@ ap_pmic(void)
 	sp_dump(2, 0x10, "PM8150B CHGR cfg", chgr_cfg, AP_N(chgr_cfg));
 	sp_dump(2, 0x13, "PM8150B USBIN cfg", usbin_cfg, AP_N(usbin_cfg));
 	sp_dump(2, 0x16, "PM8150B MISC cfg", misc_cfg, AP_N(misc_cfg));
+}
+
+/* ---- battery source for SweetBattery (sweetbattery=2) ------------------- */
+
+int andromeda_battery_init(void);
+int andromeda_battery_sample(unsigned *percent, unsigned *mv, int *ma,
+    bool *external, bool *capable, bool *charging, bool *full);
+
+int
+andromeda_battery_init(void)
+{
+	return sp_init() ? 0 : -1;
+}
+
+/* Two matching LSB/MSB pairs, as SweetBattery::readWord does (torn samples). */
+static bool
+ap_word(unsigned sid, unsigned addr, uint16_t *value)
+{
+	uint16_t previous = 0;
+	for (unsigned attempt = 0; attempt < 4; ++attempt) {
+		uint8_t lo, hi;
+		if (sp_read(sid, addr, &lo) || sp_read(sid, addr + 1, &hi)) {
+			return false;
+		}
+		uint16_t next = (uint16_t)((unsigned)lo | ((unsigned)hi << 8));
+		if (attempt && next == previous) {
+			*value = next;
+			return true;
+		}
+		previous = next;
+	}
+	return false;
+}
+
+/*
+ * PM8150B on SID 2, read only. Fuel gauge (fg-gen4 register layout):
+ * BATT_SOC MONOTONIC_SOC 0x4009 (0-255), BATT_INFO VBATT 0x41A0 (122.07 uV
+ * per LSB), IBATT 0x41A2 (488.28 uA per LSB, positive = discharging).
+ * Charger (smb5, same decode as SweetBattery for the PM6150): USBIN
+ * INT_RT_STS 0x1310 bit 4, POWER_PATH_STATUS 0x110B, BATTERY_CHARGER_STATUS
+ * 1/2/7 at 0x1006/0x1007/0x100D. Values checked on the phone, see
+ * docs/research/ricarica.md section 0. Returns 0, or -1 if anything is off.
+ */
+int
+andromeda_battery_sample(unsigned *percent, unsigned *mv, int *ma,
+    bool *external, bool *capable, bool *charging, bool *full)
+{
+	uint8_t info_type, soc, usb, path, status, status2, temp;
+	uint16_t vraw, iraw;
+	if (!sp_ready || sp_read(2, 0x4104, &info_type) || info_type != 0x0d ||
+	    sp_read(2, 0x4009, &soc) || !ap_word(2, 0x41a0, &vraw) ||
+	    !ap_word(2, 0x41a2, &iraw) || sp_read(2, 0x1310, &usb) ||
+	    sp_read(2, 0x110b, &path) || sp_read(2, 0x1006, &status) ||
+	    sp_read(2, 0x1007, &status2) || sp_read(2, 0x100d, &temp)) {
+		return -1;
+	}
+	unsigned millivolts = (unsigned)(((uint64_t)vraw * 12207u) / 100000u);
+	if (millivolts < 2800 || millivolts > 4600) {
+		return -1; /* never turn a bad sample into an empty battery */
+	}
+	int signed_raw = (iraw & 0x8000u) ? (int)iraw - 65536 : (int)iraw;
+	/* IOPMPowerSource: positive amperage = charging. */
+	*ma = (int)(-((int64_t)signed_raw * 48828) / 100000);
+	*mv = millivolts;
+	*percent = ((unsigned)soc * 100u + 127u) / 255u;
+	*external = (usb & 0x10u) != 0;
+	*capable = *external && (path & 0x10u) && (path & 1u) && !(path & 0x40u);
+	unsigned state = status & 7u;
+	*charging = *capable && state >= 1 && state <= 4 && !(status2 & 2u) && !(temp & 0x0cu);
+	*full = *external && state == 5 && !(status2 & 2u);
+	if (*full) {
+		*percent = 100;
+	}
+	static unsigned logged;
+	if (logged++ < 3 || (logged % 120u) == 0) {
+		printf(AP_TAG " battery %u%% %umV %dmA external=%d charging=%d state=%u\n",
+		    *percent, *mv, *ma, *external, *charging, state);
+	}
+	return 0;
 }
 
 /* ---- TLMM, GCC and SE13 ------------------------------------------------- */

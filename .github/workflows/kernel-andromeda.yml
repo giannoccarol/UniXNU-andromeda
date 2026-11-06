@@ -168,7 +168,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0091-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -201,7 +201,10 @@ jobs:
           cmp cepheus/xnu/andromeda_probe.c dxb/xnu/bsd/dev/andromeda_probe.c
           grep -E '^bsd/dev/andromeda_cpufreq.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
           cmp cepheus/xnu/andromeda_cpufreq.c dxb/xnu/bsd/dev/andromeda_cpufreq.c
-          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA PROBE:" in d and b"andrprobe" in d and b"ANDROMEDA CPU:" in d and b"andrcpuhot" in d'
+          # andromeda: battery source for SweetBattery (sweetbattery=2).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0091-andromeda-battery.patch'
+          grep -F 'andromeda_battery_sample' dxb/xnu/iokit/Kernel/arm/SweetBattery.cpp
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA PROBE:" in d and b"andrprobe" in d and b"ANDROMEDA CPU:" in d and b"andrcpuhot" in d and b"PM8150B fuel gauge" in d'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"CX_HW_CTRL=" in d; assert all(s not in d for s in (b"SWEET FASTBOOT:", b"sweetfastboot"))'
           python3 -c 'from pathlib import Path;d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes();assert all(s in d for s in (b"SWEET BLANK:",b"one-shot Home complete",b"SWEET GPI: SMMU"))'
           cp "$K" out/kernel.macho

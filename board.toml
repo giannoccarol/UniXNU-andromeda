@@ -156,6 +156,10 @@ kernel_args = [
   # SoC): Gold/Prime drop to <= 1.4 GHz above 80 C and return below 70 C; an
   # unreadable temperature counts as hot.
   "andrcpu=1",
+  # Real battery values for iOS (patch 0091 + andromeda_probe.c): PM8150B fuel
+  # gauge and charger read over SPMI, no writes. 1 = ios-sweet's PM6150 path
+  # (wrong PMIC here), absent = fixed 100 %.
+  "sweetbattery=2",
 ]
 
 [payload.adt]
