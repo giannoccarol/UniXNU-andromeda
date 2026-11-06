@@ -1,31 +1,21 @@
-# Xiaomi Mi 9 (cepheus, SM8150) device repository for UniXNU.
-# Forked from JohnLeeeeeee678/UniXNU-raphael (Redmi K20 Pro, same SM8150).
+# Xiaomi Mi Mix 3 5G (andromeda, SM8150) device repository for UniXNU.
+# Forked from YangQi0408/UniXNU-cepheus (Xiaomi Mi 9, same SM8150, same Samsung
+# EA8076 command-mode panel family, same ST-FTS touch on QUP SE17 I2C 0x49).
+# The original Mi 9 configuration is kept as board.cepheus.toml.
 #
-# cepheus is the SAME SM8150 SoC as OnePlus 7 Pro (guacamole), Redmi K20 Pro
-# (raphael) and Xiaomi Pad 5 (nabu). The XNU kernel and the Project Aloha UEFI
-# are reused from the proven guacamole SM8150 bring-up (which reached iOS
-# 16.7.16 userland); only the device tree (cepheus.dtb) and the Apple Device
-# Tree (ADT) device profile differ. Because the silicon is identical, cepheus
-# reuses guacamole's exact kernel build -> NO per-device kernel defconfig.
-#
-# Every hardware number below was measured on the real phone (2026-10-31,
-# serial 67eea163, hwversion 1.9.2, CN, MP):
-#   /proc/meminfo MemTotal = 7655356 kB -> 8 GiB variant (Explorer edition)
-#   /sys/firmware/fdt (live FDT, 646932 B) -> /memory reg, reserved-memory,
-#       fts@49 touch node, cont_splash_region
-#   /sys/block/sda/sda31/{start,size} -> userdata geometry
+# Memory values were measured on the phone (live FDT, 2026-11-06).
 #
 # The payload volume label is kept as "GUACESP" because the patched UniXNU
 # firmware discovers the config by that label; it is cosmetic.
 
 [board]
-name = "cepheus"
+name = "andromeda"
 soc = "SM8150"
-description = "Xiaomi Mi 9 (cepheus)"
+description = "Xiaomi Mi Mix 3 5G (andromeda)"
 kit = "cepheus"
 
 [firmware]
-config = "cepheus"
+config = "andromeda"
 dsc = "Platforms/SurfaceDuo1Pkg/SurfaceDuo1NoSb.dsc"
 fd = "Build/SurfaceDuo1Pkg/{target}_CLANGPDB/FV/SM8150_EFI.fd"
 submodules = [
@@ -54,8 +44,8 @@ packages = [
 ]
 
 [firmware.defines]
-TARGET_DEVICE = "xiaomi-cepheus"
-FDT = "cepheus.dtb"
+TARGET_DEVICE = "xiaomi-andromeda"
+FDT = "andromeda.dtb"
 SHARED_CRYPTO_PATH = "{edk2}/CryptoPkg/Binaries/edk2-basecrypto-driver-bin_extdep"
 CONF_AUTOGEN_INCLUDE_PATH = "{uefi}/Common/MU/AndromedaPkg/Include"
 MU_SCHEMA_DIR = "{uefi}/Common/MU/AndromedaPkg/CfgData"
@@ -63,17 +53,22 @@ MU_SCHEMA_FILE_NAME = "AndromedaPkgCfgData.xml"
 
 [payload]
 volume = "GUACESP"
-size_mib = 64
+size_mib = 34   # andromeda: 0x80800000 + 34 MiB = 0x82A00000, end of the "Kernel" region
 loader = "firmware"
-title = "Xiaomi Mi 9 - XNU"
-# Live FDT /memory (8 GiB unit):
+title = "Xiaomi Mi Mix 3 5G - XNU"
+# Mi 9 reference values (cepheus live FDT /memory, 8 GiB unit):
 #   reg = <0x0 0x80000000 0x0 0x3bb00000      # low  bank, ends 0xBBC00000
 #         0x1 0x00000000 0x1 0x00000000      # high bank starts 0x100000000
 #         0x0 0xc0000000 0x0 0xc0000000>     # mid  bank 0xC0000000..0x180000000
 # Note the 52 MiB hole 0xBBC00000..0xC0000000 between the low and mid banks.
 # dram-base stays 0xC0000000 (the contiguous 3 GiB mid bank, carve-out free);
 # dram-size is the total the ADT advertises, i.e. up to the top of DRAM.
-dram_size = "0x200000000"
+# Measured on the andromeda test unit (2026-11-06, live FDT /memory, MemTotal 5446192 kB):
+#   reg = <0x0 0x80000000 0x0 0x3cc00000      # low  bank, ends 0xBCC00000
+#         0x1 0x40000000 0x0 0xc0000000      # high bank 0x140000000..0x200000000
+#         0x0 0xc0000000 0x0 0x80000000>     # mid  bank 0xC0000000..0x140000000
+# Hole 0xBCC00000..0xC0000000; 0xC0000000..0x200000000 is one contiguous 5 GiB run.
+dram_size = "0x180000000"   # 6 GiB unit
 # panic_screen = true would run scripts/patch-xnu-entry-probe.py, which the
 # pinned UniXNU commit (b6ae99c) does not ship, so the payload step would fail.
 # Panics are still visible two ways: the screen (sweetfb_noconsole=0) and the
@@ -121,11 +116,13 @@ kernel_args = [
 ]
 
 [payload.adt]
-tool = "scripts/make-cepheus-adt.py"
+tool = "scripts/make-andromeda-adt.py"
 unique_chip_id = "required"
 # Match the working guacamole shim window: a 3 GiB kernel-managed window is
 # what the SM8150 bring-up needs to reserve early I/O page tables for the
 # 36 MiB cont_splash framebuffer. It is NOT the DRAM size; see dram_size.
+# andromeda: 0xC0000000..0x180000000 lies inside the contiguous 5 GiB run
+# measured above, and no fixed reserved-memory region is above 0xB0000000.
 owned_memory_size = "0xc0000000"
 
 [bootimg.image]

@@ -78,6 +78,52 @@ DEVICES = {
         'memory_frequency': 2133000000,
         'bus_frequency': 100000000,
     },
+    'andromeda': {
+        # Xiaomi Mi Mix 3 5G (andromeda, SM8150) -- same SoC as cepheus/raphael/
+        # guacamole, same Samsung EA8076 command-mode panel family as cepheus.
+        # Values read from THIS phone's live device tree on 2026-11-06
+        # (adb root, /sys/firmware/fdt, 651331 bytes;
+        # hwversion 3.19.0, board-id 0x2d, SM8150 v2.2, 6 GiB, EvolutionX 16).
+        'name': 'Xiaomi Mi Mix 3 5G (andromeda, SM8150)',
+        'board_compat': 'xiaomi,andromeda',
+        # MACHINE_CONFIG=SWEET kernel: the platform expert matches 'xiaomi,sweet'.
+        'platform_match': 'xiaomi,sweet',
+        'soc_compat': 'qcom,sm8150',
+        # Live FDT /memory (6 GiB unit):
+        #   0x080000000 + 0x3CC00000  (low bank, ends 0x0BCC00000)
+        #   0x0C0000000 + 0x80000000  (mid bank, ends 0x140000000)
+        #   0x140000000 + 0xC0000000  (high bank, ends 0x200000000)
+        # 0xC0000000..0x200000000 is one contiguous 5 GiB run and no fixed
+        # reserved-memory node lies above 0xB0000000, so the 3 GiB window at
+        # 0xC0000000 the Mi 9 uses is valid here too; the rest is 2 GiB.
+        'phys_base': 0xc0000000,
+        'mem_size': 0xc0000000,
+        'high_phys_base': 0x180000000,
+        'high_mem_size': 0x80000000,
+        'gicd': 0x17a00000,          # SM8150, same as cepheus
+        'gicd_size': 0x10000,
+        'gicr': 0x17a60000,
+        'gicr_size': 0x100000,
+        'timebase': 19200000,
+        'vtimer_intid': 19,
+        # Live FDT reserved-memory cont_splash_region: 0x9C000000 + 0x02400000
+        # (36 MiB), panel dsi_samsung_fhd_ea8076_cmd_display, 1080x2340.
+        # The kernel prefers boot_args->Video; this is only the ADT fallback.
+        'fb': 0x9c000000,
+        'fb_size': 0x2400000,
+        'fb_w': 1080,
+        'fb_h': 2340,
+        'fb_stride': 1080 * 4,
+        'ufs': 0x01d84000,           # SM8150 UFS host, same as cepheus
+        'ufs_size': 0x3000,
+        # Kryo 485: 4x A55 + 3x A76 + 1x A76 prime (SM8150, not -AC).
+        'cpu_compat': 'qcom,kryo485',
+        'cpus': 8,
+        'cpu_regs': [0, 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0x700],
+        'cpu_clocks': [1785600000] * 4 + [2419200000] * 3 + [2841600000],
+        'memory_frequency': 2133000000,
+        'bus_frequency': 100000000,
+    },
     'cepheus': {
         # Xiaomi Mi 9 (cepheus, SM8150) -- SAME SoC as guacamole and raphael.
         # Every value below was read out of THIS phone's live device tree on

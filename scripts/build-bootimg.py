@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Pack the Aloha boot image with the full cepheus DTB table.
+"""Pack the Aloha boot image with the device's DTB table.
 
-unixnu's bootimg insists on a single FDT; the Aloha cepheus DTB is a table
-whose first FDT is the relevant one. The prebuilt image appends the whole
-table, matching the ABL/UEFI expectation, so do the same: patch only the first
-FDT's /chosen/linux,initrd-start/-end and keep the rest byte for byte.
+unixnu's bootimg insists on a single FDT; the Aloha DTBs are tables. For the Mi 9
+the table holds one FDT (the phone's own); for the Mi Mix 3 5G it holds eleven
+generic base trees (SM8150 v1/v2, SM8150P v1/v2 and unrelated Qualcomm boards),
+and the stock ABL picks the one matching the SoC and applies the dtbo overlay.
+So the whole table is appended, and /chosen/linux,initrd-start/-end is patched
+in EVERY FDT that has a /chosen node, not only the first one.
+
+The device name comes from board.toml ([board] name). --no-payload packs an
+empty ramdisk, for a firmware-only test (the UniXNU menu starts, finds no
+kernel payload).
 """
 import argparse
 import gzip
@@ -24,7 +30,7 @@ FDT_NOP = 4
 FDT_END = 9
 
 
-def patch_first_fdt_initrd(blob, start, end):
+def _patch_one_fdt_initrd(blob, start, end):
     """Set /chosen/linux,initrd-start/end in the first FDT of a DTB table.
 
     The Aloha DTB and this phone's own live FDT both ALREADY carry
@@ -43,7 +49,7 @@ def patch_first_fdt_initrd(blob, start, end):
      cpu, size_strings, size_struct) = struct.unpack_from(">10I", blob, 0)
     if total > len(blob) or off_struct + size_struct > total or off_strings + size_strings > total:
         raise SystemExit("device tree: invalid first-blob extents")
-    first, rest = blob[:total], blob[total:]
+    first, rest = blob[:total], b""
     body = bytearray(first[off_struct:off_struct + size_struct])
     strings = bytearray(first[off_strings:off_strings + size_strings])
 
@@ -100,7 +106,7 @@ def patch_first_fdt_initrd(blob, start, end):
         else:
             raise SystemExit(f"device tree: unknown token {token:#x}")
     if insert_at is None:
-        raise SystemExit("device tree: no /chosen node")
+        return None  # this FDT has no /chosen node
 
     def name_offset(name):
         wanted_name = name.encode() + b"\0"
@@ -129,9 +135,31 @@ def patch_first_fdt_initrd(blob, start, end):
     struct.pack_into(">I", patched, 12, off_struct + len(body))
     struct.pack_into(">I", patched, 32, len(strings))
     struct.pack_into(">I", patched, 36, len(body))
-    print(f"device tree: initrd start={start:#x} end={end:#x} "
-          f"(replaced {sorted(replaced)}, appended {sorted(missing)})")
-    return bytes(patched) + rest
+    return bytes(patched) + rest, sorted(replaced), sorted(missing)
+
+
+def patch_table_initrd(blob, start, end):
+    """Patch /chosen initrd in every FDT of a DTB table; FDTs without /chosen stay as they are."""
+    out, offset, index, patched_count = b"", 0, 0, 0
+    while offset < len(blob):
+        if blob[offset:offset + 4] != b"\xd0\x0d\xfe\xed":
+            raise SystemExit(f"device tree: bad magic at {offset:#x}")
+        total = struct.unpack_from(">I", blob, offset + 4)[0]
+        one = blob[offset:offset + total]
+        result = _patch_one_fdt_initrd(one, start, end)
+        if result is None:
+            out += one
+        else:
+            new, replaced, appended = result
+            out += new
+            patched_count += 1
+            print(f"device tree #{index}: initrd start={start:#x} end={end:#x} "
+                  f"(replaced {replaced}, appended {appended})")
+        offset += total
+        index += 1
+    if not patched_count:
+        print("device tree: no FDT has a /chosen node; the ABL sets initrd itself")
+    return out
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -143,15 +171,18 @@ from unixnu.util import run, sha256_file  # noqa: E402
 from tree import assemble  # noqa: E402
 
 FW_TARGET = os.environ.get("FW_TARGET", "RELEASE")
+NAME = tomllib.loads((ROOT / "board.toml").read_text())["board"]["name"]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--fd", default=str(ROOT / "uefi" / "Build" / "SurfaceDuo1Pkg" / f"{FW_TARGET}_CLANGPDB" / "FV" / "SM8150_EFI.fd"))
-parser.add_argument("--dtb", default=str(ROOT / "inputs" / "uefi-prebuilt" / "cepheus.dtb"))
-parser.add_argument("--ramdisk", default=str(ROOT / "out" / "cepheus" / "payload" / "payload.img"))
-parser.add_argument("-o", "--output", default=str(ROOT / "out" / "cepheus" / "boot" / "boot-cepheus.img"))
+parser.add_argument("--dtb", default=str(ROOT / "inputs" / "uefi-prebuilt" / f"{NAME}.dtb"))
+parser.add_argument("--ramdisk", default=str(ROOT / "out" / NAME / "payload" / "payload.img"))
+parser.add_argument("-o", "--output", default=str(ROOT / "out" / NAME / "boot" / f"boot-{NAME}.img"))
+parser.add_argument("--no-payload", action="store_true",
+                    help="pack an empty ramdisk (firmware-only test, no kernel)")
 args = parser.parse_args()
 
-WORK = ROOT / "out" / "cepheus"
+WORK = ROOT / "out" / NAME
 TREE = assemble(WORK, ROOT / "unixnu", ROOT)
 UEFI = ROOT / "uefi"
 board = tomllib.loads((ROOT / "board.toml").read_text())
@@ -162,11 +193,16 @@ if len(fv) != size:
     raise SystemExit(f"firmware volume is {len(fv):#x} bytes, expected {size:#x}")
 dtb = Path(args.dtb).read_bytes()
 ramdisk = Path(args.ramdisk)
+if args.no_payload:
+    ramdisk = WORK / "boot" / "empty-ramdisk.img"
+    ramdisk.parent.mkdir(parents=True, exist_ok=True)
+    ramdisk.write_bytes(b"\0" * 4096)
+    print("bootimg: --no-payload, packing an empty 4 KiB ramdisk")
 if ramdisk.is_file() and image.get("ramdisk_offset") is not None:
     ramdisk_start = (
         image.get("abl_base", 0) + image.get("base", 0) + image["ramdisk_offset"]
     )
-    dtb = patch_first_fdt_initrd(
+    dtb = patch_table_initrd(
         dtb,
         ramdisk_start,
         ramdisk_start + ramdisk.stat().st_size,

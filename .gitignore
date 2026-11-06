@@ -6,6 +6,7 @@ build/
 build/*
 !build/Dockerfile.apfs
 !build/Dockerfile.root
+!build/Dockerfile.firmware
 inputs/
 .cache/
 
@@ -27,3 +28,6 @@ __pycache__/
 # Symlinks to the external trees (created by the build docs)
 /uefi
 /unixnu
+
+# Phone dumps: IMEI/calibration backups and live device data (never committed)
+phone/
