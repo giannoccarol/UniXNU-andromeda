@@ -146,6 +146,10 @@ kernel_args = [
   # persistent log and the USB live log).
   "sweetfb_noconsole=1",
   "sweetfb_hz=30",
+  # Show the whole iPhone X canvas (1125x2436) scaled by 0.96 onto the
+  # 1080x2340 panel instead of the centered crop that cut the status bar
+  # (patch 0094); touch follows the same mapping.
+  "sweetfb_fit=1",
   # Adreno 640 (andromeda_gpu.c, port of ios-flame): 1 = read-only probe and
   # firmware check (GPUCC/SMMU/GMU read only when their clocks/power are on),
   # 2 = CX + GMU boot, 3 = GX + CP + ZAP, 4 = CP_MEM_WRITE test. One step per

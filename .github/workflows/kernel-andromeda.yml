@@ -169,7 +169,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0094-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -210,6 +210,9 @@ jobs:
           cmp cepheus/xnu/andromeda_gpu_core.c dxb/xnu/bsd/dev/andromeda_gpu_core.c
           cmp cepheus/xnu/andromeda_gpu.h dxb/xnu/bsd/dev/andromeda_gpu.h
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA GPU:" in d and b"andrgpu" in d'
+          # andromeda: whole iPhone X canvas scaled onto the panel (sweetfb_fit=1).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0094-andromeda-display-fit.patch'
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"sweetfb_fit" in d and b"SWEET FB: fit" in d'
           # andromeda: battery source for SweetBattery (sweetbattery=2).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0091-andromeda-battery.patch'
           grep -F 'andromeda_battery_sample' dxb/xnu/iokit/Kernel/arm/SweetBattery.cpp
