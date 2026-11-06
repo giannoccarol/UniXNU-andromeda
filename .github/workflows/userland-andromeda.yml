@@ -30,7 +30,7 @@ jobs:
             bash "$script" "$PWD/out/phone"
           done
           [ "$found" = 1 ] || { echo "no phone/*/build.sh" >&2; exit 1; }
-          (cd out/phone && find . -type f -print0 | xargs -0 shasum -a 256 > SHA256SUMS && cat SHA256SUMS)
+          (cd out/phone && find . -type f ! -name SHA256SUMS -print0 | xargs -0 shasum -a 256 > ../SHA256SUMS.tmp && mv ../SHA256SUMS.tmp SHA256SUMS && cat SHA256SUMS)
           git rev-parse HEAD > out/phone/device-commit.txt
       - uses: actions/upload-artifact@v4
         with:
