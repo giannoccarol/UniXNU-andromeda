@@ -195,6 +195,13 @@ kernel_args = [
   # 1 = experiment: the Codec device also gets an output with mute and volume
   # on element 3, of which VirtualAudio should make the receiver port.
   "andraudiorcv=0",
+  # Wi-Fi/modem first steps (andromeda_wlan.c, patch 0110, port of ios-flame's
+  # wland): 1 = W0 (read-only checks), 2 = W1 (boot the modem through PAS and
+  # wait for the SMP2P ready bit). W1 reads the firmware from the iOS root
+  # under andrwlanfw (default /fw/modem), copied there by the root build from
+  # inputs/andromeda/modemfw (scripts/pull-modem-fw.sh). Never together with
+  # andrgpu=3 (both use the AOP QMP mailbox). Also andrwlandelay, andrwlanwait.
+  "andrwlan=0",
 ]
 
 [payload.adt]

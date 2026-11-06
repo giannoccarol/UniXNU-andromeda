@@ -70,6 +70,7 @@ extern void andromeda_cpufreq_boost(void); /* andromeda_cpufreq.c, andrgov=1 tou
 extern void andromeda_gpu_init(void); /* andromeda_gpu.c, andrgpu=N */
 extern void andromeda_bt_init(void); /* andromeda_bt.c, andrbt=1 */
 extern void andromeda_cam_init(void); /* andromeda_cam.c, andrcam=1 */
+extern void andromeda_wlan_init(void); /* andromeda_wlan.c, andrwlan=N */
 extern void andromeda_backlight_init(void); /* andromeda_backlight.c, andrbl=1/2 */
 extern void cepheus_cpu_activity(void);
 void sweet_touch_init(void);
@@ -993,6 +994,7 @@ sweet_touch_init(void)
 	andromeda_bt_init(); /* opt-in WCN3990 Bluetooth step B1 (andrbt=1) */
 	andromeda_cam_init(); /* opt-in rear IMX363 chip-ID read, camera step C1 (andrcam=1) */
 	andromeda_backlight_init(); /* opt-in DSI0 DCS 0x51 brightness (andrbl=1/2) */
+	andromeda_wlan_init(); /* opt-in WCN3990/modem W0-W1 (andrwlan=N, off by default) */
 	int enabled = 1;
 	thread_t thread;
 	if (st.started) {

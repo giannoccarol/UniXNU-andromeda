@@ -29,6 +29,7 @@ IPSW_DIR="$(cd "$(dirname "$IPSW")" && pwd)"
 exec docker run --rm --privileged -v /dev:/dev -e TMPDIR=/out/tmp \
   -v "$PWD/scripts:/scripts:ro" -v "$IPSW_DIR:/ipsw:ro" -v "$PWD/$OUT:/out" \
   -v "$PWD/phone:/phone:ro" -v "$PWD/inputs/$NAME/userland:/userland:ro" \
+  -v "$PWD/inputs/$NAME/modemfw:/modemfw:ro" \
   ios-root-tools bash -c '
     rc=0
     bash /scripts/rebuild-root.sh "/ipsw/$1" /out/ios16-root.img "$2" || rc=$?

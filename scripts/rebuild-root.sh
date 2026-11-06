@@ -127,6 +127,13 @@ sudo python3 "$here/sweet-root-tweaks.py" "$work/root"
 # iOS programs of this repository (phone/<name>/, built by the
 # userland-andromeda workflow into inputs/<board>/userland/): each
 # install-root.sh copies its files and launchd job, or warns if not built.
+# Modem firmware for the Wi-Fi driver (andrwlan=2 reads /fw/modem), if it
+# was pulled with scripts/pull-modem-fw.sh. Stays on this machine.
+if [ -d /modemfw ] && [ -n "$(ls -A /modemfw 2>/dev/null)" ]; then
+	echo "== modem firmware -> /fw/modem =="
+	sudo mkdir -p "$work/root/fw/modem"
+	sudo cp -a /modemfw/. "$work/root/fw/modem/"
+fi
 if [ -d /phone ]; then
 	echo "== phone programs =="
 	for script in /phone/*/install-root.sh; do

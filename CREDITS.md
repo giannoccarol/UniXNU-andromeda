@@ -145,6 +145,15 @@ Acayan, Stephan Gerhold, linux-msm/Linaro, libqmi/ModemManager e il wiki di post
 | **MakrSas**, `ios-topaz` (`e4772911`, nessuna licenza: solo fatti); **Scion-Project**, `scion-starlte` (`e600c821`, `AUDIO.md`) | prova che lo stesso plug-in è stato portato su 20H392 (topaz) e che la catena plug-in → VirtualAudio suona sull'hardware (Scion) |
 | **Nick Wylynko**, `ios-flame` (`745c4341`, MIT): `HANDOFF.md` | la nota che senza dispositivo audio si ferma anche la riproduzione video |
 
+## Wi-Fi e modem, primi passi (patch 0110)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **Nick Wylynko** (NWylynko), `ios-flame` (`745c4341`, MIT, copia in `licenses/ios-flame-MIT.txt`): `phone/wifi/smem.c`, `wland.c`, `scm.c` | base di `xnu/andromeda_wlan.c`: lettura e allocazione SMEM, mailbox QMP dell'AOP, item SMP2P in uscita, sequenza PAS `INIT_IMAGE`/`MEM_SETUP`/segmenti/`AUTH_AND_RESET`, qui eseguiti nel kernel invece che in user space |
+| **nomorecoolnicknames**, `hakios-sm8150` `vayu_pas.c` (`3e7be137`, nessuna licenza: solo riferimento, nessun codice) | lettura del firmware del modem dal root via vnode, mappatura write-combining della regione riservata, regola "mai SHUTDOWN dopo un avvio senza conferma di arresto" |
+| **dipa-studio**, `ios-sweet` (`45263bee`, MIT) | piattaforma `SWEET` e root in lettura-scrittura da cui il driver legge i file |
+| **YangQi0408**, `UniXNU-cepheus` | la cautela "is-call-available prima di ogni chiamata, niente `PAS_SHUTDOWN`", condivisa con `andromeda_gpu.c` |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |
