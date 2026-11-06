@@ -32,6 +32,22 @@ Se manca qualcuno o qualcosa è attribuito male, è un errore da correggere.
 | **OOSEX GANG**, [`hakios-xnu-kernel`](https://github.com/oosexgang/hakios-xnu-kernel), [`hakios-uefi`](https://github.com/oosexgang/hakios-uefi) (shimoku, vcvkk) | consultati: metodo di porting, gancio XNU per Mu-Silicium, driver Wi-Fi e audio come riferimento |
 | **nomorecoolnicknames**, [`hakios-sm8150`](https://github.com/nomorecoolnicknames/hakios-sm8150) (POCO X3 Pro) | riferimento per i driver SM8150 (GPU, audio, modem, Wi-Fi) |
 
+## Ricerca: Wi-Fi, Bluetooth e rete (consultati)
+
+Usati come riferimento per il piano in [docs/research/wifi-bluetooth.md](docs/research/wifi-bluetooth.md). Il codice dei
+progetti senza licenza dichiarata non viene copiato senza il permesso dei loro autori.
+
+| Progetto / autore | Cosa ci insegna |
+|---|---|
+| **MakrSas**, [`ios-topaz`](https://github.com/MakrSas/ios-topaz) (Redmi Note 12, base `ios-sweet`; nessuna licenza dichiarata) e [`topaz-woa`](https://github.com/MakrSas/topaz-woa) | Wi-Fi funzionante su iOS 16.7.16 con un chip della famiglia WCN399x: avvio del modem via TrustZone, GLINK/QRTR, servizi host, WLFW, copy engine, WMI/HTT, scansione, WPA2, interfaccia Apple80211 per `wifid` (patch 0113-0130, 0900) |
+| **Angelpro09xd**, [`ios-sapphire`](https://github.com/Angelpro09xd/ios-sapphire) | altro port sulla stessa base |
+| **daimile2** e collaboratori, [`renoir_xnu_bluethooth`](https://github.com/daimile2/renoir_xnu_bluethooth) (licenze per file, vedi il loro `NOTICE.md`) | Bluetooth su base `ios-sweet` e iOS 20H392: `bluetoothd` come controller di tipo 0, BlueTool sostitutivo, trasporto UART |
+| **OOSEX GANG**, HakiOS (`hakios-xnu-kernel`, `hakios-sm7325`) | stack Wi-Fi verso iOS (Apple80211, WLFW, ath11k) |
+| **nomorecoolnicknames**, `hakios-sm8150` | parti SM8150: modem via TrustZone, `rmtfs`, pd-mapper, tftp, WLFW |
+| **UniXNU**: [`Ath12kWifi`](https://github.com/UniXNU/Ath12kWifi), [`QcaBluetooth`](https://github.com/UniXNU/QcaBluetooth), [`QcomBaseband`](https://github.com/UniXNU/QcomBaseband) (HoshinoYumeka, [@chiba233](https://github.com/chiba233)) | Wi-Fi, Bluetooth e baseband su SM8550 / iPadOS |
+| Kernel Linux (`ath10k` SNOC/QMI, `btqca`), Xiaomi `icnss` | protocolli e sequenze del chip |
+| OpenIntelWireless (itlwm/AirportItlwm, zxystd e collaboratori), acidanthera (BrcmPatchRAM, BlueToolFixup), Darling | come Wi-Fi e Bluetooth si presentano ai sistemi Apple |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |
