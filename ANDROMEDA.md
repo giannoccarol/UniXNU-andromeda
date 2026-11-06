@@ -7,13 +7,16 @@ I file del Mi 9 restano nel repository come riferimento; la configurazione origi
 
 Valutazione completa: [`../VALUTAZIONE-PORT.md`](../VALUTAZIONE-PORT.md).
 
+Regole del progetto (crediti, onestà sullo stato, niente file Apple, sicurezza del telefono): [CONTRIBUTING.md](CONTRIBUTING.md).
+Crediti: [CREDITS.md](CREDITS.md).
+
 ## Stato
 
 | Fase | Stato |
 |---|---|
 | 1. UEFI (Aloha `xiaomi-andromeda` + UniXNU/DarwinBoot) | **funziona sul telefono** (6 novembre 2026): menu UniXNU a schermo |
 | 2. Kernel + ADT | **funziona sul telefono** (6 novembre 2026): XNU arriva al montaggio della root |
-| 3. Sistema iOS su `userdata` | da fare (cancella i dati Android) |
+| 3. Sistema iOS su `userdata` | **funziona sul telefono** (6 novembre 2026): `launchd`, backboardd, SpringBoard; **schermata di blocco con l'orario visibile** |
 | 4. Touch | da fare: adattare `xnu/cepheus_touch.c` (reset GPIO54, alimentazioni L1C + GPIO37) |
 
 ## Compilare l'UEFI
