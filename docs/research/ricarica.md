@@ -173,7 +173,7 @@ caricatore:
   più `QcomChargerApp`; `DXE.inc` 209-220: `QcomChargerCfg.cfg` e i due `BATTERY.PROVISION` (✔, Aloha `0b798128`).
 - `uefiplat.cfg` riga 171: `DefaultChargerApp = "QcomChargerApp"`. Nel codice di Aloha però nessuno lo legge né lancia
   l'app: nessun riferimento a `ChargerApp` fuori dai `.inc` e dai `.cfg` (✔ ricerca nel nostro albero). Il gestore di
-  avvio di Qualcomm la lancia (`PlatformBdsLib`, ~ dai sorgenti citati sotto), quello di Mu no.
+  avvio di Qualcomm dovrebbe lanciarla, quello di Mu no (~, da verificare).
 - `QcomChargerCfg.cfg` (versione 31, file Qualcomm per "SDM855" con una sezione Xiaomi `[PlatformE5G]`):
 
 | Chiave | Valore | Nota |
@@ -190,14 +190,14 @@ caricatore:
 - Stringhe nel binario `QcomChargerDxeLA.efi` che usiamo (✔ `strings`): `ChargerPlatform_Init`,
   `QcomChargerDxe:: %a Enabled WDOG.`, `ChargerLib_Exit`, `ChargerLib:: %a WDOG Bite happened, Toggling charging command
   to re-enable charging.`, `ChargerLib:: %a Disabling charging`, `ChargerPlatform_LoadProfile`, `PlatformE5G`.
-- Cosa fa il DXE, dai sorgenti Qualcomm `BOOT.XF.3.3` (SM8250, codice condiviso con l'855; non ufficiali, consultati
-  solo per capire il comportamento, nessun codice ripreso) (~):
-  - con `EnableChargerWdog = 1` il DXE arma il watchdog **all'inizializzazione**. In `0x1651` (maschera `0xE3`) scrive
-    abbaio-IRQ (bit 6), morso-IRQ (bit 5) e "timer acceso all'inserimento" (bit 1): risultato `0x62`. In `0x1653` scrive
-    "il morso disabilita la ricarica" (bit 7), abbaio 128 s, morso 1 s: risultato `0x8C`;
-  - lo disarma solo `ChargerLib_Exit`, chiamata da `QcomChargerApp` alla fine;
-  - il DXE non registra un evento `ExitBootServices`;
-  - il percorso di caricamento del profilo FG spegne la ricarica (`0x1042 = 0`) e conta sull'app per riaccenderla.
+- Cosa fa il DXE (~, ipotesi da fonti pubbliche, da confermare con la sonda `andrprobe`): la configurazione dice
+  "enable during charging and disable before exiting", le stringhe del binario parlano di watchdog abilitato e di
+  comando di carica riattivato dopo un morso, e ios-mh2lm legge sul G8X (stesso PMIC, stesso DXE Qualcomm) dopo l'UEFI
+  `0x1651 = 0x62` e `0x1653 = 0x8C`. Decodificati con i campi di `smb5-reg.h` (kernel Linux/Xiaomi):
+  - `0x1651`: IRQ di abbaio (bit 6), bit 5, timer acceso all'inserimento del cavo (bit 1);
+  - `0x1653`: "il morso disabilita la ricarica" (bit 7), abbaio 128 s (bit 3:2), morso al valore minimo (bit 1:0);
+  - a disarmarlo alla fine dovrebbe essere `QcomChargerApp`, che il gestore di avvio di Aloha non lancia;
+  - se l'UEFI ricarica il profilo del fuel gauge, il comando di carica `0x1042` può restare a 0.
 - **ABL** (LinuxLoader, `QcomModulePkg/Library/BootLib/UpdateCmdLine.c` nel nostro albero Aloha) legge solo
   `ChargerEx` (carica a telefono spento, presenza del caricatore, tensione) e non scrive registri del caricatore (✔).
 
@@ -761,9 +761,6 @@ Grazie a tutti gli autori: quasi tutto quello che c'è qui è lavoro loro.
     `Binaries/RawFiles/QcomChargerCfg.cfg`, `uefiplat.cfg`, `BATTERY.PROVISION`, `BATTERY.PROVISION1`; stringhe di
     `Binaries/QcomPkg/Drivers/QcomChargerDxe/QcomChargerDxeLA.efi`; `QcomModulePkg/Library/BootLib/UpdateCmdLine.c`.
   - I binari e la configurazione sono di Qualcomm e Xiaomi.
-- **Sorgenti Qualcomm `BOOT.XF.3.3`** (SM8250; codice proprietario non ufficiale, consultato solo per capire il
-  comportamento di `QcomChargerDxe` con `EnableChargerWdog`; nessun codice ripreso): `PmicSchgProtocol.c`,
-  `pm_schg_misc.c`, `QcomChargerPlatform.c/.h`, `ChargerLibCommon.c`, `QcomChargerApp.c`, `PlatformBdsLib.c`.
 - **ios-sweet**, dipa-studio: [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet) `45263bee`:
   `xnu/patches/0060-sweet-keys-touch-drivers.patch` (`sweet_keys.c`), `0062-sweet-touch-power-battery.patch`
   (`sweet_spmi.c`, `sweet_spmi.h`, `SweetBattery.cpp`), `README.md`, `NOTES.md`.

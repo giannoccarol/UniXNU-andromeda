@@ -48,6 +48,19 @@ progetti senza licenza dichiarata non viene copiato senza il permesso dei loro a
 | Kernel Linux (`ath10k` SNOC/QMI, `btqca`), Xiaomi `icnss` | protocolli e sequenze del chip |
 | OpenIntelWireless (itlwm/AirportItlwm, zxystd e collaboratori), acidanthera (BrcmPatchRAM, BlueToolFixup), Darling | come Wi-Fi e Bluetooth si presentano ai sistemi Apple |
 
+## Ricerca: ricarica e batteria (consultati)
+
+Usati come riferimento per il piano in [docs/research/ricarica.md](docs/research/ricarica.md) (elenco completo con commit
+nella sezione "Fonti"). Il codice dei progetti senza licenza dichiarata non viene copiato.
+
+| Progetto / autore | Cosa ci insegna |
+|---|---|
+| **shenli99**, [`ios-mh2lm`](https://github.com/shenli99/ios-mh2lm) (LG G8X, stesso PMIC PM8150B, base `ios-sweet`; nessuna licenza dichiarata) | lettura del caricatore sul SID 2, watchdog del caricatore armato all'avvio, lettura della temperatura dal fuel gauge |
+| **Casey (Caleb) Connolly** (Linaro), Robin Snyders (`Sr-0w`), Joel Selvaraj, Yassine Oudjana, map220v: `qcom_smbx.c`, `qcom_fg.c`, [`sm8150-mainline`](https://gitlab.com/sm8150-mainline/linux), `hotdog-linux-bringup` | registri e codifiche di SMB5 e fuel gauge su Linux mainline |
+| **Teguh Sobirin** (ROCKNIX), `qcom_pm8150b_charger.c` | altro driver del caricatore PM8150B |
+| **RigoLigoRLC**, [`unixnu-nativeqcomspmi`](https://github.com/RigoLigoRLC/unixnu-nativeqcomspmi); **rponeawa** e **bluseliu50**, `UniXNU-sheng` (`ShengBattery`) | libreria SPMI e modello di servizio batteria per XNU |
+| Xiaomi / Qualcomm, kernel `andromeda-p-oss` (`qpnp-smb5.c`, `smb5-lib.c`, `qpnp-fg-gen4.c`); Project Aloha (`QcomChargerCfg.cfg`) | sequenza di carica del telefono e configurazione del caricatore UEFI |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |
