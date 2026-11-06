@@ -510,16 +510,166 @@ ap_thread(void *arg, wait_result_t result)
 	thread_block(THREAD_CONTINUE_NULL);
 }
 
+/* ---- reboot into the bootloader (andrfastboot=N) -------------------------
+ *
+ * The same sequence as Linux msm-poweroff.c "reboot bootloader" (Xiaomi
+ * andromeda-p-oss): IMEM restart_reason = 0x77665500, PM8150 PON
+ * SOFT_RB_SPARE (SID 0, 0x88F, gen2: reason in bits 7:1) = BOOTLOADER (2),
+ * then a reset. ABL reads the reason through the reset-reason protocol and
+ * FASTBOOT_MODE is 2 (QcomModulePkg ShutdownServices.h, LinuxLoader.c). The
+ * reset is PSCI SYSTEM_RESET over SMC, the conduit ios-sweet uses for
+ * CPU_ON. Disks are synced first. The PON write is the only PMIC write in
+ * this file and is done only here, on request.
+ *
+ * NOT YET VERIFIED ON THE PHONE: if ABL ignored the reason it would boot the
+ * boot partition (Android). Test with the user watching.
+ */
+#define AP_CHNLS_PA        0x0c600000u  /* arbiter v5 "chnls": 0x10000 per APID */
+#define AP_PON_SPARE       0x088fu
+#define AP_IMEM_PA         0x146bf000u
+#define AP_IMEM_RESTART    0x65cu
+#define AP_PSCI_SYSTEM_RESET 0x84000009ull
+
+struct sync_args;
+struct proc;
+extern int sync(struct proc *, struct sync_args *, int32_t *);
+
+/* One observer read of a lane outside the probe allow-list (PON spare only). */
+static int
+sp_read_pon_spare(uint8_t *out)
+{
+	IOLockLock(sp_lock);
+	uint16_t apid = sp_find_apid(0x008u);
+	int err = -1;
+	if (apid != AP_NO_APID && apid < 512 && !sp_poisoned[apid]) {
+		unsigned off = 0x80u * apid;
+		__asm__ volatile("dmb oshst" ::: "memory");
+		*(volatile uint32_t *)(sp_obs + off) = (1u << 27) | ((AP_PON_SPARE & 0xffu) << 4);
+		__asm__ volatile("dsb osh" ::: "memory");
+		err = -3;
+		for (unsigned i = 0; i < 1000; ++i) {
+			uint32_t status = ap_rd(sp_obs, off + 0x08u);
+			if (status & 1u) {
+				err = (status & 0x0eu) ? -2 : 0;
+				if (!err) {
+					*out = (uint8_t)ap_rd(sp_obs, off + 0x18u);
+				}
+				break;
+			}
+			delay(1);
+		}
+	}
+	IOLockUnlock(sp_lock);
+	return err;
+}
+
+/* EXT_WRITEL of one byte to the PON spare register through our own channel. */
+static int
+sp_write_pon_spare(uint8_t value)
+{
+	IOLockLock(sp_lock);
+	int err = -1;
+	uint16_t apid = sp_find_apid(0x008u);
+	unsigned owner = apid < 512 ? (ap_rd(sp_cfg, 0x700u + 4u * apid) & 7u) : 7u;
+	vm_offset_t ch = (apid < 512 && owner == 0) ?
+	    ml_io_map(AP_CHNLS_PA + 0x10000u * apid, 0x1000) : 0;
+	if (!ch) {
+		printf(AP_TAG " PON APID %u owner %u: not ours, no write\n", apid, owner);
+	} else {
+		*(volatile uint32_t *)(ch + 0x10u) = value;               /* WDATA0 */
+		__asm__ volatile("dmb oshst" ::: "memory");
+		*(volatile uint32_t *)(ch + 0x00u) = (0u << 27) | ((AP_PON_SPARE & 0xffu) << 4);
+		__asm__ volatile("dsb osh" ::: "memory");
+		err = -3;
+		for (unsigned i = 0; i < 1000; ++i) {
+			uint32_t status = ap_rd(ch, 0x08u);
+			if (status & 1u) {
+				err = (status & 0x0eu) ? -2 : 0;
+				break;
+			}
+			delay(1);
+		}
+	}
+	IOLockUnlock(sp_lock);
+	return err;
+}
+
+static void
+ap_reboot_bootloader(const char *why)
+{
+	printf(AP_TAG " REBOOT to fastboot (%s): syncing disks\n", why);
+	(void)sync(NULL, NULL, NULL);
+	ap_wait(3000);
+	(void)sync(NULL, NULL, NULL);
+	ap_wait(1000);
+	if (!sp_init()) {
+		printf(AP_TAG " REBOOT aborted: SPMI unavailable\n");
+		return;
+	}
+	uint8_t spare = 0, again = 1;
+	int rd = sp_read_pon_spare(&spare);
+	if (!rd) {
+		rd = sp_read_pon_spare(&again);
+	}
+	if (rd || spare != again) {
+		printf(AP_TAG " REBOOT aborted: PON spare read err=%d (%#x/%#x)\n", rd, spare, again);
+		return;
+	}
+	uint8_t value = (uint8_t)((spare & 1u) | (2u << 1)); /* PON_RESTART_REASON_BOOTLOADER */
+	int wr = sp_write_pon_spare(value);
+	uint8_t check = 0;
+	int rb = sp_read_pon_spare(&check);
+	printf(AP_TAG " REBOOT PON spare %#x -> %#x write=%d readback=%#x (%d)\n",
+	    spare, value, wr, check, rb);
+	if (wr || rb || check != value) {
+		printf(AP_TAG " REBOOT aborted: the reason did not stick\n");
+		return;
+	}
+	vm_offset_t imem = ml_io_map(AP_IMEM_PA, 0x1000);
+	if (imem) {
+		*(volatile uint32_t *)(imem + AP_IMEM_RESTART) = 0x77665500u;
+		__asm__ volatile("dsb sy" ::: "memory");
+	}
+	printf(AP_TAG " REBOOT IMEM restart_reason=%#x; PSCI SYSTEM_RESET now\n",
+	    imem ? ap_rd(imem, AP_IMEM_RESTART) : 0u);
+	ap_wait(200);
+	register uint64_t x0 __asm__("x0") = AP_PSCI_SYSTEM_RESET;
+	__asm__ volatile("smc #0" : "+r"(x0) : : "x1", "x2", "x3", "memory");
+	printf(AP_TAG " REBOOT: PSCI SYSTEM_RESET returned %#llx\n", (unsigned long long)x0);
+}
+
+static unsigned ap_fastboot_s;
+
+static void
+ap_fastboot_thread(void *arg, wait_result_t result)
+{
+	(void)arg;
+	(void)result;
+	printf(AP_TAG " will reboot into fastboot in %u s (andrfastboot)\n", ap_fastboot_s);
+	ap_wait(ap_fastboot_s * 1000u);
+	ap_reboot_bootloader("timer");
+	(void)thread_terminate(current_thread());
+	thread_block(THREAD_CONTINUE_NULL);
+}
+
 void
 andromeda_probe_init(void)
 {
 	static bool started;
 	thread_t thread;
-	(void)PE_parse_boot_argn("andrprobe", &ap_level, sizeof(ap_level));
-	if (ap_level <= 0 || started) {
+	if (started) {
 		return;
 	}
 	started = true;
+	(void)PE_parse_boot_argn("andrfastboot", &ap_fastboot_s, sizeof(ap_fastboot_s));
+	if (ap_fastboot_s >= 60 &&
+	    kernel_thread_start(ap_fastboot_thread, NULL, &thread) == KERN_SUCCESS) {
+		thread_deallocate(thread);
+	}
+	(void)PE_parse_boot_argn("andrprobe", &ap_level, sizeof(ap_level));
+	if (ap_level <= 0) {
+		return;
+	}
 	if (kernel_thread_start(ap_thread, NULL, &thread) == KERN_SUCCESS) {
 		thread_deallocate(thread);
 	}

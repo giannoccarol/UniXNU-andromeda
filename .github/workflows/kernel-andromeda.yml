@@ -204,7 +204,7 @@ jobs:
           # andromeda: battery source for SweetBattery (sweetbattery=2).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0091-andromeda-battery.patch'
           grep -F 'andromeda_battery_sample' dxb/xnu/iokit/Kernel/arm/SweetBattery.cpp
-          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA PROBE:" in d and b"andrprobe" in d and b"ANDROMEDA CPU:" in d and b"andrcpuhot" in d and b"PM8150B fuel gauge" in d'
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA PROBE:" in d and b"andrprobe" in d and b"ANDROMEDA CPU:" in d and b"andrcpuhot" in d and b"PM8150B fuel gauge" in d and b"andrfastboot" in d'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"CX_HW_CTRL=" in d; assert all(s not in d for s in (b"SWEET FASTBOOT:", b"sweetfastboot"))'
           python3 -c 'from pathlib import Path;d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes();assert all(s in d for s in (b"SWEET BLANK:",b"one-shot Home complete",b"SWEET GPI: SMMU"))'
           cp "$K" out/kernel.macho
