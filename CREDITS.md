@@ -165,6 +165,17 @@ Acayan, Stephan Gerhold, linux-msm/Linaro, libqmi/ModemManager e il wiki di post
 | **Apple**, XNU `xnu-8796.141.3` (APSL 2.0) | `processor_info` (`PROCESSOR_CPU_LOAD_INFO`, `PROCESSOR_CPU_STAT64`), `cpu_idle()`, `platform_cache_idle_enter()`, `lck_mtx_sleep_deadline` |
 | **Linux** (Danny Lin, commit `81188f585d02`, stati PSCI SM8150; `arch/arm64` `cpu_do_idle()`); USB-IF, *USB 2.0 Specification* §9.2.6.4 | solo documentazione: soglia dei 4 ms, idle di Linux senza manutenzione delle cache, tempi delle richieste di controllo che limitano `andrusbidle` a 20 ms |
 
+## Vibrazione, passo V1 (patch 0135)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **Xiaomi / Qualcomm (The Linux Foundation)**, `drivers/input/misc/qti-haptics.c` e `andromeda-sm8150.dtsi` di `andromeda-p-oss` (`74347f55`, GPL-2.0, solo documentazione, nessun codice copiato) | mappa dei registri del blocco aptico del PM8150B; valori e ordine di inizializzazione, ampiezza VMAX e riproduzione; il limite di 2552 mV |
+| **Nicholas Magill (Inkypen79)**, kernel EvolutionX in uso sul telefono (device tree attivo) | LRA, sinusoide, risonanza QWD, periodo 5102 µs |
+| **nomorecoolnicknames**, [`hakios-sm8150`](https://github.com/nomorecoolnicknames/hakios-sm8150) `vayu_haptic.c` (`3e7be137`, nessuna licenza: solo fatti e metodo, nessun codice copiato) | identità del blocco sullo stesso PMIC (TYPE `0x15`, SUBTYPE `0x09`); il metodo: elenco chiuso di registri, rilettura di ogni scrittura, `STATUS1` ogni 10 ms, `SC_DET` che ferma tutto, due impulsi a 2 s, spegnimento anche nel panic |
+| **dipa-studio**, `ios-sweet` (`45263bee`, MIT), `sweet_spmi.c` | la lettura observer con cui `xnu/andromeda_probe.c` rilegge le scritture |
+| **Kernel Linux**, `drivers/spmi/spmi-pmic-arb.c` (GPL-2.0, solo documentazione) | comando `EXT_WRITEL` sul canale dell'arbitro v5, bit di stato, tabella dei proprietari |
+| **Apple**, XNU `xnu-8796.141.3` (APSL 2.0), `osfmk/kdp/kdp_callout.h` | `kdp_register_callout()` per spegnere il motore se il kernel va in panic durante un impulso |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |

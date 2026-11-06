@@ -42,6 +42,7 @@ RULES = [
     ("Slider", "posizione", r"ANDROMEDA SLIDER: (hall42=\d hall114=\d -> .*)"),
     ("Slider", "per iOS", r"ANDROMEDA SLIDERCAM: (.*)"),
     ("Slider", "andromedad", r"andromedad: (.*)"),
+    ("Vibrazione", "prova", r"ANDROMEDA HAP: (restored: .*|pulse \d: on .*|.*nothing written.*|WARNING: .*)"),
     ("Vibrazione", "registri", r"ANDROMEDA PROBE: (PM8150B HAPTICS sid3 .*)"),
     ("Sistema", "AMFI", r"SWEET AMFI: (.*)"),
     ("Sistema", "fastboot", r"ANDROMEDA PROBE: (REBOOT .*|will reboot into fastboot .*)"),

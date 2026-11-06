@@ -18,6 +18,11 @@
  *
  * Only the allow-listed PMIC peripherals below are read: no reads of the
  * modem, TrustZone or any area the hypervisor protects.
+ *
+ * The probe itself writes nothing to the PMIC. The only PMIC writes in this
+ * file are further down and run only on request: the PON spare register
+ * (andrfastboot=N) and the PM8150B haptics registers for the vibration test
+ * in andromeda_haptics.c (andrhap=1).
  */
 #if defined(ARM64_BOARD_CONFIG_SWEET)
 #include <sys/param.h>
@@ -536,8 +541,9 @@ ap_thread(void *arg, wait_result_t result)
  * then a reset. ABL reads the reason through the reset-reason protocol and
  * FASTBOOT_MODE is 2 (QcomModulePkg ShutdownServices.h, LinuxLoader.c). The
  * reset is PSCI SYSTEM_RESET over SMC, the conduit ios-sweet uses for
- * CPU_ON. Disks are synced first. The PON write is the only PMIC write in
- * this file and is done only here, on request.
+ * CPU_ON. Disks are synced first. The PON write is done only here, on
+ * request; the only other PMIC writes in this file are the haptics ones
+ * below (andromeda_spmi_hap_write, andrhap=1).
  *
  * NOT YET VERIFIED ON THE PHONE: if ABL ignored the reason it would boot the
  * boot partition (Android). Test with the user watching.
@@ -654,6 +660,191 @@ ap_reboot_bootloader(const char *why)
 	register uint64_t x0 __asm__("x0") = AP_PSCI_SYSTEM_RESET;
 	__asm__ volatile("smc #0" : "+r"(x0) : : "x1", "x2", "x3", "memory");
 	printf(AP_TAG " REBOOT: PSCI SYSTEM_RESET returned %#llx\n", (unsigned long long)x0);
+}
+
+/* ---- PM8150B haptics registers for andromeda_haptics.c (andrhap=1) -------
+ *
+ * One-byte EXT_WRITEL to the PM8150B haptics block (SID 3, 0xC000), with the
+ * checks of sp_write_pon_spare(): before every write the APID map must still
+ * give the block's PPID 0x3C0 and the SPMI ownership table must name our
+ * execution environment (EE 0) as the channel's owner; every write is then
+ * read back through the observer and compared. Command format and status
+ * bits as in Linux spmi-pmic-arb.c (arbiter v5 "chnls" RW channel), used as
+ * documentation only.
+ *
+ * Writable: only the thirteen registers in ap_hap_writable[] (offsets 0x46 to
+ * 0x70, the ones qti-haptics.c programs for a constant LRA vibration). Never
+ * 0xD0 or above (SEC_ACCESS range), never another peripheral. A timed-out
+ * write disables the channel for the rest of the boot, except for the two
+ * "motor off" writes (PLAY = 0, EN_CTL1 = 0), which are always allowed.
+ *
+ * Return values of andromeda_spmi_hap_write(): 0 written and read back equal;
+ * -1 refused (register not allowed, SPMI not ready, no APID, channel not
+ * ours, channel disabled); -2 arbiter FAILURE/DENIED; -3 timeout; -4 dropped
+ * three times; -5 read back differs (*readback holds it); -6 written, read
+ * back failed.
+ */
+#define AP_HAP_SID      3u
+#define AP_HAP_PERIPH   0xc0u
+#define AP_HAP_PPID     ((AP_HAP_SID << 8) | AP_HAP_PERIPH)
+#define AP_HAP_EN_CTL1  0x46u
+#define AP_HAP_PLAY     0x70u
+
+int andromeda_spmi_hap_open(unsigned *apid, unsigned *owner);
+int andromeda_spmi_hap_read(unsigned reg, uint8_t *value);
+int andromeda_spmi_hap_write(unsigned reg, uint8_t value, uint8_t *readback);
+void andromeda_spmi_hap_quiesce(void);
+
+/*
+ * EN_CTL1, EN_CTL3, AUTO_RES_CTRL, CFG1, CFG2, SEL, AUTO_RES_CFG, VMAX_CFG,
+ * ILIM_CFG, RATE_CFG1, RATE_CFG2, ZX_CFG, PLAY (qti-haptics.c register map).
+ */
+static const uint8_t ap_hap_writable[] = {0x46, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
+	0x51, 0x52, 0x54, 0x55, 0x5a, 0x70};
+
+static vm_offset_t sp_hap_ch;            /* RW channel, mapped once */
+static uint16_t sp_hap_apid = AP_NO_APID;
+static volatile bool sp_hap_disabled;    /* a write timed out */
+
+static bool
+sp_hap_writable(unsigned reg)
+{
+	if (reg < AP_HAP_EN_CTL1 || reg > AP_HAP_PLAY) {
+		return false;
+	}
+	for (unsigned i = 0; i < AP_N(ap_hap_writable); ++i) {
+		if (ap_hap_writable[i] == reg) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* The block's RW channel if it is still ours, else 0. Called with sp_lock held. */
+static vm_offset_t
+sp_hap_channel_locked(unsigned *apid_out, unsigned *owner_out)
+{
+	uint16_t apid = sp_find_apid(AP_HAP_PPID);
+	unsigned owner = apid < 512 ? (ap_rd(sp_cfg, 0x700u + 4u * apid) & 7u) : 7u;
+	if (apid_out) {
+		*apid_out = apid;
+	}
+	if (owner_out) {
+		*owner_out = owner;
+	}
+	if (apid >= 512 || owner != 0) {
+		return 0;
+	}
+	if (sp_hap_ch) {
+		return sp_hap_apid == apid ? sp_hap_ch : 0; /* the map changed: refuse */
+	}
+	vm_offset_t ch = ml_io_map(AP_CHNLS_PA + 0x10000u * apid, 0x1000);
+	if (ch) {
+		sp_hap_apid = apid;
+		__asm__ volatile("dmb ish" ::: "memory");
+		sp_hap_ch = ch;
+	}
+	return ch;
+}
+
+/* One EXT_WRITEL (opcode 0, one byte) on the RW channel; bounded wait. */
+static int
+sp_hap_cmd(vm_offset_t ch, unsigned reg, uint8_t value)
+{
+	*(volatile uint32_t *)(ch + 0x10u) = value;                       /* WDATA0 */
+	__asm__ volatile("dmb oshst" ::: "memory");
+	*(volatile uint32_t *)(ch + 0x00u) = (0u << 27) | ((reg & 0xffu) << 4); /* CMD */
+	__asm__ volatile("dsb osh" ::: "memory");
+	for (unsigned i = 0; i < 1000; ++i) {
+		uint32_t status = ap_rd(ch, 0x08u);
+		if (status & 1u) {                       /* DONE */
+			if (status & 0x06u) {            /* FAILURE, DENIED */
+				return -2;
+			}
+			return (status & 0x08u) ? -4 : 0; /* DROPPED */
+		}
+		delay(1);
+	}
+	return -3;
+}
+
+int
+andromeda_spmi_hap_open(unsigned *apid, unsigned *owner)
+{
+	*apid = AP_NO_APID;
+	*owner = 7;
+	if (!sp_init()) {
+		return -1;
+	}
+	IOLockLock(sp_lock);
+	vm_offset_t ch = sp_hap_channel_locked(apid, owner);
+	IOLockUnlock(sp_lock);
+	return ch ? 0 : -1;
+}
+
+int
+andromeda_spmi_hap_read(unsigned reg, uint8_t *value)
+{
+	if (reg >= 0xd0u) {
+		return -1;
+	}
+	return sp_read(AP_HAP_SID, (AP_HAP_PERIPH << 8) | reg, value);
+}
+
+int
+andromeda_spmi_hap_write(unsigned reg, uint8_t value, uint8_t *readback)
+{
+	bool off = (reg == AP_HAP_PLAY || reg == AP_HAP_EN_CTL1) && value == 0;
+	if (!sp_ready || !sp_lock || !sp_hap_writable(reg) || (sp_hap_disabled && !off)) {
+		return -1;
+	}
+	IOLockLock(sp_lock);
+	int err = -1;
+	vm_offset_t ch = sp_hap_channel_locked(NULL, NULL);
+	if (ch) {
+		for (unsigned attempt = 0; attempt < 3; ++attempt) {
+			err = sp_hap_cmd(ch, reg, value);
+			if (err != -4) {
+				break;
+			}
+		}
+		if (err == -3) {
+			sp_hap_disabled = true;
+			printf(AP_TAG " haptics write %#x timed out: channel %u disabled except motor off\n",
+			    reg, sp_hap_apid);
+		}
+	}
+	if (!err) {
+		uint8_t check = 0;
+		if (sp_read_locked(AP_HAP_SID, (AP_HAP_PERIPH << 8) | reg, &check)) {
+			err = -6;
+		} else {
+			if (readback) {
+				*readback = check;
+			}
+			err = check == value ? 0 : -5;
+		}
+	}
+	IOLockUnlock(sp_lock);
+	return err;
+}
+
+/*
+ * Panic path (kdp callout of andromeda_haptics.c): PLAY = 0, EN_CTL1 = 0 on
+ * the channel already checked by an earlier write. Interrupts are off and the
+ * other CPUs are stopped, so no lock (its holder may be stopped) and only a
+ * bounded wait; the owner is looked at once more. No read back.
+ */
+void
+andromeda_spmi_hap_quiesce(void)
+{
+	vm_offset_t ch = sp_hap_ch;
+	uint16_t apid = sp_hap_apid;
+	if (!ch || apid >= 512 || (ap_rd(sp_cfg, 0x700u + 4u * apid) & 7u) != 0) {
+		return;
+	}
+	(void)sp_hap_cmd(ch, AP_HAP_PLAY, 0);
+	(void)sp_hap_cmd(ch, AP_HAP_EN_CTL1, 0);
 }
 
 /* ---- camera slider (andrslider=1) ---------------------------------------

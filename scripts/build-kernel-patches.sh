@@ -43,6 +43,7 @@ install -m 644 "$ROOT/xnu/0098-andromeda-cam.patch" "$ROOT/xnu/0098-stage-androm
 install -m 644 "$ROOT/xnu/0100-andromeda-power-stats.patch" "$ROOT/xnu/0100-stage-andromeda-power.sh" "$ROOT/xnu/andromeda_power.c" "$ROOT/xnu/andromeda_power.h" "$DEST/xnu/patches/"
 # 0101-0104 are copied by the workflow straight into dxb/patches: 0102-0104 change files the 0083 generator rewrites.
 install -m 644 "$ROOT/xnu/0110-andromeda-wlan.patch" "$ROOT/xnu/0110-stage-andromeda-wlan.sh" "$ROOT/xnu/andromeda_wlan.c" "$DEST/xnu/patches/"
+install -m 644 "$ROOT/xnu/0135-andromeda-haptics.patch" "$ROOT/xnu/0135-stage-andromeda-haptics.sh" "$ROOT/xnu/andromeda_haptics.c" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0097-andromeda-slider.patch" "$ROOT/xnu/0097-stage-andromeda-slider.sh" "$ROOT/xnu/andromeda_slider.c" "$ROOT/xnu/andromeda_slider.h" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0096-andromeda-amfi-trust.patch" "$ROOT/xnu/0096-stage-andromeda-amfi.sh" "$ROOT/xnu/SweetAMFI.cpp" "$DEST/xnu/patches/"
 for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \

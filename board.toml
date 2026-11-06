@@ -202,6 +202,13 @@ kernel_args = [
   # inputs/andromeda/modemfw (scripts/pull-modem-fw.sh). Never together with
   # andrgpu=3 (both use the AOP QMP mailbox). Also andrwlandelay, andrwlanwait.
   "andrwlan=0",
+  # Vibration test V1 (andromeda_haptics.c, patch 0135): andrhapdelay s after
+  # start (default 60), the PM8150B haptics block is set up for the phone's
+  # LRA (sequence of qti-haptics.c), two 200 ms pulses 2 s apart at <= 2552 mV
+  # (andrhapmv can only go lower), then off and every changed register written
+  # back. Test image, with the user holding the phone:
+  # ANDROMEDA_TAG=hap ANDROMEDA_ARGS="andrhap=1" ./build-boot.sh
+  "andrhap=0",
   # Power P0 (andromeda_power.c, patch 0100): every andrpwrsecs s (default 10)
   # one ANDROMEDA PWR line: per-CPU idle %, IRQ/IPI/WFI rates, share of idle
   # time in periods >= 4 ms, cost of the idle cache flush, FB/USB/keys/touch
