@@ -23,6 +23,7 @@ apply_once() {  # apply_once <repo> <patch path relative to repo> [git apply fla
 echo "== patches"
 apply_once unixnu ../patches/unixnu-cepheus.patch
 apply_once unixnu/drivers/DarwinBoot ../../../patches/darwinboot-cepheus.patch
+python3 scripts/patch-darwinboot-diag.py unixnu/drivers/DarwinBoot/DarwinBootPkg/Driver/DarwinBoot.c
 apply_once uefi ../patches/aloha-cepheus.patch --reject --whitespace=nowarn \
   || echo "NOTE: some aloha hunks were rejected; fix_aloha_tree.py re-does them"
 python3 scripts/fix_aloha_tree.py uefi

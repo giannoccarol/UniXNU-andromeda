@@ -130,10 +130,15 @@ unique_chip_id = "required"
 # map is not: MPSS_EFS is reserved at 0xC0000000 (+3 MiB; the Mi 9 map has DXE
 # Heap there) and PStore at 0x17FE00000 (+2 MiB). That leaves ~2.99 GiB from
 # 0xC0300000 and 2 GiB above 0x180000000, so 3 GiB fails with "Out of
-# Resources" (seen on the phone, 2026-11-06). 2 GiB fits the low run with
-# ~900 MB to spare for the firmware's own allocations, and is the value the
-# raphael port gives for 6 GB units.
-owned_memory_size = "0x80000000"
+# Resources" (seen on the phone, 2026-11-06). 2 GiB then failed with "Not
+# Found": EDK II's AllocatePages(AllocateAddress) refuses a range that spans
+# two memory map entries (MdeModulePkg/Core/Dxe/Mem/Page.c, "covers multiple
+# entries"), and DarwinBoot sizes the run across adjacent free entries. The
+# largest single entries are DXE Heap 0xC0300000..0x140000000 and the RAM
+# partition 0x180000000..0x200000000, ~1.95 GiB each after the 32 MiB
+# alignment. 1.5 GiB fits either with ~450 MB left for firmware allocations.
+# Merging the entries in the UEFI memory map would allow more later.
+owned_memory_size = "0x60000000"
 
 [bootimg.image]
 base = 0x0
