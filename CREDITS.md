@@ -88,6 +88,10 @@ Per l'audio (`docs/research/audio.md`): OOSEX GANG (HakiOS, driver APSL e plug-i
 **nomorecoolnicknames** (`hakios-sm8150`, audio del POCO X3 Pro: solo riferimento, nessuna licenza), UniXNU (UniXNU-sheng, clock
 di CoreAudio), **MakrSas** (ios-topaz), Scion-Project (`starlte`), PixelExperience, Texas Instruments / Xiaomi (driver TAS2557,
 GPL, solo documentazione) e Linux (q6dsp, WCD934x, SLIMbus).
+Per le fotocamere (`docs/research/fotocamere.md`): **vcvkk** e OOSEX GANG (HakiOS, fotocamera su POCO X5 Pro), **Yofuness**
+(`ios-sunfish`, MIT) e DenialOfGravity / Rory Axton (`ios-redfin`, MIT), **nomorecoolnicknames** (`hakios-sm8150`, solo
+riferimento), **Andrew Gigena** (serie CAMSS SM8150 per Linux) e **Robin Snyders** (fotocamere OnePlus 7T Pro), i manutentori
+di Qualcomm CAMSS in Linux e di libcamera, **Eileen Yoon** (Asahi), YangQi0408 (I²C via GPIO che riusiamo).
 
 ## Bluetooth e luminosità (patch 0092/0093)
 
