@@ -55,6 +55,7 @@ jobs:
           cp cepheus/xnu/cepheus_gpu_power.h dxb/patches/
           cp cepheus/xnu/cepheus_arc.h cepheus/xnu/cepheus_arc_probe.h dxb/patches/
           cp cepheus/xnu/cepheus_bcm.h dxb/patches/
+          cp cepheus/xnu/andromeda_probe.c dxb/patches/
           for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
             cepheus_gpu_memory_state.h \
             cepheus_gmu_upload_mmio.h \
@@ -167,7 +168,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -194,6 +195,11 @@ jobs:
           grep -F 'Applying patch:' dxb/build.log | grep -F '0088-cepheus-pmap-cache-pa.patch'
           python3 -c 'from pathlib import Path; s=Path("dxb/xnu/osfmk/arm/pmap/pmap.c").read_text(); assert "flush_dcache((vm_offset_t) ptoa(pp), PAGE_SIZE, TRUE);" in s; assert "(pp << PAGE_SHIFT)" not in s'
           python3 cepheus/scripts/verify-pmap-cache-kernel.py "$K"
+          # andromeda: read-only BT/Wi-Fi/charger probe (andrprobe=1).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0089-andromeda-probe.patch'
+          grep -E '^bsd/dev/andromeda_probe.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
+          cmp cepheus/xnu/andromeda_probe.c dxb/xnu/bsd/dev/andromeda_probe.c
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA PROBE:" in d and b"andrprobe" in d'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"CX_HW_CTRL=" in d; assert all(s not in d for s in (b"SWEET FASTBOOT:", b"sweetfastboot"))'
           python3 -c 'from pathlib import Path;d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes();assert all(s in d for s in (b"SWEET BLANK:",b"one-shot Home complete",b"SWEET GPI: SMMU"))'
           cp "$K" out/kernel.macho

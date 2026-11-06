@@ -1,0 +1,389 @@
+/*
+ * Mi Mix 3 5G (andromeda, SM8150): read-only hardware probe for the
+ * Bluetooth UART, the Wi-Fi/BT regulators and the PM8150B charger.
+ *
+ * Boot-args:
+ *   andrprobe=1        read only: TLMM pins, GCC branches, SE13 (only if
+ *                      its clocks already run), PMIC registers over SPMI.
+ *   andrprobe=2        as 1, and for the SE13 read only: set the GCC vote
+ *                      bit of gcc_qupv3_wrap2_s3_clk, read, restore the vote.
+ *   andrprobedelay=N   seconds before the probe starts (default 100).
+ *
+ * Nothing is written to the PMIC. The only SPMI MMIO store is the observer
+ * read command (EXT_READL), as in ios-sweet's sweet_spmi.c (MIT, dipa-studio),
+ * whose observer-read sequence this file follows; see CREDITS.md. Register
+ * addresses come from the SM8150 device tree of the phone and from Linux
+ * (gcc-sm8150.c, pinctrl-sm8150.c, qcom-geni-se.h, spmi-pmic-arb.c and the
+ * downstream smb5/fg-gen4 register headers), used as documentation only.
+ *
+ * Only the allow-listed PMIC peripherals below are read: no reads of the
+ * modem, TrustZone or any area the hypervisor protects.
+ */
+#if defined(ARM64_BOARD_CONFIG_SWEET)
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <kern/clock.h>
+#include <kern/thread.h>
+#include <kern/sched_prim.h>
+#include <machine/machine_routines.h>
+#include <pexpert/pexpert.h>
+#include "cepheus_clock_status.h"
+
+extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+/* Mach MIG declaration is not included by BSD's exported thread.h. */
+extern kern_return_t thread_terminate(thread_t);
+void andromeda_probe_init(void);
+
+#define AP_TAG "ANDROMEDA PROBE:"
+
+/* TLMM EAST tile (pinctrl-sm8150.c): BT UART qup13 on GPIO 43-46. */
+#define AP_TLMM_EAST_PA 0x03500000u
+#define AP_TLMM_EAST_SZ 0x00030000u
+#define AP_GPIO_CFG(n)  ((uint32_t)(n) * 0x1000u)
+#define AP_GPIO_IO(n)   (AP_GPIO_CFG(n) + 4u)
+
+/* GCC (gcc-sm8150.c): QUPv3 wrapper 2. */
+#define AP_GCC_PA       0x00100000u
+#define AP_GCC_SZ       0x00060000u
+#define AP_GCC_VOTE     0x52014u     /* APCS_CLOCK_BRANCH_ENA_VOTE_1 */
+#define AP_GCC_M_AHB    0x1e004u     /* vote bit 2 */
+#define AP_GCC_S_AHB    0x1e008u     /* vote bit 1, hardware gated */
+#define AP_GCC_S3       0x1e4d4u     /* wrap2 s3 = SE13 UART, vote bit 7 */
+#define AP_GCC_S3_BIT   (1u << 7)
+#define AP_GCC_S3_RCG   0x1e4d8u     /* gcc_qupv3_wrap2_s3_clk_src */
+
+/* qupv3_se13_4uart (phone DT): wrapper 2 SE3. qcom-geni-se.h offsets. */
+#define AP_SE13_PA      0x00c8c000u
+#define AP_SE13_SZ      0x00001000u
+
+/* SPMI PMIC arbiter v5 (phone DT reg-names core/obsrvr/cnfg). */
+#define AP_SPMI_CORE_PA 0x0c440000u
+#define AP_SPMI_CFG_PA  0x0c40a000u
+#define AP_SPMI_OBS_PA  0x0e600000u
+#define AP_NO_APID      0xffffu
+
+static unsigned ap_sleep_chan;
+
+static void
+ap_wait(unsigned ms)
+{
+	uint64_t deadline;
+	clock_interval_to_deadline(ms, NSEC_PER_MSEC, &deadline);
+	(void)assert_wait_deadline(&ap_sleep_chan, THREAD_UNINT, deadline);
+	thread_block(THREAD_CONTINUE_NULL);
+}
+
+static uint32_t
+ap_rd(vm_offset_t base, uint32_t off)
+{
+	uint32_t value = *(volatile uint32_t *)(base + off);
+	__asm__ volatile("dmb oshld" ::: "memory");
+	return value;
+}
+
+/* ---- SPMI observer reads ------------------------------------------------ */
+
+static vm_offset_t sp_core, sp_cfg, sp_obs;
+static unsigned sp_count;
+static bool sp_ready;
+/* A timed-out command may complete late: never reuse that lane this boot. */
+static bool sp_poisoned[512];
+
+/*
+ * Peripherals we may read: (sid, peripheral) pairs. Keys (PON 0x08) and
+ * ios-sweet's battery lanes (SID0 0x10-0x13, 0x48) are deliberately absent,
+ * so no observer lane is shared with another driver.
+ */
+static const struct { uint8_t sid, periph; const char *name; } ap_allowed[] = {
+	{0, 0x1d, "PM8150 S4A (BT vddio 1.8V)"},
+	{0, 0x40, "PM8150 L1A (WLAN cx-mx)"},
+	{0, 0x46, "PM8150 L7A (WLAN xo / BT core 1.8V)"},
+	{4, 0x41, "PM8150L L2C (WLAN rfa / BT pa 1.3V)"},
+	{4, 0x4a, "PM8150L L11C (WLAN ch0 / BT ldo 3.3V)"},
+	{2, 0x10, "PM8150B CHGR"},
+	{2, 0x11, "PM8150B DCDC"},
+	{2, 0x12, "PM8150B BATIF"},
+	{2, 0x13, "PM8150B USBIN"},
+	{2, 0x14, "PM8150B DCIN"},
+	{2, 0x15, "PM8150B TYPEC"},
+	{2, 0x16, "PM8150B MISC"},
+	{2, 0x40, "PM8150B FG BATT_SOC"},
+	{2, 0x41, "PM8150B FG BATT_INFO"},
+	{2, 0x44, "PM8150B FG MEM_IF"},
+	{2, 0x45, "PM8150B FG ADC_RR"},
+};
+
+static bool
+sp_allowed(unsigned sid, unsigned periph)
+{
+	for (unsigned i = 0; i < sizeof(ap_allowed) / sizeof(ap_allowed[0]); ++i) {
+		if (ap_allowed[i].sid == sid && ap_allowed[i].periph == periph) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static uint16_t
+sp_find_apid(unsigned ppid)
+{
+	uint16_t found = AP_NO_APID;
+	for (unsigned i = 0; i < sp_count; ++i) {
+		uint32_t map = ap_rd(sp_core, 0x900u + 4u * i);
+		if (!map || ((map >> 8) & 0xfffu) != ppid) {
+			continue;
+		}
+		unsigned owner = ap_rd(sp_cfg, 0x700u + 4u * i) & 7u;
+		if (found == AP_NO_APID || owner == 0) {
+			found = (uint16_t)i;
+		}
+	}
+	return found;
+}
+
+static bool
+sp_init(void)
+{
+	sp_core = ml_io_map(AP_SPMI_CORE_PA, 0x2000);
+	sp_cfg = ml_io_map(AP_SPMI_CFG_PA, 0x1000);
+	sp_obs = ml_io_map(AP_SPMI_OBS_PA, 0x10000); /* EE 0, 512 * 0x80 */
+	if (!sp_core || !sp_cfg || !sp_obs) {
+		printf(AP_TAG " SPMI mapping failed\n");
+		return false;
+	}
+	uint32_t version = ap_rd(sp_core, 0);
+	sp_count = ap_rd(sp_core, 4) & 0x7ffu;
+	if (version < 0x50000000u || version >= 0x70000000u || !sp_count || sp_count > 512) {
+		printf(AP_TAG " unsupported SPMI arb=%#x APIDs=%u\n", version, sp_count);
+		return false;
+	}
+	sp_ready = true;
+	printf(AP_TAG " SPMI arb=%#x APIDs=%u, observer reads only\n", version, sp_count);
+	return true;
+}
+
+/* 0 on success; -1 not allowed/no lane; -2 error status; -3 timeout. */
+static int
+sp_read(unsigned sid, unsigned addr, uint8_t *out)
+{
+	unsigned periph = (addr >> 8) & 0xffu;
+	if (!sp_ready || addr > 0xffffu || !sp_allowed(sid, periph)) {
+		return -1;
+	}
+	uint16_t apid = sp_find_apid((sid << 8) | periph);
+	if (apid == AP_NO_APID || apid >= 512 || sp_poisoned[apid]) {
+		return -1;
+	}
+	unsigned off = 0x80u * apid;
+	__asm__ volatile("dmb oshst" ::: "memory");
+	*(volatile uint32_t *)(sp_obs + off) = (1u << 27) | ((addr & 0xffu) << 4); /* EXT_READL, 1 byte */
+	__asm__ volatile("dsb osh" ::: "memory");
+	for (unsigned i = 0; i < 1000; ++i) {
+		uint32_t status = ap_rd(sp_obs, off + 0x08u);
+		if (status & 1u) {
+			if (status & 0x0eu) {
+				return -2;
+			}
+			*out = (uint8_t)ap_rd(sp_obs, off + 0x18u);
+			return 0;
+		}
+		delay(1);
+	}
+	sp_poisoned[apid] = true;
+	printf(AP_TAG " SPMI timeout sid=%u addr=%#x APID=%u disabled\n", sid, addr, apid);
+	return -3;
+}
+
+/* Print "name sid:pp off=val ..." for a list of register offsets. */
+static void
+sp_dump(unsigned sid, unsigned periph, const char *name, const uint8_t *offs, unsigned count)
+{
+	char line[256];
+	int n = snprintf(line, sizeof(line), AP_TAG " %s sid%u %#x:", name, sid, periph << 8);
+	uint16_t apid = sp_find_apid((sid << 8) | periph);
+	if (apid == AP_NO_APID) {
+		printf("%s no APID (peripheral absent or not visible)\n", line);
+		return;
+	}
+	for (unsigned i = 0; i < count && n > 0 && (size_t)n < sizeof(line) - 12; ++i) {
+		uint8_t value = 0;
+		int err = sp_read(sid, (periph << 8) | offs[i], &value);
+		if (err == 0) {
+			n += snprintf(line + n, sizeof(line) - (size_t)n, " %02x=%02x", offs[i], value);
+		} else {
+			n += snprintf(line + n, sizeof(line) - (size_t)n, " %02x=E%d", offs[i], -err);
+			if (err == -3) {
+				break;
+			}
+		}
+	}
+	printf("%s\n", line);
+}
+
+/* TYPE, SUBTYPE, STATUS1-4, INT_RT_STS. */
+static const uint8_t ap_offs_generic[] = {0x04, 0x05, 0x08, 0x09, 0x0a, 0x0b, 0x10};
+/* PMIC5 LDO/SMPS: VSET LSB/MSB, MODE_CTL, EN_CTL. */
+static const uint8_t ap_offs_vreg[] = {0x04, 0x05, 0x08, 0x10, 0x40, 0x41, 0x45, 0x46};
+/* smb5 status registers 0x06-0x0e plus INT_RT_STS. */
+static const uint8_t ap_offs_chg[] = {0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
+	0x0c, 0x0d, 0x0e, 0x10};
+/* FG BATT_SOC: ALG_STS, AUX, SLEEP, MONOTONIC_SOC, MONOTONIC_SOC_CP, INT_RT_STS, EN_CTL. */
+static const uint8_t ap_offs_soc[] = {0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x10, 0x46};
+/* FG BATT_INFO: TEMP_STS, SYS_BATT, FG_STS, BATT_TEMP, VBATT, IBATT. */
+static const uint8_t ap_offs_info[] = {0x04, 0x05, 0x06, 0x07, 0x09, 0x10, 0x50, 0x51,
+	0xa0, 0xa1, 0xa2, 0xa3};
+/* MEM_IF / ADC_RR: identity only (MEM_IF data registers are a SRAM window). */
+static const uint8_t ap_offs_id[] = {0x04, 0x05};
+
+#define AP_N(a) ((unsigned)(sizeof(a) / sizeof((a)[0])))
+
+static void
+ap_pmic(void)
+{
+	if (!sp_init()) {
+		return;
+	}
+	for (unsigned i = 0; i < AP_N(ap_allowed); ++i) {
+		unsigned sid = ap_allowed[i].sid, p = ap_allowed[i].periph;
+		const uint8_t *offs = ap_offs_generic;
+		unsigned count = AP_N(ap_offs_generic);
+		if (sid != 2) {
+			offs = ap_offs_vreg; count = AP_N(ap_offs_vreg);
+		} else if (p >= 0x10 && p <= 0x16) {
+			offs = ap_offs_chg; count = AP_N(ap_offs_chg);
+		} else if (p == 0x40) {
+			offs = ap_offs_soc; count = AP_N(ap_offs_soc);
+		} else if (p == 0x41) {
+			offs = ap_offs_info; count = AP_N(ap_offs_info);
+		} else {
+			offs = ap_offs_id; count = AP_N(ap_offs_id);
+		}
+		sp_dump(sid, p, ap_allowed[i].name, offs, count);
+	}
+}
+
+/* ---- TLMM, GCC and SE13 ------------------------------------------------- */
+
+static void
+ap_tlmm(void)
+{
+	vm_offset_t east = ml_io_map(AP_TLMM_EAST_PA, AP_TLMM_EAST_SZ);
+	if (!east) {
+		printf(AP_TAG " TLMM EAST mapping failed\n");
+		return;
+	}
+	static const char *const role[] = {"CTS", "RTS", "TX", "RX"};
+	for (unsigned pin = 43; pin <= 46; ++pin) {
+		uint32_t cfg = ap_rd(east, AP_GPIO_CFG(pin));
+		uint32_t io = ap_rd(east, AP_GPIO_IO(pin));
+		/* cfg: pull 1:0, func 5:2, drive 8:6, oe 9. io: in 0, out 1. */
+		printf(AP_TAG " GPIO%u %s cfg=%#x func=%u pull=%u drv=%u oe=%u io=%#x\n",
+		    pin, role[pin - 43], cfg, (cfg >> 2) & 0xfu, cfg & 3u,
+		    (cfg >> 6) & 7u, (cfg >> 9) & 1u, io);
+	}
+}
+
+static void
+ap_se13_regs(vm_offset_t se)
+{
+	/* FW_REVISION_RO, GENI_STATUS, CLK_SEL, M/S_CLK_CFG, GENI_IOS, HW_PARAM_0/1. */
+	uint32_t fw = ap_rd(se, 0x68u);
+	printf(AP_TAG " SE13 fw=%#x proto=%u status=%#x clk_sel=%#x mclk=%#x sclk=%#x ios=%#x hw0=%#x hw1=%#x\n",
+	    fw, (fw >> 8) & 0xffu, ap_rd(se, 0x40u), ap_rd(se, 0x7cu),
+	    ap_rd(se, 0x48u), ap_rd(se, 0x4cu), ap_rd(se, 0x908u),
+	    ap_rd(se, 0xe24u), ap_rd(se, 0xe28u));
+}
+
+static bool
+ap_s3_on(vm_offset_t gcc)
+{
+	return cepheus_branch_enabled(ap_rd(gcc, AP_GCC_M_AHB), 0) &&
+	       cepheus_branch_enabled(ap_rd(gcc, AP_GCC_S_AHB), 1) &&
+	       cepheus_branch_enabled(ap_rd(gcc, AP_GCC_S3), 0);
+}
+
+static void
+ap_gcc_se13(int level)
+{
+	vm_offset_t gcc = ml_io_map(AP_GCC_PA, AP_GCC_SZ);
+	vm_offset_t se = ml_io_map(AP_SE13_PA, AP_SE13_SZ);
+	if (!gcc || !se) {
+		printf(AP_TAG " GCC/SE13 mapping failed\n");
+		return;
+	}
+	uint32_t vote = ap_rd(gcc, AP_GCC_VOTE);
+	printf(AP_TAG " GCC vote=%#x m_ahb=%#x s_ahb=%#x s3=%#x s3_rcg=%#x cfg=%#x dfs=%#x\n",
+	    vote, ap_rd(gcc, AP_GCC_M_AHB), ap_rd(gcc, AP_GCC_S_AHB), ap_rd(gcc, AP_GCC_S3),
+	    ap_rd(gcc, AP_GCC_S3_RCG), ap_rd(gcc, AP_GCC_S3_RCG + 4u),
+	    ap_rd(gcc, AP_GCC_S3_RCG + 0x14u));
+	if (ap_s3_on(gcc)) {
+		ap_se13_regs(se);
+		return;
+	}
+	if (level < 2) {
+		printf(AP_TAG " SE13 clocks off: registers not read (andrprobe=2 votes s3 briefly)\n");
+		return;
+	}
+	if (!cepheus_branch_enabled(ap_rd(gcc, AP_GCC_M_AHB), 0) ||
+	    !cepheus_branch_enabled(ap_rd(gcc, AP_GCC_S_AHB), 1)) {
+		printf(AP_TAG " wrapper 2 AHB clocks off: not voting\n");
+		return;
+	}
+	/* The only GCC write: set the s3 vote bit, preserving every other voter. */
+	*(volatile uint32_t *)(gcc + AP_GCC_VOTE) = vote | AP_GCC_S3_BIT;
+	__asm__ volatile("dsb sy" ::: "memory");
+	bool on = false;
+	for (unsigned i = 0; i < 5000 && !on; ++i) {
+		on = ap_s3_on(gcc);
+		if (!on) {
+			delay(1);
+		}
+	}
+	printf(AP_TAG " s3 vote set: CBCR=%#x %s\n", ap_rd(gcc, AP_GCC_S3), on ? "on" : "still off");
+	if (on) {
+		ap_se13_regs(se);
+	}
+	if (!(vote & AP_GCC_S3_BIT)) {
+		*(volatile uint32_t *)(gcc + AP_GCC_VOTE) = ap_rd(gcc, AP_GCC_VOTE) & ~AP_GCC_S3_BIT;
+		__asm__ volatile("dsb sy" ::: "memory");
+	}
+	printf(AP_TAG " s3 vote restored: vote=%#x\n", ap_rd(gcc, AP_GCC_VOTE));
+}
+
+/* ---- thread ------------------------------------------------------------- */
+
+static int ap_level;
+
+static void
+ap_thread(void *arg, wait_result_t result)
+{
+	unsigned delay_s = 100;
+	(void)arg;
+	(void)result;
+	(void)PE_parse_boot_argn("andrprobedelay", &delay_s, sizeof(delay_s));
+	printf(AP_TAG " level %d, starting in %u s\n", ap_level, delay_s);
+	ap_wait(delay_s * 1000u);
+	printf(AP_TAG " begin (read only%s)\n", ap_level >= 2 ? ", brief s3 vote" : "");
+	ap_tlmm();
+	ap_gcc_se13(ap_level);
+	ap_pmic();
+	printf(AP_TAG " done\n");
+	(void)thread_terminate(current_thread());
+	thread_block(THREAD_CONTINUE_NULL);
+}
+
+void
+andromeda_probe_init(void)
+{
+	static bool started;
+	thread_t thread;
+	(void)PE_parse_boot_argn("andrprobe", &ap_level, sizeof(ap_level));
+	if (ap_level <= 0 || started) {
+		return;
+	}
+	started = true;
+	if (kernel_thread_start(ap_thread, NULL, &thread) == KERN_SUCCESS) {
+		thread_deallocate(thread);
+	}
+}
+#endif /* ARM64_BOARD_CONFIG_SWEET */

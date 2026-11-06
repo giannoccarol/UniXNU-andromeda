@@ -31,6 +31,7 @@ install -m 644 "$ROOT/xnu/0086-cepheus-gpu-arc.patch" "$ROOT/xnu/0086-stage-ceph
 install -m 644 "$ROOT/xnu/cepheus_bcm.h" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0087-cepheus-gpu-memory.patch" "$ROOT/xnu/0087-stage-cepheus-gpu-memory.sh" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0088-cepheus-pmap-cache-pa.patch" "$DEST/xnu/patches/"
+install -m 644 "$ROOT/xnu/0089-andromeda-probe.patch" "$ROOT/xnu/0089-stage-andromeda-probe.sh" "$ROOT/xnu/andromeda_probe.c" "$DEST/xnu/patches/"
 for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
     cepheus_gpu_memory_state.h \
     cepheus_gmu_upload_mmio.h \

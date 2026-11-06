@@ -375,6 +375,10 @@ lettura, poi per la scrittura. Prima di ogni prova va letto il crash in SMEM 421
 | B5 | Abbinamento e profili: chiavi nel portachiavi, A2DP (permesso Skywalk user-pipe), poi HFP/SCO (instradamento SCO su HCI invece che su SLIMbus da verificare) | cuffie abbinate che si ricollegano; A2DP che suona | A | renoir 0140, UniXNU QcaBluetooth |
 | B6 | Energia e coesistenza: sleep IBS, risveglio da GPIO 46, voti condivisi con il Wi-Fi contati | BT acceso senza consumo anomalo; Wi-Fi e BT insieme | M–A | UniXNU `WcnPower.h`, renoir `docs/STATUS.md` (lavoro rimasto) |
 
+**Stato (6 novembre 2026).** B0 e la parte PMIC di W0 sono nella sonda `xnu/andromeda_probe.c` (boot-arg
+`andrprobe`), scritta da zero: la lettura SPMI segue `sweet_spmi.c` di ios-sweet (MIT), gli indirizzi vengono dal
+device tree del telefono e da Linux. Restano per W0: cmd-db/RPMh, SMMU `0x640`, SMEM.
+
 **Ordine consigliato.** Prima N0–N1, perché è la rete subito e il lavoro su configd serve poi anche al Wi-Fi. Poi B0–B3:
 hardware già mappato da `vayu`, nessun modem richiesto. Intanto W0–W3, il percorso critico, perché il modem SM8150 è
 la parte più rischiosa. Poi W4–W6 (copia ragionata di topaz) e B4–B5.

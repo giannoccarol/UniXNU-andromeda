@@ -1,0 +1,7 @@
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -110,3 +110,4 @@
+ bsd/dev/cepheus_touch.c			standard
+ bsd/dev/cepheus_soc.c			standard
++bsd/dev/andromeda_probe.c		standard
+ bsd/dev/cepheus_gpu_compile.c		standard
