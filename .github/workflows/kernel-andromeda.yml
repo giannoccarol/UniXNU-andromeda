@@ -19,6 +19,11 @@ on:
 permissions:
   contents: read
 
+# One kernel build at a time: macOS minutes are billed 10x on private repos.
+concurrency:
+  group: kernel-andromeda
+  cancel-in-progress: false
+
 jobs:
   kernel:
     # XNU 8796 needs Xcode 15 (iig ABI) -> macos-14, like ios-sweet.
