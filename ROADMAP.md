@@ -56,8 +56,10 @@ Chi ha fatto il lavoro su cui costruiamo è elencato in [CREDITS.md](CREDITS.md)
 - **Fatto quando**: power blocca e sblocca, lo schermo si spegne e si riaccende, il gesto Home esce dalle app.
 
 ### 4. Avvio senza PC
-- `fastboot flash boot` con l'immagine provata. Il recovery e il fastboot restano raggiungibili; il ritorno ad Android è
-  `fastboot flash boot` con `phone/<seriale>/backup/boot.img` più `fastboot -w`.
+- `scripts/install-boot.sh <seriale>` scrive l'immagine provata nella partizione `boot` (controlla seriale, backup di
+  Android e dimensione, chiede di scrivere `SI`). Il recovery e il fastboot restano raggiungibili; il ritorno ad Android è
+  `scripts/install-boot.sh <seriale> --restore` più `fastboot -w`.
+- Vantaggio in più: un riavvio normale non parte più in Android, che non troverebbe la sua `userdata` (ora c'è iOS).
 
 ### 5. Più memoria
 - DarwinBoot vuole la finestra del kernel dentro una sola voce della mappa UEFI. Unendo nella mappa di Aloha "DXE Heap"
