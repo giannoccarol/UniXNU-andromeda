@@ -18,18 +18,22 @@ Chi ha fatto il lavoro su cui costruiamo è elencato in [CREDITS.md](CREDITS.md)
 
 | # | Componente | Stato | Difficoltà |
 |---|---|---|---|
-| 1 | Touch | driver adattato, **in prova** | bassa |
-| 2 | Allineamento al ramo `feat/adreno640` del Mi 9 | da fare | media |
-| 3 | Tasti, Home, blocco e spegnimento schermo | da fare (arriva col punto 2) | bassa |
-| 4 | Avvio senza PC (partizione `boot`) | pronto, dopo il touch | bassa |
+| 1 | Touch | il chip risponde e segnala contatti, ma non le dita: **prova passo per passo pronta** | bassa-media |
+| 2 | Allineamento al ramo `feat/adreno640` del Mi 9 | **fatto** (6 novembre) | media |
+| 3 | Tasti, Home, blocco e spegnimento schermo | **funzionano** | bassa |
+| 4 | Avvio senza PC (partizione `boot`) | pronto, da fare con conferma dell'utente | bassa |
 | 5 | Memoria: da 1,5 a 2,5-3 GiB | da fare | media |
-| 6 | **Batteria e ricarica** | da fare | media-alta |
-| 7 | **GPU** (Adreno 640) | da fare, in parallelo col Mi 9 | alta |
-| 8 | Frequenze CPU e temperatura | da fare (in parte col punto 2) | media |
-| 9 | Luminosità | da fare | media |
+| 6 | **Batteria e ricarica** | la ricarica **funziona in hardware**; valori veri per iOS **pronti** (`sweetbattery=2`) | media |
+| 7 | **GPU** (Adreno 640) | driver di ios-flame **integrato**, gradino 1 pronto | alta |
+| 8 | Frequenze CPU e temperatura | piena velocità + protezione termica **pronte**; governatore a carico **in scrittura** | media |
+| 9 | Luminosità | da fare (comandi DCS al pannello) | media |
 | 10 | Audio | da fare | alta |
-| 11 | Wi-Fi e Bluetooth | ricerca | molto alta |
-| — | App Store, iCloud, telefonate, impronta | non realizzabile (Secure Enclave, server Apple) | — |
+| 11 | Wi-Fi e Bluetooth | sonda fatta; Bluetooth: alimentazioni RPMh, pin e accensione del chip da scrivere | molto alta |
+| 12 | Sospensione e consumo (schermo spento, core spenti, sonno profondo) | da fare | alta |
+| 13 | Vibrazione, sensori (accelerometro, giroscopio, prossimità, luce), slider della fotocamera | da fare | media-alta |
+| 14 | Fotocamere, rete cellulare (telefonate, SMS, dati), GPS, NFC | molto lontano | molto alta |
+| — | App Store | **ricerca in corso** (`docs/research/app-store.md`) | — |
+| — | iCloud, Face ID / Touch ID, Apple Pay | non realizzabile (Secure Enclave, server Apple) | — |
 
 ### 1. Touch
 - **Stato**: kernel con il driver ST-FTS del Mi 9 reso configurabile (`sweettouchrst=54`, `sweettouchvddio=37`, tile
