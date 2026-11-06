@@ -35,6 +35,9 @@ TREE = assemble(WORK, ROOT / "unixnu", ROOT)
 LOGS = WORK / "logs"
 LOGS.mkdir(parents=True, exist_ok=True)
 KERNEL = Path(os.environ.get("KERNEL", ROOT / "inputs" / NAME / "kernel.macho"))
+# GPU firmware for the ADT (/chosen gpufw,<name>): the ADT tool runs from the
+# assembled tree copy, so tell it where the repository's (git-ignored) copy is.
+os.environ.setdefault("ANDROMEDA_GPUFW", str(ROOT / "inputs" / NAME / "gpufw"))
 if not KERNEL.is_file():
     raise SystemExit(f"payload: no kernel at {KERNEL} (run the kernel-{NAME} workflow and download its artifact)")
 
