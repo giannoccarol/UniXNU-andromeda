@@ -32,3 +32,6 @@ Programmi:
   (fase F5 di `docs/research/gpu.md`, da ios-flame e UniXNU). Si compilano solo con `ANDROMEDA_GPU_USERLAND=1`, nel
   workflow `gpu-userland-andromeda` (lungo); l'artifact va unito in `inputs/andromeda/userland/`. Le librerie vanno in
   `/private/var/local/lib/`, il bundle in `/System/Library/Extensions/`; niente si avvia da solo.
+- [`andromeda-apps/`](andromeda-apps/): copia in `/Applications` le app non cifrate dell'utente preparate sul PC con
+  `scripts/add-ipa.py` (`inputs/andromeda/apps/`, mai nel repository); con `andrapps=1|2` controlla al boot che
+  LaunchServices le conosca (`2` ricostruisce il database; `andrappsopen=ID` apre un'app senza touch).

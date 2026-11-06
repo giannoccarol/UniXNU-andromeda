@@ -192,6 +192,17 @@ metal2vulkan, l'archivio del sorgente corrispondente completo.
 | **Sviluppatori Mesa** (freedreno, Turnip, ir3), `85fda3b3` (MIT) | driver Vulkan per Adreno a6xx |
 | crate Rust (elenco in `THIRD-PARTY-CRATES.txt` dell'artifact) | dipendenze del bridge |
 
+## App dell'utente (scripts/add-ipa.py, phone/andromeda-apps)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **Nick Wylynko** (NWylynko), [`ios-flame`](https://github.com/NWylynko/ios-flame) (`745c4341`, MIT): `phone/tools/lsreg.m`, `lsreg-ents.plist`, `openapp.m`, `openapp-ents.plist`, `phone/wifi/wland.c`, `HANDOFF.md` | installazione senza `installd` (bundle root:wheel in `/Applications`, app di sistema via `_LSPrivateRebuildApplicationDatabasesForSystemApps`, provata con YouTube su 20H392); chiamate LaunchServices ed entitlement di `andromeda-apps`; lettura di `kern.bootargs`; note su identificatore ≠ bundle id e `@rpath` |
+| **dipa-studio**, `ios-sweet` (`45263bee`, MIT): `tools/mkinit.py`, patch 0035/0036/0050 | formato della firma ad hoc ripreso nel firmatario di `add-ipa.py`; AMFI che accetta le firme e attacca gli entitlement, Sandbox permissiva |
+| **aTechGeekDev**, [`ios-apollo`](https://github.com/aTechGeekDev/ios-apollo) (MIT; `NOTES.md`, `tools/app-pack.sh`) | solo idee: app non cifrate in `/Applications` registrate da LaunchServices |
+| **Nithin Amaraboina**, `IOS-26-Hot` (`hotstored.m`, MIT; nessun codice) | l'idea di rifiutare all'importazione i binari con `cryptid != 0` |
+| `codesign` di Apple; `ldid` (Procursus) e `rcodesign` (Gregory Szorc) | solo il formato degli entitlement DER, nessun codice |
+| **Apple**, XNU `xnu-8796.141.3` (APSL 2.0): `ubc_subr.c`, `kern_proc.c`, `mach_loader.c`, `cs_blobs.h`; `mach-o/loader.h` | regole del kernel su firme e cifratura usate nei controlli |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |

@@ -21,6 +21,7 @@ OUT="out/$NAME/root"
 [ -f "$IPSW" ] || { echo "missing IPSW: $IPSW" >&2; exit 1; }
 [ ! -e "$OUT/ios16-root.img" ] || { echo "$OUT/ios16-root.img exists: move it away first" >&2; exit 1; }
 mkdir -p "$OUT/tmp"
+mkdir -p "inputs/$NAME/apps" "inputs/$NAME/userland" "inputs/$NAME/modemfw"
 docker image inspect ios-root-tools >/dev/null 2>&1 || {
   docker build -q -t apfs-tools -f build/Dockerfile.apfs build/ >/dev/null
   docker build -q -t ios-root-tools -f build/Dockerfile.root build/ >/dev/null
@@ -30,6 +31,7 @@ exec docker run --rm --privileged -v /dev:/dev -e TMPDIR=/out/tmp \
   -v "$PWD/scripts:/scripts:ro" -v "$IPSW_DIR:/ipsw:ro" -v "$PWD/$OUT:/out" \
   -v "$PWD/phone:/phone:ro" -v "$PWD/inputs/$NAME/userland:/userland:ro" \
   -v "$PWD/inputs/$NAME/modemfw:/modemfw:ro" \
+  -v "$PWD/inputs/$NAME/apps:/apps:ro" \
   ios-root-tools bash -c '
     rc=0
     bash /scripts/rebuild-root.sh "/ipsw/$1" /out/ios16-root.img "$2" || rc=$?

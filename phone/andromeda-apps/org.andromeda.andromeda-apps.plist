@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd job of andromeda-apps. install-root.sh puts it into the job cache
+  /System/Library/xpc/launchd.plist (read at boot; launchd_unsecure_cache=1),
+  as for andromedad.
+  One run per boot: RunAtLoad and no KeepAlive, so a LaunchServices rebuild
+  (andrapps=2) can never repeat in a loop. The program always exits 0 and
+  does nothing without the andrapps boot-arg.
+  Log: the program writes to /dev/console itself.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.andromeda.andromeda-apps</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/private/var/local/bin/andromeda-apps</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>UserName</key>
+	<string>root</string>
+	<key>StandardOutPath</key>
+	<string>/dev/null</string>
+	<key>StandardErrorPath</key>
+	<string>/dev/null</string>
+</dict>
+</plist>
