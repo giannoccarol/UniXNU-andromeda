@@ -4,4 +4,4 @@
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 test -f bsd/conf/files
-install -m 0644 "$here/andromeda_probe.c" "$here/andromeda_cpufreq.c" bsd/dev/
+install -m 0644 "$here/andromeda_probe.c" "$here/andromeda_cpufreq.c" "$here/andromeda_cpu_governor.h" bsd/dev/

@@ -66,6 +66,7 @@ extern int cepheus_touch_power_enable(void);
 extern void cepheus_soc_init(void);
 extern void andromeda_probe_init(void); /* andromeda_probe.c, andrprobe=1 */
 extern void andromeda_cpufreq_init(void); /* andromeda_cpufreq.c, andrcpu=1 */
+extern void andromeda_cpufreq_boost(void); /* andromeda_cpufreq.c, andrgov=1 touch floor */
 extern void andromeda_gpu_init(void); /* andromeda_gpu.c, andrgpu=N */
 extern void cepheus_cpu_activity(void);
 void sweet_touch_init(void);
@@ -508,6 +509,7 @@ touch_report(uint32_t mask, const int *x, const int *y)
 		if (mask & bit) {
 			if (!(st.active & bit) || x[id] != st.x[id] || y[id] != st.y[id]) {
 				cepheus_cpu_activity();
+				andromeda_cpufreq_boost();
 				/* Bound diagnostics so finger motion cannot flood the log. */
 				static unsigned logged;
 				if (logged++ < 40) {
