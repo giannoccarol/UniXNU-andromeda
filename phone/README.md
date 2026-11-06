@@ -24,3 +24,7 @@ Programmi:
 
 - [`andromedad/`](andromedad/): apre l'app Fotocamera quando si apre lo slider (patch del kernel 0097,
   `andrslider=1 andrslidercam=1`).
+- [`andromeda-audio/`](andromeda-audio/): plug-in `AndromedaAudio.driver` per l'audio server di iOS (fase A0 di
+  `docs/research/audio.md`): dispositivi dell'iPhone X senza hardware, uscita scartata, ingresso silenzioso; si installa in
+  `/System/Library/Audio/Plug-Ins/HAL` e rimette `VirtualAudio.plugin` al suo posto. È l'unico programma senza parametro di
+  avvio: senza di lui VirtualAudio va tenuto disattivato (`andraudiorcv=1` = esperimento del ricevitore).

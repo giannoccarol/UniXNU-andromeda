@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info.plist of AndromedaAudio.driver, after HakiOS's
+  userland/src/audio_plugin.plist (oosexgang/hakios-xnu-kernel 63fc2b46, MIT,
+  the HakiOS authors; see AndromedaAudio.c). An AudioServerPlugIn: the type the
+  HAL asks for (443ABAB8-...) and the factory that makes our driver. The
+  factory UUID is our own, not HakiOS's.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>org.andromeda.audio</string>
+	<key>CFBundleName</key>
+	<string>AndromedaAudio</string>
+	<key>CFBundleExecutable</key>
+	<string>AndromedaAudio</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>iPhoneOS</string>
+	</array>
+	<key>CFPlugInTypes</key>
+	<dict>
+		<key>443ABAB8-E7B3-491A-B985-BEB9187030DB</key>
+		<array>
+			<string>486EFAA6-88FD-4BC4-AB7C-8EC5D1BE37BE</string>
+		</array>
+	</dict>
+	<key>CFPlugInFactories</key>
+	<dict>
+		<key>486EFAA6-88FD-4BC4-AB7C-8EC5D1BE37BE</key>
+		<string>AndromedaAudio_Create</string>
+	</dict>
+</dict>
+</plist>

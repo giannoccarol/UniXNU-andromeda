@@ -34,3 +34,4 @@ __pycache__/
 phone/*
 !phone/README.md
 !phone/andromedad/
+!phone/andromeda-audio/

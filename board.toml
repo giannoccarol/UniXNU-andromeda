@@ -191,6 +191,10 @@ kernel_args = [
   # 0x0016 over GPIO I2C on the CCI0 pins, then power it down. Test image:
   # ANDROMEDA_TAG=cam ANDROMEDA_ARGS="andrcam=1" ./build-boot.sh
   "andrcam=0",
+  # Audio A0 (phone/andromeda-audio): AndromedaAudio.driver needs no boot-arg.
+  # 1 = experiment: the Codec device also gets an output with mute and volume
+  # on element 3, of which VirtualAudio should make the receiver port.
+  "andraudiorcv=0",
 ]
 
 [payload.adt]

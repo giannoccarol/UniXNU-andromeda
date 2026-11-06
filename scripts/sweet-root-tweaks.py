@@ -126,7 +126,10 @@ def activation(root):
 def audio(root):
     src = os.path.join(root, 'Library/Audio/Plug-Ins/HAL/VirtualAudio.plugin')
     dst_dir = os.path.join(root, 'Library/Audio/Plug-Ins/HAL.disabled')
-    if os.path.exists(src):
+    # andromeda: with AndromedaAudio.driver (phone/andromeda-audio) VirtualAudio
+    # has its devices and stays enabled.
+    ours = os.path.join(root, 'System/Library/Audio/Plug-Ins/HAL/AndromedaAudio.driver')
+    if os.path.exists(src) and not os.path.exists(ours):
         os.makedirs(dst_dir, exist_ok=True)
         shutil.move(src, dst_dir)
         print('VirtualAudio.plugin disabled')

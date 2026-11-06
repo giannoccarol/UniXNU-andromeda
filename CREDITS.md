@@ -135,6 +135,16 @@ Acayan, Stephan Gerhold, linux-msm/Linaro, libqmi/ModemManager e il wiki di post
 | **Xiaomi** `andromeda-p-oss` (`74347f55`, GPL-2.0, solo documentazione): `cam_sensor_cmn_header.h`, `cam_sensor_util.c`, `rpmh-regulator.c` | numeri dei passi, cosa accende ogni passo, unità dei ritardi, scelta del modo dal carico |
 | **Linux** (GPL-2.0, solo documentazione): `camcc-sm8150.c` (Satya Priya Kakitapalli), `gdsc.c`, `clk-rcg2.c`, `clk-branch.c`, `gcc-sm8150.c`, `pinctrl-sm8150.c`, `qcom-rpmh-regulator.c` | offset di registri, bit, valori grezzi dei modi PMIC5 |
 
+## Audio senza hardware (fase A0, phone/andromeda-audio)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **OOSEX GANG** (shimoku, vcvkk e collaboratori, "the HakiOS authors"), [`hakios-xnu-kernel`](https://github.com/oosexgang/hakios-xnu-kernel) commit `63fc2b46`: `userland/src/audio_plugin.c`, `audio_plugin.plist`, `userland/build.sh` (MIT, copia in `licenses/hakios-MIT.txt`) | base di `phone/andromeda-audio/AndromedaAudio.c` e `Info.plist`: interfaccia AudioServerPlugIn, i dispositivi `Speaker`/`Hawking`/`Actuator`/`Codec` con stream, volume dell'altoparlante, sorgente `imic`, orologio su `mach_absolute_time()`, elenco delle proprietà mancanti; compilazione `clang -bundle` e installazione in `/System/Library/Audio/Plug-Ins/HAL`. Nostri: rimozione del lato kernel, log su `/dev/console` con rapporto periodico, esperimento del ricevitore, controllo del clock |
+| **dipa-studio**, `ios-sweet` (`45263bee`, MIT): `NOTES.md`, patch 0047/0050 | analisi del crash di `mediaserverd` senza `vdef`; log persistente e Sandbox permissiva che portano le righe del plug-in nel log |
+| **UniXNU contributors**, `UniXNU-sheng` (`ce0c600f`, BSD-2-Clause-Patent; consultato, nessun codice copiato): `hal/ShengAudioPlugIn.c` | il clock host a 24 MHz di CoreAudio contro un timer a 19,2 MHz, che il plug-in controlla al caricamento |
+| **MakrSas**, `ios-topaz` (`e4772911`, nessuna licenza: solo fatti); **Scion-Project**, `scion-starlte` (`e600c821`, `AUDIO.md`) | prova che lo stesso plug-in è stato portato su 20H392 (topaz) e che la catena plug-in → VirtualAudio suona sull'hardware (Scion) |
+| **Nick Wylynko**, `ios-flame` (`745c4341`, MIT): `HANDOFF.md` | la nota che senza dispositivo audio si ferma anche la riproduzione video |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |

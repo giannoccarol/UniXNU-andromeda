@@ -382,3 +382,9 @@ Grazie agli autori: quasi tutto quello che sappiamo su questo hardware sotto XNU
   `docs/research/gpu.md`, `scripts/sweet-root-tweaks.py`, `scripts/devices.py`, `xnu/cepheus_scm_discovery.h`,
   `xnu/cepheus_i2c_bitbang.h`, `xnu/cepheus_qmp_connect.h`.
 - **Dati del telefono** (fuori da git): sezione 7.
+
+## Aggiornamento (6 novembre 2026, sera): A0 scritta
+
+La fase A0 è `phone/andromeda-audio/` (plug-in `AndromedaAudio.driver` derivato da HakiOS, MIT): solo userland, nessun nodo
+kernel `/dev/andromeda-audio` è servito. Prova sul telefono: riga `andromeda-audio: loaded in mediaserverd …`, un solo
+`exec mediaserverd` per avvio, nessun crash; la riga `host clock` dice se CoreAudio assume 24 MHz.
