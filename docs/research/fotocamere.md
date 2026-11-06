@@ -923,3 +923,14 @@ documentazione).
 - Da non copiare:
   - Martijn Braam e altri, [Megapixels](https://gitlab.com/megapixels-org/Megapixels) (GPL-3.0);
   - [LibRaw](https://github.com/LibRaw/LibRaw) (LGPL/CDDL).
+
+## Aggiornamento (6 novembre 2026, sera): passo C1 scritto
+
+- Il passo C1 è nel kernel come `andrcam=1` (patch 0098, `xnu/andromeda_cam.c`), non `andrcam=2` come previsto sopra; la
+  sonda C0 non esiste ancora.
+- Dai file dei moduli del nostro vendor (`phone/e719dcab/camera/`, fuori da git):
+  - IMX363 a **0x10** (7 bit, non 0x1A come sui Pixel), registro `0x0016` = `0x0363`;
+  - IMX576 a 0x1A, ID `0x0576`; OV02A10 a 0x3D, ID `0x25` (un byte);
+  - S5K3M3 a 0x2D con registro `0x0002` = `0xB001` (non `0x30D3` a `0x0000`).
+- L17A serve davvero: è il primo passo (CUSTOM_REG1) della sequenza del modulo. L'ordine del modulo mette RESET prima di
+  MCLK, al contrario dell'ordine provvisorio indicato sopra; il driver segue il modulo.
