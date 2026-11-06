@@ -20,6 +20,10 @@ Crediti: [CREDITS.md](CREDITS.md).
 | 4. Touch | **in diagnosi, primi eventi** (6 novembre 2026): driver adattato (reset GPIO54 nel tile SOUTH, alimentazioni L1C + GPIO37, verificate sul device tree). Il chip conferma il comando di scansione (eco `43 01 A0 00 FF`) e con le impostazioni di ios-flame (`0xFF`) segnala contatti, ma sono rumore del display (alla riaccensione del pannello) seguito da ricalibrazioni (`43 05 xx`); dopo, nessun dito. Prossima prova: un comando ogni 20 s (modalità caricatore, calibrazione, scansione, reset) con `sweettouchexp=1` |
 | 4b. Tasti | **funzionano sul telefono** (6 novembre 2026): power, volume e blocco/sblocco schermo (PON, patch 0083 del Mi 9) |
 | 5. Bluetooth, Wi-Fi, ricarica | **sonda letta sul telefono** (6 novembre 2026, `andrprobe=2`): **la ricarica funziona** in hardware (stato FULLON, 4,39 V, ~40 mA in ingresso alla batteria dal PC a 500 mA; il watchdog del caricatore non la spegne); l'icona di iOS è ancora un valore fisso. UART Bluetooth SE13 con firmware UART (`proto=2`), clock attivabile, pin 43–46 non ancora in funzione UART. I regolatori Wi-Fi/BT non sono visibili via SPMI dal processore principale: vanno votati via RPMh. Dettagli in `docs/research/ricarica.md` |
+| 6. CPU | **driver pronto** (`xnu/andromeda_cpufreq.c`, `andrcpu=1`): tutti i cluster alla frequenza piena come ios-flame, con protezione termica (Gold/Prime a ≤1,4 GHz sopra 80 °C, di nuovo al massimo sotto 70 °C). Da misurare sul telefono |
+| 7. Batteria per iOS | **driver pronto** (patch 0091, `sweetbattery=2`): percentuale, tensione, corrente e stato di carica veri dal PM8150B al posto del 100 % fisso. Da provare |
+| 8. GPU | firmware estratti dal telefono (impronte in `docs/research/gpu.md` §6.3b); port del driver Adreno 640 di ios-flame in corso, spento di default |
+| Ritorno in fastboot | **scritto, non provato** (`andrfastboot=N`): dopo N secondi sync dei dischi, motivo "bootloader" nel PMIC e reset PSCI. Da provare solo con l'utente presente |
 | Avvio | misurato: sistema montato a 43 s, SpringBoard a 73 s, schermata di blocco a **116 s** dal `fastboot boot` |
 
 ## Compilare l'UEFI
