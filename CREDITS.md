@@ -176,6 +176,19 @@ Acayan, Stephan Gerhold, linux-msm/Linaro, libqmi/ModemManager e il wiki di post
 | **Kernel Linux**, `drivers/spmi/spmi-pmic-arb.c` (GPL-2.0, solo documentazione) | comando `EXT_WRITEL` sul canale dell'arbitro v5, bit di stato, tabella dei proprietari |
 | **Apple**, XNU `xnu-8796.141.3` (APSL 2.0), `osfmk/kdp/kdp_callout.h` | `kdp_register_callout()` per spegnere il motore se il kernel va in panic durante un impulso |
 
+## GPU: Turnip e Metal (fase F5, phone/turnip e phone/metal2)
+
+Tutto viene scaricato durante la build a commit fissi; i binari viaggiano con `NOTICE.txt`, i testi delle licenze e, per
+metal2vulkan, l'archivio del sorgente corrispondente completo.
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **Nick Wylynko** (NWylynko), `ios-flame` `745c4341` (MIT) | sorgenti di `phone/turnip` (vktest, v2test, shader, patch 0100, `NativeAdrenoABI.h`) e di `phone/metal2` (`SweetMetal2.mm`, `Info.plist`, `m2vtest.c`, frontend adattato a iOS 16, bridge, patch 0100–0101); ricetta di build e schema di installazione |
+| **UniXNU** (bluseliu50, rponeawa, HuJK e collaboratori), `UniXNU/UniXNU` `b6ae99c1` (BSD-2-Clause-Patent) | le 8 patch Mesa (backend darwin, MIT), i pin di Mesa e degli strumenti Python, `build-turnip-darwin.py`, `build-native-metal-bridge.py`; NativeMetal (frontend e bridge, MIT), NativeAdreno (ABI, MIT), patch 0001–0006 a metal2vulkan |
+| **Anees Iqbal** (steelbrain), `metal2vulkan` `720ef1ce` (GPL-2.0-or-later OR LGPL-3.0-or-later) | traduzione Metal → Vulkan, linkata staticamente nel bundle; sorgente nell'artifact |
+| **Sviluppatori Mesa** (freedreno, Turnip, ir3), `85fda3b3` (MIT) | driver Vulkan per Adreno a6xx |
+| crate Rust (elenco in `THIRD-PARTY-CRATES.txt` dell'artifact) | dipendenze del bridge |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |

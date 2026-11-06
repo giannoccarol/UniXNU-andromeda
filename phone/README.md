@@ -28,3 +28,7 @@ Programmi:
   `docs/research/audio.md`): dispositivi dell'iPhone X senza hardware, uscita scartata, ingresso silenzioso; si installa in
   `/System/Library/Audio/Plug-Ins/HAL` e rimette `VirtualAudio.plugin` al suo posto. È l'unico programma senza parametro di
   avvio: senza di lui VirtualAudio va tenuto disattivato (`andraudiorcv=1` = esperimento del ricevitore).
+- [`turnip/`](turnip/) e [`metal2/`](metal2/): il driver Vulkan Turnip di Mesa e il plug-in Metal `SweetMetal2.bundle`
+  (fase F5 di `docs/research/gpu.md`, da ios-flame e UniXNU). Si compilano solo con `ANDROMEDA_GPU_USERLAND=1`, nel
+  workflow `gpu-userland-andromeda` (lungo); l'artifact va unito in `inputs/andromeda/userland/`. Le librerie vanno in
+  `/private/var/local/lib/`, il bundle in `/System/Library/Extensions/`; niente si avvia da solo.

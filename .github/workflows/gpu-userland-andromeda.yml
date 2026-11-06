@@ -1,0 +1,126 @@
+name: gpu-userland-andromeda
+
+# Phase F5 of docs/research/gpu.md, userland only: Mesa's Turnip (Vulkan for
+# the Adreno 640, "darwin" kernel backend) and SweetMetal2.bundle (Metal on
+# metal2vulkan on Turnip) for iOS 16 arm64, built from public sources at fixed
+# commits by phone/turnip/build.sh and phone/metal2/build.sh (see their
+# headers for the sources, the authors and the licences). These builds take
+# far longer than the other phone programs, so they have this workflow of
+# their own: in userland-andromeda the two scripts skip themselves unless
+# ANDROMEDA_GPU_USERLAND=1.
+#
+# The artifact holds the binaries with their licence notices and, for the
+# bundle (metal2vulkan is GPL-2.0-or-later OR LGPL-3.0-or-later and linked
+# statically), its complete corresponding source, so binaries and source are
+# always published together and expire together. Nothing from an iOS image is
+# used or published: only the Xcode SDK. The root build installs the files
+# with each program's install-root.sh from inputs/<board>/userland/.
+on:
+  workflow_dispatch:
+    inputs:
+      components:
+        description: 'What to build'
+        type: choice
+        default: 'turnip metal2'
+        options:
+          - 'turnip metal2'
+          - 'turnip'
+      runner:
+        description: 'macOS runner label (Apple silicon)'
+        type: string
+        default: 'macos-15'
+      xcode:
+        description: 'Xcode to select, e.g. Xcode_16.4 (empty: the runner default)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-userland-andromeda
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 330
+    env:
+      ANDROMEDA_GPU_USERLAND: '1'
+      GPU_WORK: ${{ github.workspace }}/.cache/gpu-userland
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        if: inputs.xcode != ''
+        env:
+          XCODE: ${{ inputs.xcode }}
+        run: |
+          set -euo pipefail
+          [[ $XCODE =~ ^Xcode[A-Za-z0-9_.-]*$ ]] || { echo "bad Xcode name: $XCODE" >&2; exit 1; }
+          sudo xcode-select -s "/Applications/$XCODE.app/Contents/Developer"
+
+      - name: Tools
+        run: |
+          set -euo pipefail
+          brew install ninja glslang bison flex llvm
+          xcodebuild -version
+          echo "iphoneos SDK $(xcrun --sdk iphoneos --show-sdk-version)"
+          rustup --version
+          "$(brew --prefix llvm)/bin/llvm-as" --version | head -2 || true
+          sysctl -n hw.ncpu hw.memsize
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Cargo download cache
+        if: contains(inputs.components, 'metal2')
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+          key: cargo-${{ runner.os }}-${{ hashFiles('phone/metal2/Cargo.lock') }}
+
+      - name: Turnip
+        run: |
+          set -euo pipefail
+          bash phone/turnip/build.sh "$PWD/out/gpu"
+
+      - name: Free the Mesa build tree
+        if: contains(inputs.components, 'metal2')
+        run: |
+          rm -rf "$GPU_WORK/turnip/build-ios"
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: SweetMetal2.bundle
+        if: contains(inputs.components, 'metal2')
+        run: |
+          set -euo pipefail
+          bash phone/metal2/build.sh "$PWD/out/gpu"
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > out/gpu/device-commit.txt
+          (cd out/gpu && find . -type f ! -name SHA256SUMS -print0 | xargs -0 shasum -a 256 > ../SHA256SUMS.gpu.tmp && mv ../SHA256SUMS.gpu.tmp SHA256SUMS && cat SHA256SUMS)
+          du -sh out/gpu/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: andromeda-gpu-userland
+          path: out/gpu/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: andromeda-gpu-userland-logs
+          path: |
+            .cache/gpu-userland/turnip/*.log
+            .cache/gpu-userland/metal2/*.log
+          retention-days: 7
+          if-no-files-found: ignore

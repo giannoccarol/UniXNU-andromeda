@@ -753,3 +753,10 @@ Grazie agli autori: questo piano si regge sul loro lavoro.
 - **Dati di `andromeda`**: FDT attivo (`phone/<seriale>/live-fdt.dts`), `phone/<seriale>/info/partitions.txt` e
   `getprop.txt`, log `phone/logs/merged-20261106-174054.log`, `board.toml`, `ANDROMEDA.md`, `ROADMAP.md` (tutti fuori
   da git, tranne gli ultimi tre).
+
+## Aggiornamento (7 novembre 2026): F5, pipeline userland
+
+Script pronti, non ancora compilati con successo: `phone/turnip/`, `phone/metal2/` e il workflow
+`gpu-userland-andromeda` scaricano Mesa `85fda3b3` con le patch di UniXNU e ios-flame e metal2vulkan `720ef1ce`, e
+producono `libvulkan_freedreno.dylib`, `vktest`/`v2test` e `SweetMetal2.bundle`. Manca il lato kernel: lo user client
+(ios-flame 0115) dietro un nostro parametro di avvio, poi F6.
