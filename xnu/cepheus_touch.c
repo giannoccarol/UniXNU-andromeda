@@ -68,6 +68,8 @@ extern void andromeda_probe_init(void); /* andromeda_probe.c, andrprobe=1 */
 extern void andromeda_cpufreq_init(void); /* andromeda_cpufreq.c, andrcpu=1 */
 extern void andromeda_cpufreq_boost(void); /* andromeda_cpufreq.c, andrgov=1 touch floor */
 extern void andromeda_gpu_init(void); /* andromeda_gpu.c, andrgpu=N */
+extern void andromeda_bt_init(void); /* andromeda_bt.c, andrbt=1 */
+extern void andromeda_backlight_init(void); /* andromeda_backlight.c, andrbl=1/2 */
 extern void cepheus_cpu_activity(void);
 void sweet_touch_init(void);
 
@@ -987,6 +989,8 @@ sweet_touch_init(void)
 	andromeda_probe_init(); /* opt-in read-only BT/Wi-Fi/charger probe */
 	andromeda_cpufreq_init(); /* opt-in full CPU clock with thermal guard */
 	andromeda_gpu_init(); /* opt-in Adreno 640 bring-up steps (andrgpu, off by default) */
+	andromeda_bt_init(); /* opt-in WCN3990 Bluetooth step B1 (andrbt=1) */
+	andromeda_backlight_init(); /* opt-in DSI0 DCS 0x51 brightness (andrbl=1/2) */
 	int enabled = 1;
 	thread_t thread;
 	if (st.started) {

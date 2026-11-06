@@ -31,6 +31,14 @@ from tree import assemble  # noqa: E402
 board = tomllib.loads((ROOT / "board.toml").read_text())
 # Test images: ANDROMEDA_OWNED=0xBC000000 overrides the kernel window size
 # (board.toml [payload.adt] owned_memory_size) for this build only.
+# Test images: ANDROMEDA_ARGS="andrbt=1 andrbl=1" replaces/adds kernel args
+# (same name = replaced) for this build only.
+if os.environ.get("ANDROMEDA_ARGS"):
+    extra = os.environ["ANDROMEDA_ARGS"].split()
+    names = {item.split("=", 1)[0] for item in extra}
+    args = [item for item in board["payload"]["kernel_args"] if item.split("=", 1)[0] not in names]
+    board["payload"]["kernel_args"] = args + extra
+    print(f"payload: kernel args overridden: {' '.join(extra)}")
 if os.environ.get("ANDROMEDA_OWNED"):
     board["payload"]["adt"]["owned_memory_size"] = os.environ["ANDROMEDA_OWNED"]
     print(f"payload: owned_memory_size overridden to {os.environ['ANDROMEDA_OWNED']}")

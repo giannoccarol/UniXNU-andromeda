@@ -1,0 +1,115 @@
+--- a/bsd/dev/sweet_rpmh.c
++++ b/bsd/dev/sweet_rpmh.c
+@@ -14,4 +14,5 @@
+ int sweet_rpmh_vreg_enable(const char *res, unsigned mv);
+ int cepheus_touch_power_enable(void);
++int andromeda_rpmh_bt_rail(const char *res, bool on);
+ 
+ /* Live downstream DT has two positional reg entries, no reg-names. */
+@@ -220,7 +221,16 @@
+ }
+ 
++/*
++ * One ACTIVE request of 1-3 commands (offset from the resource address,
++ * value), split out of rh_send as ios-flame's patch 0102 does (Nick
++ * Wylynko, MIT). Same slot checks, quarantine and completion proof.
++ */
+ static int
+-rh_send(uint32_t address, unsigned mv, bool xob)
++rh_send_cmds(uint32_t address, unsigned ncmd, const uint32_t *offsets,
++    const uint32_t *values)
+ {
++	if (ncmd == 0 || ncmd > 3 || !offsets || !values) {
++		return EINVAL;
++	}
+ 	int chosen = -1;
+ 	for (unsigned t = 0; t < RH_ACTIVE_N; ++t) {
+@@ -268,11 +278,7 @@
+ 	/* From here an uncertain write/timeout quarantines our slot for this boot. */
+ 	rh_poisoned = true;
+-	/* XOB only accepts enable at base+4. VRM keeps its original sequence. */
+-	const uint32_t offsets[3] = {xob ? 4u : 0u, 8, 4};
+-	const uint32_t values[3] = {xob ? 1u : mv, 7, 1};
+-	const unsigned ncmd = xob ? 1u : 3u;
+ 	const uint32_t command_mask = (1u << ncmd) - 1u;
+-	if (xob) { printf("CEPHEUS POWER: ldoc1 XOB enable only address=%#x data=1\n", address + 4); }
+-	if (!xob) { printf("SWEET RPMH: TCS%u ACTIVE %u mV mode=7 enable=1 irq-enable=%#x\n", t, mv, irq_en); }
++	printf("SWEET RPMH: TCS%u ACTIVE %u cmd(s) at %#x, first +%#x=%u, irq-enable=%#x\n",
++	    t, ncmd, address, offsets[0], values[0], irq_en);
+ 	for (unsigned c = 0; c < ncmd; ++c) {
+ 		uint32_t cmd = b + c * RH_CMD_STRIDE;
+@@ -329,4 +335,16 @@
+ }
+ 
++/* The 0062 VRM sequence (voltage, HPM, enable) or the 0084 XOB enable only. */
++static int
++rh_send(uint32_t address, unsigned mv, bool xob)
++{
++	/* XOB only accepts enable at base+4. VRM keeps its original sequence. */
++	const uint32_t offsets[3] = {xob ? 4u : 0u, 8, 4};
++	const uint32_t values[3] = {xob ? 1u : mv, 7, 1};
++	if (xob) { printf("CEPHEUS POWER: ldoc1 XOB enable only address=%#x data=1\n", address + 4); }
++	if (!xob) { printf("SWEET RPMH: ACTIVE %u mV mode=7 enable=1\n", mv); }
++	return rh_send_cmds(address, xob ? 1u : 3u, offsets, values);
++}
++
+ int
+ sweet_rpmh_vreg_enable(const char *res, unsigned mv)
+@@ -379,4 +397,57 @@
+ 	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
+ 	return error;
++}
++
++/*
++ * andromeda (Mi Mix 3 5G) WCN3990 Bluetooth supplies, patch 0092: the three
++ * rails of the live DT node bt_wcn3990 (qca,bt-vdd-{core,pa,ldo}-voltage-level),
++ * exact voltages only. on: voltage, HPM (PMIC5 LDO raw mode 7), enable, as
++ * the 0062 sequence; off: enable=0 only (Linux qcom-rpmh-regulator disable).
++ * ACTIVE set only; same rh_lock, idle-slot checks and timeout quarantine.
++ * EBUSY: lock held or no free slot; the caller may retry. A successful vote
++ * is not proof that the rail reached its voltage.
++ */
++int
++andromeda_rpmh_bt_rail(const char *res, bool on)
++{
++	static const struct { const char *res; unsigned mv; } rails[] = {
++		{"ldoa7", 1800},    /* PM8150 L7A, vdd-core (WCN xo) */
++		{"ldoc2", 1304},    /* PM8150L L2C, vdd-pa (rf) */
++		{"ldoc11", 3312},   /* PM8150L L11C, vdd-ldo (ch0) */
++	};
++	unsigned mv = 0;
++	for (unsigned i = 0; res && i < sizeof(rails) / sizeof(rails[0]); ++i) {
++		if (!strcmp(res, rails[i].res)) {
++			mv = rails[i].mv;
++		}
++	}
++	if (!mv) {
++		printf("SWEET RPMH: %s is not an andromeda BT rail; refusing\n", res ? res : "(null)");
++		return EINVAL;
++	}
++	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
++		return EBUSY;
++	}
++	int error = EIO;
++	uint32_t address = 0;
++	if (rh_poisoned) {
++		printf("SWEET RPMH: previous uncertain transaction; refusing further access\n");
++		goto out;
++	}
++	error = rh_map();
++	if (!error) {
++		error = rh_lookup(res, &address);
++	}
++	if (!error) {
++		const uint32_t on_offsets[3] = {0, 8, 4}, on_values[3] = {mv, 7, 1};
++		const uint32_t off_offsets[1] = {4}, off_values[1] = {0};
++		error = on ? rh_send_cmds(address, 3, on_offsets, on_values) :
++		    rh_send_cmds(address, 1, off_offsets, off_values);
++	}
++out:
++	printf("ANDROMEDA RPMH: %s %s %u mV result=%d%s\n", res, on ? "on" : "off", mv, error,
++	    rh_poisoned ? " (RPMh quarantined for this boot)" : "");
++	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
++	return error;
+ }
+ #include "cepheus_arc_probe.h"

@@ -13,10 +13,12 @@ for f in "inputs/$NAME/kernel.macho" scripts/base-d22ap.adt "out/$NAME/fv/SM8150
   [ -s "$f" ] || { echo "missing: $f" >&2; exit 1; }
 done
 docker build -q -t unixnu-firmware -f build/Dockerfile.firmware build/ >/dev/null
-# ANDROMEDA_OWNED=0x... builds a test image with another kernel window,
-# written as boot-<name>-xnu-<OWNED>.img next to the normal one.
-SUFFIX="${ANDROMEDA_OWNED:+-$ANDROMEDA_OWNED}"
-exec docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e ANDROMEDA_OWNED="${ANDROMEDA_OWNED:-}" -v "$PWD:/work" -w /work unixnu-firmware bash -c "
+# Test images next to the normal one: ANDROMEDA_OWNED=0x... (another kernel
+# window) and/or ANDROMEDA_ARGS="a=1 b=2" (kernel args added or replaced),
+# named boot-<name>-xnu-<ANDROMEDA_TAG or OWNED>.img.
+TAG="${ANDROMEDA_TAG:-${ANDROMEDA_OWNED:-}}"
+SUFFIX="${TAG:+-$TAG}"
+exec docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e ANDROMEDA_OWNED="${ANDROMEDA_OWNED:-}" -e ANDROMEDA_ARGS="${ANDROMEDA_ARGS:-}" -v "$PWD:/work" -w /work unixnu-firmware bash -c "
   set -euo pipefail
   bash scripts/get-dtb.sh
   python3 scripts/build-payload.py

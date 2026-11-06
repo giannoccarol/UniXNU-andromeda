@@ -172,6 +172,14 @@ kernel_args = [
   # gauge and charger read over SPMI, no writes. 1 = ios-sweet's PM6150 path
   # (wrong PMIC here), absent = fixed 100 %.
   "sweetbattery=2",
+  # Off in the main image; test image: ANDROMEDA_TAG=btbl
+  # ANDROMEDA_ARGS="andrbt=1 andrbl=1" ./build-boot.sh
+  # Bluetooth B1 (andromeda_bt.c, patch 0092): 150 s after start, WCN3990
+  # power-on, EDL version, HCI_Reset, then off again.
+  "andrbt=0",
+  # Brightness (andromeda_backlight.c, patch 0093): 1 = DCS 0x51 test 1023 ->
+  # 256 -> 1023 from 30 s; 2 = also an AppleARMBacklight service for iOS.
+  "andrbl=0",
 ]
 
 [payload.adt]

@@ -89,6 +89,17 @@ Per l'audio (`docs/research/audio.md`): OOSEX GANG (HakiOS, driver APSL e plug-i
 di CoreAudio), **MakrSas** (ios-topaz), Scion-Project (`starlte`), PixelExperience, Texas Instruments / Xiaomi (driver TAS2557,
 GPL, solo documentazione) e Linux (q6dsp, WCD934x, SLIMbus).
 
+## Bluetooth e luminosità (patch 0092/0093)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **Nick Wylynko** (NWylynko), `ios-flame` patch `0102-flame-rpmh-generic.patch` (commit `745c4341`, MIT) | il modo di dividere `rh_send` di `sweet_rpmh.c` in una richiesta generica (`rh_send_cmds`), ripreso nella patch 0092 |
+| **dipa-studio**, `ios-sweet` (`45263bee`, MIT), `sweet_rpmh.c` della patch 0062 | il trasporto RPMh a cui la 0092 aggiunge `andromeda_rpmh_bt_rail` |
+| **MakrSas**, [`ios-topaz`](https://github.com/MakrSas/ios-topaz) (`e4772911`, nessuna licenza: solo fatti, nessun codice copiato), patch 0104/0105/0110 | cosa si aspetta CoreBrightness di iOS 16.7.16 (classe `AppleARMBacklight`, `backlight-control`, `brightness-nits`, `IOMFBBrightnessLevel`), il rischio della digital dimming, DCS 0x51 via command DMA |
+| **UniXNU contributors**, `UniXNU-sheng` `package/AppleARMBacklight.cpp` (`ce0c600f`, BSD-2-Clause-Patent; consultato, nessun codice copiato) | `IODisplayParameters` (min/max/value), `brightness`/`FadePeriod` via setProperties |
+| **Kernel Linux** (GPL-2.0, solo documentazione): `qcom_geni_serial.c`, `qcom-geni-se.c`, `hci_qca.c`, `btqca.c/.h`, `drm/msm/dsi/dsi_host.c`, `clk-rcg2.c`, `gcc-sm8150.c`, `pinctrl-sm8150.c`, `qcom-rpmh-regulator.c`; Xiaomi `bluetooth-power.c` (`andromeda-p-oss`) | registri e sequenze GENI UART, impulsi WCN3990, comando EDL, DCS long write, RCG M/N, modi PMIC5 LDO, ordine delle alimentazioni |
+| **Project Aloha**, Kancy Joe (`sunflower2333`): `Panel_samsung_ea8076_fhd_amoled_cmd.xml`, `PlatformMemoryMapLib.c` di `xiaomi-andromeda` | autorefresh e comandi del pannello EA8076, zona "Display Reserved" |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |

@@ -1,0 +1,16 @@
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -114,4 +114,5 @@
+ bsd/dev/andromeda_gpu.c			standard
+ bsd/dev/andromeda_gpu_core.c		standard
++bsd/dev/andromeda_backlight.c		standard
+ bsd/dev/cepheus_gpu_compile.c		standard
+ bsd/dev/cepheus_gmu_workspace.c		standard
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -18,4 +18,5 @@
+ iokit/Kernel/arm/cepheus_gpu_memory.cpp                          optional iokitcpp
+ iokit/Kernel/arm/SweetBattery.cpp                                optional iokitcpp
++iokit/Kernel/arm/AndromedaBacklight.cpp                          optional iokitcpp
+ iokit/Kernel/arm/hid/SweetHID.cpp                                optional iokitcpp
+ iokit/Kernel/arm/hid/IOHIDEvent.cpp                              optional iokitcpp
