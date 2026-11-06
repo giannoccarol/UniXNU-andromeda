@@ -1,0 +1,73 @@
+--- a/bsd/dev/sweet_rpmh.c
++++ b/bsd/dev/sweet_rpmh.c
+@@ -14,6 +14,7 @@
+ int sweet_rpmh_vreg_enable(const char *res, unsigned mv);
+ int cepheus_touch_power_enable(void);
+ int andromeda_rpmh_bt_rail(const char *res, bool on);
++int andromeda_rpmh_cam_rail(const char *res, bool on);
+ 
+ /* Live downstream DT has two positional reg entries, no reg-names. */
+ #define RH_RSC_PA       0x18220000u
+@@ -450,5 +451,62 @@
+ 	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
+ 	return error;
+ }
++
++/*
++ * andromeda (Mi Mix 3 5G) rear main camera supplies, patch 0098 (andrcam=1):
++ * cam_v_custom1 = ldoa17 (PM8150 L17A) and cam_vdig = smpc8 (PM8150L S8C)
++ * of the live DT node qcom,cam-sensor@0, at the voltage Linux requests (the
++ * DT minimum: 2856 mV, 1352 mV fixed) and in the mode qcom rpmh-regulator
++ * picks for the DT load (L17A 10 mA -> HPM, PMIC5 LDO raw 7; S8C 1.2 A >=
++ * 200 mA -> AUTO, PMIC5 HFSMPS raw 6). on: voltage, mode, enable; off:
++ * enable=0 and the lowest DT mode (cam_soc_util_regulator_disable sets the
++ * load to 0: L17A LPM raw 4, S8C RET raw 3). ACTIVE set only; same rh_lock,
++ * idle-slot checks and timeout quarantine as andromeda_rpmh_bt_rail. A
++ * successful vote is not proof that the rail reached its voltage.
++ */
++int
++andromeda_rpmh_cam_rail(const char *res, bool on)
++{
++	static const struct { const char *res; unsigned mv, mode_on, mode_off; } rails[] = {
++		{"ldoa17", 2856, 7, 4},   /* PM8150 L17A, cam_v_custom1: HPM / LPM */
++		{"smpc8", 1352, 6, 3},    /* PM8150L S8C, cam_vdig: AUTO / RET */
++	};
++	unsigned mv = 0, mode_on = 0, mode_off = 0;
++	for (unsigned i = 0; res && i < sizeof(rails) / sizeof(rails[0]); ++i) {
++		if (!strcmp(res, rails[i].res)) {
++			mv = rails[i].mv;
++			mode_on = rails[i].mode_on;
++			mode_off = rails[i].mode_off;
++		}
++	}
++	if (!mv) {
++		printf("SWEET RPMH: %s is not an andromeda camera rail; refusing\n", res ? res : "(null)");
++		return EINVAL;
++	}
++	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
++		return EBUSY;
++	}
++	int error = EIO;
++	uint32_t address = 0;
++	if (rh_poisoned) {
++		printf("SWEET RPMH: previous uncertain transaction; refusing further access\n");
++		goto out;
++	}
++	error = rh_map();
++	if (!error) {
++		error = rh_lookup(res, &address);
++	}
++	if (!error) {
++		const uint32_t on_offsets[3] = {0, 8, 4}, on_values[3] = {mv, mode_on, 1};
++		const uint32_t off_offsets[2] = {4, 8}, off_values[2] = {0, mode_off};
++		error = on ? rh_send_cmds(address, 3, on_offsets, on_values) :
++		    rh_send_cmds(address, 2, off_offsets, off_values);
++	}
++out:
++	printf("ANDROMEDA RPMH: %s %s %u mV mode %u result=%d%s\n", res, on ? "on" : "off", mv,
++	    on ? mode_on : mode_off, error, rh_poisoned ? " (RPMh quarantined for this boot)" : "");
++	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
++	return error;
++}
+ #include "cepheus_arc_probe.h"
+ #endif /* ARM64_BOARD_CONFIG_SWEET */

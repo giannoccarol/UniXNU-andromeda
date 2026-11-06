@@ -33,6 +33,7 @@ RULES = [
     ("Batteria", "PM8150B", r"ANDROMEDA PROBE: battery (.*)"),
     ("GPU", "gradino", r"ANDROMEDA GPU: (step \d+ \([^)]*\) \S+)"),
     ("GPU", "firmware", r"ANDROMEDA GPU: probe: firmware (\S+ \S+)"),
+    ("Fotocamera", "C1", r"ANDROMEDA CAM: (C1 PASS.*|C1 FAIL.*|imx363 reg .*)"),
     ("Bluetooth", "esito", r"ANDROMEDA BT: (B1 PASS|.*FAIL.*|down: .*)"),
     ("Bluetooth", "versione", r"ANDROMEDA BT: (SoC version: .*)"),
     ("Luminosità", "esito", r"ANDROMEDA BL: (level \d+ .*|DCS 51 .*)"),

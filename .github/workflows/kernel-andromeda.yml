@@ -61,6 +61,7 @@ jobs:
           cp cepheus/xnu/andromeda_slider.c cepheus/xnu/andromeda_slider.h dxb/patches/
           cp cepheus/xnu/andromeda_bt.c cepheus/xnu/andromeda_backlight.c cepheus/xnu/AndromedaBacklight.cpp dxb/patches/
           cp cepheus/xnu/0092-andromeda-bt-rpmh.patch dxb/patches/
+          cp cepheus/xnu/andromeda_cam.c cepheus/xnu/0098-andromeda-cam-rpmh.patch dxb/patches/
           for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
             cepheus_gpu_memory_state.h \
             cepheus_gmu_upload_mmio.h \
@@ -178,7 +179,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -242,6 +243,14 @@ jobs:
           cmp cepheus/xnu/andromeda_slider.h dxb/xnu/bsd/dev/andromeda_slider.h
           grep -F 'andromeda_slider_publish(h42, h114)' dxb/xnu/bsd/dev/andromeda_probe.c
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA SLIDERCAM:" in d and b"andrslidercam" in d and b"slider_wait" in d'
+          # andromeda: rear camera IMX363 chip ID, step C1 (patch 0098, andrcam=1).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0098-andromeda-cam.patch'
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0098-andromeda-cam-rpmh.patch'
+          grep -E '^bsd/dev/andromeda_cam.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
+          cmp cepheus/xnu/andromeda_cam.c dxb/xnu/bsd/dev/andromeda_cam.c
+          grep -F 'andromeda_rpmh_cam_rail' dxb/xnu/bsd/dev/sweet_rpmh.c
+          grep -F 'andromeda_cam_init();' dxb/xnu/bsd/dev/cepheus_touch.c
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA CAM:", b"andrcamdelay", b"andrcamaddr", b"not an andromeda camera rail"))'
           # andromeda: AMFI trust-query stand-in (patch 0096, port of ios-flame 0103).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0096-andromeda-amfi-trust.patch'
           cmp cepheus/xnu/SweetAMFI.cpp dxb/xnu/iokit/Kernel/arm/SweetAMFI.cpp

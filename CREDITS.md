@@ -123,6 +123,18 @@ Acayan, Stephan Gerhold, linux-msm/Linaro, libqmi/ModemManager e il wiki di post
 | **Demon000** (Cosmin Tanislav), riscrittura LineageOS dei Hall (`5fb68e49`); **Nicholas Magill** (Inkypen79) e **Sebastiano Barezzi**, `KeyHandler` di `device_xiaomi_andromeda` (Apache-2.0); **Xiaomi**, `drivers/halls/halls.c` (GPL-2.0) | solo fatti, nessun codice copiato: GPIO 42/114, (42, 114) = (0, 1) → `STATE_SLIDER_DOWN` = slider aperto (polarità 1 di `andrslidercam`), e l'idea stessa di aprire la fotocamera all'apertura dello slider |
 | **Apple**, XNU `xnu-8796.141.3` (APSL 2.0), `bsd/sys/sysctl.h`, `bsd/kern/kern_newsysctl.c`, `bsd/kern/kern_synch.c` | KPI usate da `xnu/andromeda_slider.c` (`SYSCTL_NODE`/`SYSCTL_PROC`, `msleep1`/`wakeup`); dal commento di `sysctl.h` lo schema dell'OID sempre registrato che risponde `ENOENT` quando è spento |
 
+## Fotocamera posteriore, passo C1 (patch 0098)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **YangQi0408**, `UniXNU-cepheus`: `cepheus_i2c_bitbang.h`, `cepheus_clock_status.h` | I²C via GPIO con attese limitate e controllo dei rami di clock, riusati senza modifiche |
+| **dipa-studio**, `ios-sweet` (`45263bee`, MIT), `sweet_rpmh.c`; **Nick Wylynko**, `rh_send_cmds` (ios-flame 0102, arrivata con la 0092) | il trasporto RPMh a cui la 0098-rpmh aggiunge `andromeda_rpmh_cam_rail` |
+| **nomorecoolnicknames**, `hakios-sm8150` `vayu_camera.c` (`3e7be137`, senza licenza: solo l'idea, nessun codice) | I²C via GPIO sui pin del CCI dello stesso SoC |
+| **Yofuness**, `ios-sunfish` `docs/features/camera.md` (`a1b6eb8a`, MIT, solo consultato) | MCLK da XO a 19,2 MHz, ramo MCLK dopo il GDSC, un solo indirizzo per prova |
+| **Xiaomi/Qualcomm**, `com.qti.sensormodule.andromeda_semco_imx363.bin` (dal vendor del telefono, fuori da git) | indirizzo, registro e valore dell'ID, sequenze di accensione e spegnimento con i ritardi |
+| **Xiaomi** `andromeda-p-oss` (`74347f55`, GPL-2.0, solo documentazione): `cam_sensor_cmn_header.h`, `cam_sensor_util.c`, `rpmh-regulator.c` | numeri dei passi, cosa accende ogni passo, unità dei ritardi, scelta del modo dal carico |
+| **Linux** (GPL-2.0, solo documentazione): `camcc-sm8150.c` (Satya Priya Kakitapalli), `gdsc.c`, `clk-rcg2.c`, `clk-branch.c`, `gcc-sm8150.c`, `pinctrl-sm8150.c`, `qcom-rpmh-regulator.c` | offset di registri, bit, valori grezzi dei modi PMIC5 |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |

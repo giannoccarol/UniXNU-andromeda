@@ -38,6 +38,8 @@ install -m 644 "$ROOT/xnu/0092-andromeda-bt.patch" "$ROOT/xnu/0092-stage-androme
 # 0092-andromeda-bt-rpmh.patch is copied by the workflow straight into dxb/patches (it needs the generated 0084).
 install -m 644 "$ROOT/xnu/0093-andromeda-backlight.patch" "$ROOT/xnu/0093-stage-andromeda-backlight.sh" "$ROOT/xnu/andromeda_backlight.c" "$ROOT/xnu/AndromedaBacklight.cpp" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0094-andromeda-display-fit.patch" "$DEST/xnu/patches/"
+install -m 644 "$ROOT/xnu/0098-andromeda-cam.patch" "$ROOT/xnu/0098-stage-andromeda-cam.sh" "$ROOT/xnu/andromeda_cam.c" "$DEST/xnu/patches/"
+# 0098-andromeda-cam-rpmh.patch is copied by the workflow straight into dxb/patches (it needs 0084 and 0092-andromeda-bt-rpmh.patch).
 install -m 644 "$ROOT/xnu/0097-andromeda-slider.patch" "$ROOT/xnu/0097-stage-andromeda-slider.sh" "$ROOT/xnu/andromeda_slider.c" "$ROOT/xnu/andromeda_slider.h" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0096-andromeda-amfi-trust.patch" "$ROOT/xnu/0096-stage-andromeda-amfi.sh" "$ROOT/xnu/SweetAMFI.cpp" "$DEST/xnu/patches/"
 for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
