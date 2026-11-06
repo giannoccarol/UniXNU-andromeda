@@ -12,6 +12,8 @@ che nessuno ha ancora messo insieme:
 | [`YangQi0408/UniXNU-cepheus`](https://github.com/YangQi0408/UniXNU-cepheus) (Mi 9), ramo `feat/adreno640` | touch, tasto power, Home, CPU (OSM), temperatura (TSENS), lavoro sulla **stessa GPU** (Adreno 640) | lo allineiamo periodicamente al nostro ramo |
 | [`nomorecoolnicknames/hakios-sm8150`](https://github.com/nomorecoolnicknames/hakios-sm8150) (POCO X3 Pro, HakiOS) | driver SM8150 di GPU (Mesa freedreno), audio (ADSP, WCD934x), modem, Wi-Fi (non funzionante) | fonte di registri e sequenze di accensione: è un altro kernel, va adattato |
 
+Chi ha fatto il lavoro su cui costruiamo è elencato in [CREDITS.md](CREDITS.md).
+
 ## Ordine di lavoro
 
 | # | Componente | Stato | Difficoltà |

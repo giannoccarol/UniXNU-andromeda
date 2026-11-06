@@ -139,13 +139,7 @@ il telefono.
 
 ## Crediti
 
-- [UniXNU](https://github.com/UniXNU/UniXNU) e DarwinBoot.
-- [`YangQi0408/UniXNU-cepheus`](https://github.com/YangQi0408/UniXNU-cepheus) (Mi 9): base di questo repository.
-- [`JohnLeeeeeee678/UniXNU-raphael`](https://github.com/JohnLeeeeeee678/UniXNU-raphael) e
-  [`wochgn/UniXNU-guacamole`](https://github.com/wochgn/UniXNU-guacamole): il percorso SM8150 da cui deriva il Mi 9.
-- Project Aloha, [`mu_aloha_platforms`](https://github.com/Project-Aloha/mu_aloha_platforms): il UEFI `xiaomi-andromeda`
-  di Kancy Joe (`sunflower2333`), con XiaoYeZi (`qaz6750`), Gustave Monce (`gus33000`), Rostislav Lastochkin (`remtrik`) e
-  gli altri autori; basato su `mu_andromeda_platforms` di WOA-Project e su Project Mu di Microsoft.
-- [`microsoft/mu_crypto_release`](https://github.com/microsoft/mu_crypto_release): driver BaseCrypto precompilato.
-- Hardware del Mi Mix 3 5G: Xiaomi, [`MiCode/Xiaomi_Kernel_OpenSource`](https://github.com/MiCode/Xiaomi_Kernel_OpenSource)
-  ramo `andromeda-p-oss`; Nicholas Magill (`Inkypen79`) e PixelExperience per i device tree.
+Tutti i progetti e le persone di cui usiamo il lavoro, con cosa usiamo di ciascuno: [CREDITS.md](CREDITS.md). In breve:
+`ios-sweet` (dipa-studio), il port del Mi 9 di YangQi0408 (base di questo repository), il percorso SM8150 di
+JohnLeeeeeee678 e wochgn, UniXNU e DarwinBoot, il firmware UEFI di Project Aloha (port `xiaomi-andromeda` di Kancy Joe /
+`sunflower2333`), XNU di Apple, `darwin-xnu-build` di blacktop e `apfs-fuse` di Simon Gander.
