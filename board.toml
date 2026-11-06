@@ -90,11 +90,15 @@ kernel_args = [
   "-enable_kprintf_spam",
   "-noprogress",
   "rd=ufsroot0",
+  # andromeda, phase 2: userdata still holds Android's (encrypted) data. Without
+  # ufsrw=1 the UFS driver refuses every write (EROFS), and the persistent
+  # console log (ios-sweet 0047, on by default) only starts on a writable
+  # partition: it would write the LAST 4 MiB + 4 KiB of userdata. Turn ufsrw=1
+  # and rootrw=1 back on only after the iOS root is installed (phase 3).
+  "sweetlog=0",
   "unentitled_ios_sim_launch=1",
   "ignition_level=1",
   "wdt_test=no_user_checkin",
-  "ufsrw=1",
-  "rootrw=1",
   "launchd_unsecure_cache=1",
   "wdt=-1",
   # USB: 0 off, 1 report controller state only, 2 device mode + CDC-ECM
@@ -112,7 +116,6 @@ kernel_args = [
   "sweetfb_noconsole=0",
   "sweetfb_hz=30",
   "sweetgpu=3",
-  "sweetlogdump=1",
 ]
 
 [payload.adt]
