@@ -1,0 +1,8 @@
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -111,4 +111,5 @@
+ bsd/dev/cepheus_soc.c			standard
+ bsd/dev/andromeda_probe.c		standard
++bsd/dev/andromeda_slider.c		standard
+ bsd/dev/andromeda_cpufreq.c		standard
+ bsd/dev/andromeda_bt.c			standard

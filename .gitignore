@@ -29,5 +29,8 @@ __pycache__/
 /uefi
 /unixnu
 
-# Phone dumps: IMEI/calibration backups and live device data (never committed)
-phone/
+# Phone dumps: IMEI/calibration backups and live device data (never committed).
+# Only the iOS programs under phone/<name>/ (built on a macOS runner) are tracked.
+phone/*
+!phone/README.md
+!phone/andromedad/

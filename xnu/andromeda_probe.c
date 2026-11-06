@@ -35,6 +35,7 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 /* Mach MIG declaration is not included by BSD's exported thread.h. */
 extern kern_return_t thread_terminate(thread_t);
 void andromeda_probe_init(void);
+void andromeda_slider_publish(unsigned h42, unsigned h114); /* andromeda_slider.c, 0097 */
 
 #define AP_TAG "ANDROMEDA PROBE:"
 
@@ -701,6 +702,7 @@ ap_slider_thread(void *arg, wait_result_t result)
 				printf("ANDROMEDA SLIDER: hall42=%u hall114=%u -> %s\n", h42, h114,
 				    ap_slider_name(h42, h114));
 			}
+			andromeda_slider_publish(h42, h114); /* andrslidercam, off by default */
 			last = now;
 		}
 		ap_wait(100);

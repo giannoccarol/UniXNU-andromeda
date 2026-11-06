@@ -1,0 +1,40 @@
+name: userland-andromeda
+
+# iOS programs that run on the phone (phone/<name>/, see phone/README.md):
+# every phone/*/build.sh is run on a macOS runner with Xcode's iphoneos SDK
+# and the results are uploaded as one artifact. Nothing from an iOS image is
+# used. The root build (build-root.sh) installs them with each program's
+# install-root.sh from inputs/<board>/userland/.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: userland-andromeda
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build every phone program
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          mkdir -p out/phone
+          found=0
+          for script in phone/*/build.sh; do
+            [ -f "$script" ] || continue
+            found=1
+            echo "== $script"
+            bash "$script" "$PWD/out/phone"
+          done
+          [ "$found" = 1 ] || { echo "no phone/*/build.sh" >&2; exit 1; }
+          (cd out/phone && find . -type f -print0 | xargs -0 shasum -a 256 > SHA256SUMS && cat SHA256SUMS)
+          git rev-parse HEAD > out/phone/device-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: andromeda-userland
+          path: out/phone/
+          retention-days: 14
+          if-no-files-found: error

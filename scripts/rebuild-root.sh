@@ -124,6 +124,17 @@ sudo python3 "$prepare" prepare "$work/root"
 echo "== bring-up tweaks =="
 sudo python3 "$here/sweet-root-tweaks.py" "$work/root"
 
+# iOS programs of this repository (phone/<name>/, built by the
+# userland-andromeda workflow into inputs/<board>/userland/): each
+# install-root.sh copies its files and launchd job, or warns if not built.
+if [ -d /phone ]; then
+	echo "== phone programs =="
+	for script in /phone/*/install-root.sh; do
+		[ -f "$script" ] || continue
+		sudo bash "$script" "$work/root" /userland
+	done
+fi
+
 echo "== verify the cache before unmounting =="
 sudo python3 "$prepare" verify "$work/root"
 

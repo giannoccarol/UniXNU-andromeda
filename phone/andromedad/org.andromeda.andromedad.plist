@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd job of andromedad. install-root.sh puts it into the job cache
+  /System/Library/xpc/launchd.plist (read at boot; launchd_unsecure_cache=1),
+  as ios-flame's tools/flame-install-ssh.sh does for dropbear.
+  KeepAlive/SuccessfulExit=false: restarted after a crash, not after the
+  clean exit of a kernel without andrslidercam.
+  Log: the daemon writes to /dev/console itself.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.andromeda.andromedad</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/private/var/local/bin/andromedad</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>UserName</key>
+	<string>root</string>
+	<key>StandardOutPath</key>
+	<string>/dev/null</string>
+	<key>StandardErrorPath</key>
+	<string>/dev/null</string>
+</dict>
+</plist>

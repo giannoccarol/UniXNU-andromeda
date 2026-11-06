@@ -163,6 +163,9 @@ kernel_args = [
   # Camera slider: log the two Hall sensors (GPIO 42/114) whenever they
   # change, read only (andromeda_probe.c).
   "andrslider=1",
+  # Slider opens the Camera app (patch 0097 + phone/andromedad): 1 = open is
+  # hall42=0 hall114=1, 2 = reversed. Needs the iOS root with andromedad.
+  "andrslidercam=0",
   # CPU at full clock (andromeda_cpufreq.c, method of ios-flame for the same
   # SoC): Gold/Prime drop to <= 1.4 GHz above 80 C and return below 70 C; an
   # unreadable temperature counts as hot.

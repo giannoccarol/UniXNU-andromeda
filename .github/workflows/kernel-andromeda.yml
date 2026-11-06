@@ -58,6 +58,7 @@ jobs:
           cp cepheus/xnu/andromeda_probe.c cepheus/xnu/andromeda_cpufreq.c cepheus/xnu/andromeda_cpu_governor.h dxb/patches/
           cp cepheus/xnu/andromeda_gpu.c cepheus/xnu/andromeda_gpu_core.c cepheus/xnu/andromeda_gpu.h dxb/patches/
           cp cepheus/xnu/SweetAMFI.cpp dxb/patches/
+          cp cepheus/xnu/andromeda_slider.c cepheus/xnu/andromeda_slider.h dxb/patches/
           cp cepheus/xnu/andromeda_bt.c cepheus/xnu/andromeda_backlight.c cepheus/xnu/AndromedaBacklight.cpp dxb/patches/
           cp cepheus/xnu/0092-andromeda-bt-rpmh.patch dxb/patches/
           for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
@@ -122,6 +123,8 @@ jobs:
           /tmp/policy-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_cpu_governor.c -o /tmp/governor-test
           /tmp/governor-test
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_slider.c -o /tmp/slider-test
+          /tmp/slider-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_a640_pm4.c -o /tmp/pm4-test
           /tmp/pm4-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gmu_firmware.c -o /tmp/gmu-test
@@ -175,7 +178,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -232,6 +235,13 @@ jobs:
           cmp cepheus/xnu/andromeda_backlight.c dxb/xnu/bsd/dev/andromeda_backlight.c
           cmp cepheus/xnu/AndromedaBacklight.cpp dxb/xnu/iokit/Kernel/arm/AndromedaBacklight.cpp
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA BT:", b"andrbtdelay", b"ANDROMEDA RPMH:", b"ANDROMEDA BL:", b"andrbllevel", b"AppleARMBacklight"))'
+          # andromeda: slider -> Camera app (patch 0097, andrslidercam).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0097-andromeda-slider.patch'
+          grep -E '^bsd/dev/andromeda_slider.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
+          cmp cepheus/xnu/andromeda_slider.c dxb/xnu/bsd/dev/andromeda_slider.c
+          cmp cepheus/xnu/andromeda_slider.h dxb/xnu/bsd/dev/andromeda_slider.h
+          grep -F 'andromeda_slider_publish(h42, h114)' dxb/xnu/bsd/dev/andromeda_probe.c
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA SLIDERCAM:" in d and b"andrslidercam" in d and b"slider_wait" in d'
           # andromeda: AMFI trust-query stand-in (patch 0096, port of ios-flame 0103).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0096-andromeda-amfi-trust.patch'
           cmp cepheus/xnu/SweetAMFI.cpp dxb/xnu/iokit/Kernel/arm/SweetAMFI.cpp

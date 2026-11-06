@@ -1,0 +1,26 @@
+# Programmi per iOS sul telefono
+
+Ogni cartella `phone/<nome>/` contiene un programma che gira dentro iOS (demone o strumento), con due script:
+
+| Script | Dove gira | Cosa fa |
+|---|---|---|
+| `phone/<nome>/build.sh [OUT]` (oppure `OUT=…` nell'ambiente) | runner macOS di GitHub con Xcode | compila per iOS 16 arm64 (`xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.0`), firma ad hoc (`codesign -s -`, con gli entitlement se servono) e scrive i file in `$OUT/<nome>/` |
+| `phone/<nome>/install-root.sh ROOT OUTDIR` | PC Linux, come root, durante la costruzione del sistema iOS | copia i file compilati (`OUTDIR/<nome>/`) nel sistema iOS montato in `ROOT` ed eventualmente aggiunge il job di launchd in `ROOT/System/Library/xpc/launchd.plist` |
+
+Regole:
+
+- Un workflow esegue ogni `phone/*/build.sh`; un unico aggancio nella costruzione del sistema esegue ogni
+  `phone/*/install-root.sh`. Gli script non toccano `scripts/rebuild-root.sh`, `scripts/sweet-root-tweaks.py` né i
+  workflow.
+- `install-root.sh` è idempotente; se il programma non è stato compilato avvisa ed esce con 0, senza cambiare il
+  sistema.
+- I binari vanno in `/private/var/local/bin/`; i job di launchd si chiamano `org.andromeda.<nome>`.
+- Ogni programma resta inattivo se manca il suo parametro di avvio del kernel ([CONTRIBUTING.md](../CONTRIBUTING.md) §4).
+- Nessun file di iOS (IPSW, librerie, device tree) nel codice o negli output; solo l'SDK di Xcode.
+- I dati del telefono (`phone/<seriale>/`, `phone/logs/`) restano fuori da git.
+- Crediti: ogni codice o idea ripresa va in [CREDITS.md](../CREDITS.md) nello stesso cambiamento.
+
+Programmi:
+
+- [`andromedad/`](andromedad/): apre l'app Fotocamera quando si apre lo slider (patch del kernel 0097,
+  `andrslider=1 andrslidercam=1`).

@@ -114,6 +114,15 @@ Acayan, Stephan Gerhold, linux-msm/Linaro, libqmi/ModemManager e il wiki di post
 | **Kernel Linux** (GPL-2.0, solo documentazione): `qcom_geni_serial.c`, `qcom-geni-se.c`, `hci_qca.c`, `btqca.c/.h`, `drm/msm/dsi/dsi_host.c`, `clk-rcg2.c`, `gcc-sm8150.c`, `pinctrl-sm8150.c`, `qcom-rpmh-regulator.c`; Xiaomi `bluetooth-power.c` (`andromeda-p-oss`) | registri e sequenze GENI UART, impulsi WCN3990, comando EDL, DCS long write, RCG M/N, modi PMIC5 LDO, ordine delle alimentazioni |
 | **Project Aloha**, Kancy Joe (`sunflower2333`): `Panel_samsung_ea8076_fhd_amoled_cmd.xml`, `PlatformMemoryMapLib.c` di `xiaomi-andromeda` | autorefresh e comandi del pannello EA8076, zona "Display Reserved" |
 
+## Slider e app Fotocamera (patch 0097, `phone/andromedad`)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **Nick Wylynko** (NWylynko), [`ios-flame`](https://github.com/NWylynko/ios-flame) (commit `745c4341`, MIT, copia in `licenses/ios-flame-MIT.txt`): `phone/tools/openapp.m`, `openapp-ents.plist`, `phone/tools/build.sh`, `tools/flame-install-ssh.sh` | il modo di aprire un'app dal suo bundle id con FrontBoardServices (`FBSOpenApplicationService`, poi `FBSSystemService`; opzioni `__UnlockDevice`/`__ActivateSuspended`; attesa della risposta) in `phone/andromedad/andromedad.m`; i tre entitlement `*.launchapplications` in `andromedad.entitlements`; compilazione con l'SDK iphoneos e firma ad hoc con entitlement in `build.sh`; il job aggiunto alla cache `System/Library/xpc/launchd.plist` (chiave `/System/Library/LaunchDaemons/<label>.plist`) in `install-root.sh`. Il ripiego su `LSApplicationWorkspace` e il resto del demone sono nostri |
+| **dipa-studio**, `ios-sweet` (`45263bee`, MIT) | l'uso della cache dei job di launchd modificata, accettata con `launchd_unsecure_cache=1` (`sweet-root-tweaks.py`), la politica Sandbox permissiva (patch 0050) che lascia girare il demone, e il log della console (patch 0047/0077) che porta le righe `andromedad:` scritte su `/dev/console` nel log persistente e in quello via USB |
+| **Demon000** (Cosmin Tanislav), riscrittura LineageOS dei Hall (`5fb68e49`); **Nicholas Magill** (Inkypen79) e **Sebastiano Barezzi**, `KeyHandler` di `device_xiaomi_andromeda` (Apache-2.0); **Xiaomi**, `drivers/halls/halls.c` (GPL-2.0) | solo fatti, nessun codice copiato: GPIO 42/114, (42, 114) = (0, 1) → `STATE_SLIDER_DOWN` = slider aperto (polarità 1 di `andrslidercam`), e l'idea stessa di aprire la fotocamera all'apertura dello slider |
+| **Apple**, XNU `xnu-8796.141.3` (APSL 2.0), `bsd/sys/sysctl.h`, `bsd/kern/kern_newsysctl.c`, `bsd/kern/kern_synch.c` | KPI usate da `xnu/andromeda_slider.c` (`SYSCTL_NODE`/`SYSCTL_PROC`, `msleep1`/`wakeup`); dal commento di `sysctl.h` lo schema dell'OID sempre registrato che risponde `ENOENT` quando è spento |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |
