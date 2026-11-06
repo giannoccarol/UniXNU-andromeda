@@ -11,7 +11,7 @@ componente per componente il prossimo passo. I crediti di ogni lavoro ripreso o 
 
 ## 1. Pronto da provare sul telefono
 
-Tre immagini, già costruite sul PC (in `out/andromeda/boot/`, fuori da git) con il kernel compilato su GitHub.
+Quattro immagini, già costruite sul PC (in `out/andromeda/boot/`, fuori da git) con il kernel compilato su GitHub.
 Ognuna si avvia **solo in RAM** con `fastboot boot`: nessuna scrittura sul telefono.
 
 | Immagine | Cosa contiene | UEFI |
@@ -19,6 +19,7 @@ Ognuna si avvia **solo in RAM** con `fastboot boot`: nessuna scrittura sul telef
 | `boot-andromeda-xnu.img` | tutto quello che segue nella tabella delle prove | quello già provato |
 | `boot-andromeda-xnu-btbl.img` | la principale + prova Bluetooth (`andrbt=1`) e luminosità (`andrbl=1`) | quello già provato |
 | `boot-andromeda-xnu-3g.img` | la principale con **~2,94 GiB** di memoria per iOS (`0xBC000000`) | nuovo, con la RAM unita |
+| `boot-andromeda-xnu-fb.img` | la principale + ritorno automatico in fastboot dopo 5 minuti (`andrfastboot=300`) | quello già provato |
 
 Il log via USB si legge con `scripts/udplog-ts.py` e si riassume con
 `python3 scripts/andstatus.py <log> --follow`.
@@ -34,7 +35,7 @@ Il log via USB si legge con `scripts/udplog-ts.py` e si riassume con
 | 5 | **Batteria vera** (`sweetbattery=2`) | guardi l'icona | percentuale vera; `SWEET BATTERY: PM8150B fuel gauge, …%` |
 | 6 | **GPU gradino 1** (`andrgpu=1`, sola lettura) | niente | `ANDROMEDA GPU: probe: firmware … found + SHA-256 OK` (4 righe), `step 1 (probe) ok` |
 | 7 | **Slider** (`andrslider=1`) | apri e chiudi lo slider qualche volta | `ANDROMEDA SLIDER: hall42=… hall114=… -> up (open)/down (closed)` |
-| 8 | **Ritorno in fastboot** (`andrfastboot=N`) | resti vicino: se partisse Android, spegni subito tenendo premuto power | immagine di prova con `ANDROMEDA_TAG=fb ANDROMEDA_ARGS="andrfastboot=300" ./build-boot.sh`; dopo 5 minuti il telefono deve tornare da solo in fastboot |
+| 8 | **Ritorno in fastboot** (`andrfastboot=N`) | resti vicino: se partisse Android, spegni subito tenendo premuto power | immagine `-fb`; dopo 5 minuti il telefono deve tornare da solo in fastboot (`ANDROMEDA PROBE: REBOOT …` nel log) |
 | 9 | **Bluetooth B1 e luminosità** (immagine `-btbl`) | guardi lo schermo dopo 30 s | luminosità che cambia massimo → un quarto → massimo; `ANDROMEDA BT: B1 PASS` |
 | 10 | **3 GiB di memoria** (immagine `-3g`) | niente | parte come la principale; se non parte, DarwinBoot mostra la mappa e basta riavviare con l'immagine principale |
 | 11 | **GPU gradini 2 → 4**, uno per avvio | niente | `gmu: init result babeface BOOTED`, poi `zap: auth and reset rc 0`, poi `step 4 (CP_MEM_WRITE) PASS` |
