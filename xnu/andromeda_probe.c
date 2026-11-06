@@ -111,6 +111,7 @@ static const struct { uint8_t sid, periph; const char *name; } ap_allowed[] = {
 	{2, 0x16, "PM8150B MISC"},
 	{2, 0x40, "PM8150B FG BATT_SOC"},
 	{2, 0x41, "PM8150B FG BATT_INFO"},
+	{3, 0xc0, "PM8150B HAPTICS"},
 	{2, 0x42, "PM8150B FG 0x42"},
 	{2, 0x43, "PM8150B FG 0x43 (MEM_IF?)"},
 	{2, 0x44, "PM8150B FG MEM_IF"},
@@ -292,6 +293,9 @@ ap_pmic(void)
 		unsigned sid = ap_allowed[i].sid, p = ap_allowed[i].periph;
 		const uint8_t *offs = ap_offs_generic;
 		unsigned count = AP_N(ap_offs_generic);
+		if (sid == 3) {
+			continue; /* haptics: dedicated dumps below */
+		}
 		if (sid != 2) {
 			offs = ap_offs_vreg; count = AP_N(ap_offs_vreg);
 		} else if (p >= 0x10 && p <= 0x16) {
@@ -319,6 +323,19 @@ ap_pmic(void)
 	sp_dump(2, 0x10, "PM8150B CHGR cfg", chgr_cfg, AP_N(chgr_cfg));
 	sp_dump(2, 0x13, "PM8150B USBIN cfg", usbin_cfg, AP_N(usbin_cfg));
 	sp_dump(2, 0x16, "PM8150B MISC cfg", misc_cfg, AP_N(misc_cfg));
+	/*
+	 * Vibrator: PM8150B haptics block, SID 3 0xC000 (qti-haptics.c register
+	 * map, docs/research/sensori-vibrazione.md): identity, STATUS1 (0x0A),
+	 * EN_CTL1-3, auto resonance, CFG, SEL, VMAX and play-rate registers.
+	 * Read only: the motor is not driven. Everything is below 0xD0 (no
+	 * SEC_ACCESS region).
+	 */
+	static const uint8_t hap_id[] = {0x04, 0x05, 0x08, 0x09, 0x0a, 0x0b, 0x10, 0x46, 0x48,
+		0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f};
+	static const uint8_t hap_cfg[] = {0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+		0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x70};
+	sp_dump(3, 0xc0, "PM8150B HAPTICS", hap_id, AP_N(hap_id));
+	sp_dump(3, 0xc0, "PM8150B HAPTICS cfg", hap_cfg, AP_N(hap_cfg));
 }
 
 /* ---- battery source for SweetBattery (sweetbattery=2) ------------------- */
@@ -638,6 +655,61 @@ ap_reboot_bootloader(const char *why)
 	printf(AP_TAG " REBOOT: PSCI SYSTEM_RESET returned %#llx\n", (unsigned long long)x0);
 }
 
+/* ---- camera slider (andrslider=1) ---------------------------------------
+ *
+ * Two Hall sensors on TLMM GPIO 42 (NORTH tile) and 114 (SOUTH tile), as the
+ * Xiaomi halls.c (DEF_HALL_GPIO_1/2) and the LineageOS rewrite by Demon000
+ * read them: (42, 114) = (0, 1) slider down, (1, 0) slider up, anything else
+ * moving (docs/research/sensori-vibrazione.md 1.3). Read only: the IN bit of
+ * GPIO_IN_OUT, polled every 100 ms; pin configuration is not changed.
+ */
+#define AP_TLMM_NORTH_PA 0x03900000u
+#define AP_TLMM_SOUTH_PA 0x03d00000u
+
+static const char *
+ap_slider_name(unsigned h42, unsigned h114)
+{
+	if (h42 == 0 && h114 == 1) {
+		return "down (closed)";
+	}
+	if (h42 == 1 && h114 == 0) {
+		return "up (open)";
+	}
+	return "moving";
+}
+
+static void
+ap_slider_thread(void *arg, wait_result_t result)
+{
+	(void)arg;
+	(void)result;
+	vm_offset_t north = ml_io_map(AP_TLMM_NORTH_PA, 0x30000);
+	vm_offset_t south = ml_io_map(AP_TLMM_SOUTH_PA, 0x80000);
+	if (!north || !south) {
+		printf("ANDROMEDA SLIDER: TLMM mapping failed\n");
+		goto out;
+	}
+	printf("ANDROMEDA SLIDER: GPIO42 cfg=%#x GPIO114 cfg=%#x (read only)\n",
+	    ap_rd(north, AP_GPIO_CFG(42)), ap_rd(south, AP_GPIO_CFG(114)));
+	unsigned last = 0xff, changes = 0;
+	for (;;) {
+		unsigned h42 = ap_rd(north, AP_GPIO_IO(42)) & 1u;
+		unsigned h114 = ap_rd(south, AP_GPIO_IO(114)) & 1u;
+		unsigned now = (h42 << 1) | h114;
+		if (now != last) {
+			if (changes++ < 200u) {
+				printf("ANDROMEDA SLIDER: hall42=%u hall114=%u -> %s\n", h42, h114,
+				    ap_slider_name(h42, h114));
+			}
+			last = now;
+		}
+		ap_wait(100);
+	}
+out:
+	(void)thread_terminate(current_thread());
+	thread_block(THREAD_CONTINUE_NULL);
+}
+
 static unsigned ap_fastboot_s;
 
 static void
@@ -664,6 +736,12 @@ andromeda_probe_init(void)
 	(void)PE_parse_boot_argn("andrfastboot", &ap_fastboot_s, sizeof(ap_fastboot_s));
 	if (ap_fastboot_s >= 60 &&
 	    kernel_thread_start(ap_fastboot_thread, NULL, &thread) == KERN_SUCCESS) {
+		thread_deallocate(thread);
+	}
+	unsigned slider = 0;
+	(void)PE_parse_boot_argn("andrslider", &slider, sizeof(slider));
+	if (slider == 1 &&
+	    kernel_thread_start(ap_slider_thread, NULL, &thread) == KERN_SUCCESS) {
 		thread_deallocate(thread);
 	}
 	(void)PE_parse_boot_argn("andrprobe", &ap_level, sizeof(ap_level));

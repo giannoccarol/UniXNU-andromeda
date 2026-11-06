@@ -92,6 +92,12 @@ Per le fotocamere (`docs/research/fotocamere.md`): **vcvkk** e OOSEX GANG (HakiO
 (`ios-sunfish`, MIT) e DenialOfGravity / Rory Axton (`ios-redfin`, MIT), **nomorecoolnicknames** (`hakios-sm8150`, solo
 riferimento), **Andrew Gigena** (serie CAMSS SM8150 per Linux) e **Robin Snyders** (fotocamere OnePlus 7T Pro), i manutentori
 di Qualcomm CAMSS in Linux e di libcamera, **Eileen Yoon** (Asahi), YangQi0408 (I²C via GPIO che riusiamo).
+Per vibrazione, sensori e slider (`docs/research/sensori-vibrazione.md`): Xiaomi `drivers/halls/halls.c` e Qualcomm
+`qti-haptics.c` (GPL, solo documentazione: GPIO dei sensori Hall e registri del blocco aptico letti da `andrslider`/`andrprobe`),
+**Demon000** (Cosmin Tanislav, riscrittura LineageOS dei Hall, significato degli stati), **Nicholas Magill** (Inkypen79) e
+**Sebastiano Barezzi** (kernel e KeyHandler), **nomorecoolnicknames** (`hakios-sm8150` `vayu`, solo riferimento), OOSEX GANG e
+gli autori di Scion (vcvkk, dylanneve1, shimoku74), Dylan Van Assche (libssc), Richard Acayan (hexagonrpc), Caleb Connolly,
+Andrew Gigena.
 
 ## Bluetooth e luminosità (patch 0092/0093)
 

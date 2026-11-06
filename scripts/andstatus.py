@@ -36,6 +36,8 @@ RULES = [
     ("Bluetooth", "esito", r"ANDROMEDA BT: (B1 PASS|.*FAIL.*|down: .*)"),
     ("Bluetooth", "versione", r"ANDROMEDA BT: (SoC version: .*)"),
     ("Luminosità", "esito", r"ANDROMEDA BL: (level \d+ .*|DCS 51 .*)"),
+    ("Slider", "posizione", r"ANDROMEDA SLIDER: (hall42=\d hall114=\d -> .*)"),
+    ("Vibrazione", "registri", r"ANDROMEDA PROBE: (PM8150B HAPTICS sid3 .*)"),
     ("Sistema", "AMFI", r"SWEET AMFI: (.*)"),
     ("Sistema", "fastboot", r"ANDROMEDA PROBE: (REBOOT .*|will reboot into fastboot .*)"),
     ("Sistema", "panic", r"(panic\(.*)"),
