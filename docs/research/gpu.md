@@ -561,6 +561,26 @@ done
 
 Nei documenti va registrato **solo lo SHA256**, come fa il Mi 9 (`cpu-gpu.md`).
 
+### 6.3b Estratti dal nostro telefono (6 novembre 2026)
+
+Estratti con TWRP 3.7.0 ufficiale avviato solo in RAM. Su EvolutionX 16 il `vendor` è una **partizione dinamica**
+(formato retrofit): la tabella LP all'inizio della partizione fisica `system` lo colloca a 1.077.026.816 byte dentro
+`system` (886 MiB), mentre la partizione fisica `vendor` contiene i resti del vecchio MIUI e parte di `product`. Copiato
+solo quel tratto (sola lettura) e letto con `debugfs`. I file restano in `inputs/andromeda/gpufw/` (fuori da git).
+
+| File | SHA256 |
+|---|---|
+| `a630_sqe.fw` | `36298bd53ea3666413d288a3a3f5266f67fcb6db038a0a481af5869d1c17859c` |
+| `a640_gmu.bin` | `3ff0c02708bbe78641db887fa62f3a7f9337934d0c2ce0b961ef7c43172591d2` |
+| `a640_zap.b00` | `c9e39868fb6edcc30fc3574657f10dd1dfe22c9cd79e53de213a69703582091f` |
+| `a640_zap.b01` | `19fc65f442515ca8c3865349cd98fd12503d9a6c9b144145e519a0cce5f3d7d9` |
+| `a640_zap.b02` | `e24a4f483b71ea19715910f01e1abf94280756df731cad05df48fd7714e34198` |
+| `a640_zap.elf` | `1b2b485190c6b4be5856f2c9672951fc9773741c093b282bea30e626f280041f` |
+| `a640_zap.mdt` | `ed6738828cceaebf4d69446e34b2043b1c51002750602d3e7e40bf218ec3d59a` |
+
+`a640_gmu.bin` coincide con quello del Mi 9 (`3ff0c027…`); `a630_sqe.fw` (32.136 B) e la ZAP no: la ZAP è firmata per il
+dispositivo, quindi va usata la nostra.
+
 ### 6.4 Come passarli al kernel
 
 Come ios-flame: proprietà `/chosen/gpufw,<nome>` nell'ADT.
