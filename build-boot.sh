@@ -13,11 +13,14 @@ for f in "inputs/$NAME/kernel.macho" scripts/base-d22ap.adt "out/$NAME/fv/SM8150
   [ -s "$f" ] || { echo "missing: $f" >&2; exit 1; }
 done
 docker build -q -t unixnu-firmware -f build/Dockerfile.firmware build/ >/dev/null
-exec docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/work" -w /work unixnu-firmware bash -c "
+# ANDROMEDA_OWNED=0x... builds a test image with another kernel window,
+# written as boot-<name>-xnu-<OWNED>.img next to the normal one.
+SUFFIX="${ANDROMEDA_OWNED:+-$ANDROMEDA_OWNED}"
+exec docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e ANDROMEDA_OWNED="${ANDROMEDA_OWNED:-}" -v "$PWD:/work" -w /work unixnu-firmware bash -c "
   set -euo pipefail
   bash scripts/get-dtb.sh
   python3 scripts/build-payload.py
-  python3 scripts/build-bootimg.py --fd out/$NAME/fv/SM8150_EFI-unixnu.fd -o out/$NAME/boot/boot-$NAME-xnu.img
-  mv out/$NAME/boot/boot.json out/$NAME/boot/boot-$NAME-xnu.json
-  sha256sum out/$NAME/boot/boot-$NAME-xnu.img
+  python3 scripts/build-bootimg.py --fd out/$NAME/fv/SM8150_EFI-unixnu.fd -o out/$NAME/boot/boot-$NAME-xnu$SUFFIX.img
+  mv out/$NAME/boot/boot.json out/$NAME/boot/boot-$NAME-xnu$SUFFIX.json
+  sha256sum out/$NAME/boot/boot-$NAME-xnu$SUFFIX.img
 "

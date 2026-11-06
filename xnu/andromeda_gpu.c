@@ -18,12 +18,13 @@
  *   andrgpu=N          0/absent: nothing touched. Else N = highest step to run
  *                      (1 probe, 2 CX+GMU, 3 GX+CP+ZAP, 4 CP_MEM_WRITE).
  *   andrgpupool=PA     physical base of the GPU pool, in RAM XNU does not
- *                      manage. Default 0x140000000: the Aloha "RAM Partition"
- *                      (0x140000000..0x17FE00000, conventional, ~1022 MiB).
- *                      That run is smaller than the 1.5 GiB kernel window, so
- *                      DarwinBoot can never place the kernel there, whichever
- *                      of the two large free runs it chose; the pool is thus
- *                      free in both cases. Refused if any part of it turns out
+ *                      manage. Default 0x1FF000000: the top 16 MiB of the
+ *                      6 GiB DRAM. DarwinBoot places the kernel window at
+ *                      ALIGN(start of the free run, 32 MiB) + 0x1004000
+ *                      (0x181004000 with the stock Aloha map, 0x141004000 with
+ *                      patches/aloha-andromeda-ram-merge.patch) and the window
+ *                      ends below 0x1FF000000 for owned_memory_size up to
+ *                      0xBD000000. Refused if any part of it turns out
  *                      XNU-managed (fail-safe, via pmap_valid_address).
  *   andrgpupoolsize=B  pool size (default 0x1000000, 16 MiB).
  *   andrgpudelay=S     seconds before the thread starts (default 90), so the
@@ -72,13 +73,14 @@ extern void _enable_preemption(void);
 extern int vprintf(const char *, va_list);
 #endif
 
-/* The whole 6 GiB DRAM window the Aloha UEFI map exposes (board.toml); the
- * pool must land inside it and outside the PStore carve-out. */
+/* The whole 6 GiB DRAM the Aloha UEFI map exposes (board.toml). This build
+ * has no PStore (USE_MEMORY_FOR_SERIAL_OUTPUT = 0); the check below is kept
+ * as a harmless guard for builds that enable it. */
 #define AG_DRAM_BASE	0xc0000000ull
 #define AG_DRAM_END	0x200000000ull
 #define AG_PSTORE_BASE	0x17fe00000ull
 #define AG_PSTORE_END	0x180000000ull
-#define AG_POOL_DEFAULT	0x140000000ull	/* Aloha "RAM Partition": never a kernel window (too small) */
+#define AG_POOL_DEFAULT	0x1ff000000ull	/* top 16 MiB of DRAM, above any kernel window */
 
 /* ---- firmware identity (docs/research/gpu.md 6.3b) ---- */
 

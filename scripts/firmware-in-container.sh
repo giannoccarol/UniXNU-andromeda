@@ -27,6 +27,9 @@ python3 scripts/patch-darwinboot-diag.py unixnu/drivers/DarwinBoot/DarwinBootPkg
 apply_once uefi ../patches/aloha-cepheus.patch --reject --whitespace=nowarn \
   || echo "NOTE: some aloha hunks were rejected; fix_aloha_tree.py re-does them"
 python3 scripts/fix_aloha_tree.py uefi
+# One EFI memory map entry for 0x140000000..0x200000000 (3 GiB), so DarwinBoot
+# can allocate a kernel window bigger than 2 GiB there (see the patch header).
+apply_once uefi ../patches/aloha-andromeda-ram-merge.patch
 
 echo "== device tree"
 bash scripts/get-dtb.sh

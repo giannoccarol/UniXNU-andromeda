@@ -93,9 +93,11 @@ DEVICES = {
         #   0x080000000 + 0x3CC00000  (low bank, ends 0x0BCC00000)
         #   0x0C0000000 + 0x80000000  (mid bank, ends 0x140000000)
         #   0x140000000 + 0xC0000000  (high bank, ends 0x200000000)
-        # The UEFI map splits that run (MPSS_EFS reserved at 0xC0000000, PStore
-        # at 0x17FE00000), so the kernel window DarwinBoot allocates is 2 GiB
-        # (board.toml owned_memory_size) and DarwinBoot, not this table, places it.
+        # The stock Aloha UEFI map splits that run at 0x180000000 (RamPartitionDxe
+        # adds the high RAM with other capabilities; there is no PStore in this
+        # build); patches/aloha-andromeda-ram-merge.patch merges it into one
+        # 3 GiB entry. DarwinBoot, not this table, places the kernel window
+        # (board.toml owned_memory_size).
         'phys_base': 0xc0000000,
         'mem_size': 0xc0000000,
         'high_phys_base': 0x180000000,

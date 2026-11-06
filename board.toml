@@ -178,22 +178,20 @@ kernel_args = [
 tool = "scripts/make-andromeda-adt.py"
 unique_chip_id = "required"
 # Kernel-managed window DarwinBoot allocates. It is NOT the DRAM size; see
-# dram_size. guacamole needed 3 GiB instead of DarwinBoot's 256 MiB default to
-# reserve early I/O page tables for the 36 MiB cont_splash framebuffer.
-# andromeda: DarwinBoot needs ONE contiguous run of UEFI conventional memory
-# this big (32 MiB aligned plus the kernel base offset). The live FDT shows
-# 0xC0000000..0x200000000 as contiguous, but the Aloha xiaomi-andromeda UEFI
-# map is not: MPSS_EFS is reserved at 0xC0000000 (+3 MiB; the Mi 9 map has DXE
-# Heap there) and PStore at 0x17FE00000 (+2 MiB). That leaves ~2.99 GiB from
-# 0xC0300000 and 2 GiB above 0x180000000, so 3 GiB fails with "Out of
-# Resources" (seen on the phone, 2026-11-06). 2 GiB then failed with "Not
-# Found": EDK II's AllocatePages(AllocateAddress) refuses a range that spans
-# two memory map entries (MdeModulePkg/Core/Dxe/Mem/Page.c, "covers multiple
-# entries"), and DarwinBoot sizes the run across adjacent free entries. The
-# largest single entries are DXE Heap 0xC0300000..0x140000000 and the RAM
-# partition 0x180000000..0x200000000, ~1.95 GiB each after the 32 MiB
-# alignment. 1.5 GiB fits either with ~450 MB left for firmware allocations.
-# Merging the entries in the UEFI memory map would allow more later.
+# dram_size. andromeda: DarwinBoot needs ONE free UEFI memory-map entry this
+# big; it places the window at ALIGN(entry start, 32 MiB) + 0x1004000 (the
+# kernel base offset). EDK II refuses an AllocateAddress range that spans two
+# entries (MdeModulePkg Page.c, "covers multiple entries"). This build has no
+# PStore. The stock Aloha map splits the RAM at 0x180000000 (RamPartitionDxe
+# adds the high RAM with different capabilities, so the DXE core does not
+# merge 0x140000000..0x180000000 with 0x180000000..0x200000000): 3 GiB failed
+# "Out of Resources", 2 GiB "Not Found", 1.5 GiB worked at 0x181004000 (USB
+# DMA at 0x183b58000 in the logs). patches/aloha-andromeda-ram-merge.patch
+# gives the high RAM the same capabilities: one 3 GiB entry from 0x140000000,
+# window from 0x141004000, maximum 0xBEE00000. 0x60000000 keeps working with
+# either UEFI; the 3 GiB test image is built with OWNED=0xBC000000 (see
+# ANDROMEDA.md). The GPU pool (andrgpupool, default 0x1FF000000) stays above
+# any window up to 0xBD000000.
 owned_memory_size = "0x60000000"
 
 [bootimg.image]

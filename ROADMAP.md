@@ -62,9 +62,13 @@ Chi ha fatto il lavoro su cui costruiamo è elencato in [CREDITS.md](CREDITS.md)
 - Vantaggio in più: un riavvio normale non parte più in Android, che non troverebbe la sua `userdata` (ora c'è iOS).
 
 ### 5. Più memoria
-- DarwinBoot vuole la finestra del kernel dentro una sola voce della mappa UEFI. Unendo nella mappa di Aloha "DXE Heap"
-  (`0xC0300000-0x140000000`) e "RAM Partition" (`0x140000000-0x17FE00000`) si ottiene una voce da ~3 GiB.
-- **Come**: patch della mappa di `xiaomi-andromeda`, prova del solo UEFI (menu UniXNU), poi finestra 2,5 GiB, poi 3.
+- DarwinBoot vuole la finestra del kernel dentro una sola voce della mappa UEFI. Oggi la finestra da 1,5 GiB sta a
+  `0x181004000`: la RAM sopra `0x180000000` è una voce a sé perché `RamPartitionDxe` di Aloha la aggiunge con capacità
+  diverse da quella sotto (il PStore in questa build non esiste).
+- **Fatto (da provare)**: `patches/aloha-andromeda-ram-merge.patch` dà alla RAM alta le stesse capacità, così
+  `0x140000000-0x200000000` diventa una voce sola da 3 GiB (finestra da `0x141004000`, massimo `0xBEE00000`). L'UEFI compila.
+- **Prova**: immagine `boot-andromeda-xnu-0xBC000000.img` (`ANDROMEDA_OWNED=0xBC000000 ./build-boot.sh`); se fallisce,
+  DarwinBoot mostra la mappa a schermo senza danni. Ripiego: `out/andromeda/fallback-uefi-1.5g/`.
 
 ### 6. Batteria e ricarica
 - **Perché prima di tutto il resto**: sotto XNU oggi la batteria si scarica e basta (anche sul POCO X3 Pro di HakiOS):

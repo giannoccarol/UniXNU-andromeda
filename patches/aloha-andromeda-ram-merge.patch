@@ -1,0 +1,59 @@
+Project Aloha RamPartitionDxe: let the RAM above 0x180000000 join the EFI
+memory map entry of the PEI-declared RAM just below it.
+
+AddRamPartition() added the RAM it reads from SMEM with GCD capabilities 0xF,
+while the PEI map (PlatformMemoryMapLib, SYS_MEM_CAP) gives system memory
+UC|WC|WT|WB|RP|WP|XP and CpuDxe adds RO. The DXE core merges adjacent free
+ranges only when their attributes match, so on xiaomi-andromeda (6 GiB)
+0x140000000-0x180000000 and 0x180000000-0x200000000 stayed two descriptors
+and DarwinBoot's AllocatePages(AllocateAddress) across 0x180000000 failed
+with EFI_NOT_FOUND. With the capabilities of the region below, the two merge
+into one 3 GiB conventional run.
+
+Applied by scripts/firmware-in-container.sh (apply_once). Upstream code:
+Kancy Joe (sunflower2333) and XiaoYeZi (qaz6750), Project Aloha.
+
+diff --git a/Platforms/AndromedaPkg/Driver/RamPartitionDxe/RamPartitionDxe.c b/Platforms/AndromedaPkg/Driver/RamPartitionDxe/RamPartitionDxe.c
+index 9fd719a3..6b8192b7 100644
+--- a/Platforms/AndromedaPkg/Driver/RamPartitionDxe/RamPartitionDxe.c
++++ b/Platforms/AndromedaPkg/Driver/RamPartitionDxe/RamPartitionDxe.c
+@@ -134,6 +134,9 @@ AddRamPartition(
+ {
+   EFI_STATUS          Status           = EFI_SUCCESS;
+   EFI_GCD_MEMORY_TYPE EfiGcdMemoryType = EfiGcdMemoryTypeReserved;
++  UINT64              Capabilities     = EFI_MEMORY_UC | EFI_MEMORY_WC |
++                                         EFI_MEMORY_WT | EFI_MEMORY_WB;
++  EFI_GCD_MEMORY_SPACE_DESCRIPTOR Below;
+ 
+   switch (EfiMemoryType) {
+   case EfiReservedMemoryType:
+@@ -153,9 +156,27 @@ AddRamPartition(
+   if (Length == 0)
+     return EFI_INVALID_PARAMETER;
+ 
++  //
++  // RAM that continues the system memory just below it gets the same GCD
++  // capabilities (the PEI-declared UC|WC|WT|WB|RP|WP|XP, to which CpuDxe
++  // has already added RO). The DXE core uses them as the EFI memory map attribute
++  // and only merges adjacent free ranges whose attributes match: with a
++  // fixed 0xF the RAM from 0x180000000 stayed a separate descriptor from the
++  // PEI "RAM Partition" below it, so AllocatePages(AllocateAddress) could not
++  // take a range across 0x180000000 ("covers multiple entries"). The old
++  // capabilities stay a subset, so the attribute calls below still apply.
++  //
++  if ((EfiGcdMemoryType == EfiGcdMemoryTypeSystemMemory) && (Base != 0) &&
++      !EFI_ERROR(gDS->GetMemorySpaceDescriptor(Base - 1, &Below)) &&
++      (Below.GcdMemoryType == EfiGcdMemoryTypeSystemMemory) &&
++      ((Below.Capabilities & Capabilities) == Capabilities)) {
++    Capabilities = Below.Capabilities & ~EFI_MEMORY_RUNTIME;
++  }
++
+   DEBUG(
+-      (EFI_D_ERROR, "Adding Memory Space: 0x%08llx 0x%08llx\n", Base, Length));
+-  Status = gDS->AddMemorySpace(EfiGcdMemoryType, Base, Length, 0xF);
++      (EFI_D_ERROR, "Adding Memory Space: 0x%08llx 0x%08llx caps 0x%llx\n",
++       Base, Length, Capabilities));
++  Status = gDS->AddMemorySpace(EfiGcdMemoryType, Base, Length, Capabilities);
+   if (EFI_ERROR(Status)) {
+     DEBUG((EFI_D_ERROR, "AddMemorySpace Failed ! %r\n", Status));
+     return Status;

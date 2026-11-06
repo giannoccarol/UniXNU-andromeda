@@ -29,6 +29,11 @@ from unixnu.util import run, tool  # noqa: E402
 from tree import assemble  # noqa: E402
 
 board = tomllib.loads((ROOT / "board.toml").read_text())
+# Test images: ANDROMEDA_OWNED=0xBC000000 overrides the kernel window size
+# (board.toml [payload.adt] owned_memory_size) for this build only.
+if os.environ.get("ANDROMEDA_OWNED"):
+    board["payload"]["adt"]["owned_memory_size"] = os.environ["ANDROMEDA_OWNED"]
+    print(f"payload: owned_memory_size overridden to {os.environ['ANDROMEDA_OWNED']}")
 NAME = board["board"]["name"]
 WORK = ROOT / "out" / NAME
 TREE = assemble(WORK, ROOT / "unixnu", ROOT)

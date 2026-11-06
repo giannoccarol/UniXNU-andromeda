@@ -61,7 +61,7 @@ Telefono: Mi Mix 3 5G, `board-id 0x2d`, SM8150 v2.2, 6 GB, EvolutionX 16 (kernel
 
 | Finestra del kernel (`owned_memory_size`) | Risultato |
 |---|---|
-| 3 GiB | `Out of Resources`: nessun blocco libero così grande nella mappa UEFI (MPSS_EFS riservato a `0xC0000000`, PStore a `0x17FE00000`) |
+| 3 GiB | `Out of Resources`: nessun blocco libero così grande nella mappa UEFI. Causa trovata dopo (6 novembre): la RAM sopra `0x180000000` è una voce separata della mappa perché `RamPartitionDxe` di Aloha la aggiunge con capacità diverse; il PStore in questa build non esiste. La patch `patches/aloha-andromeda-ram-merge.patch` unisce le due voci (3 GiB da `0x140000000`) |
 | 2 GiB | `Not Found`: `AllocatePages(AllocateAddress)` di EDK II non accetta un intervallo che copre due voci della mappa (`Page.c`, "covers multiple entries"), mentre DarwinBoot misura lo spazio sommando voci adiacenti |
 | **1,5 GiB** | **XNU parte**: 8/8 core (PSCI `CPU_ON`, SGI verificati), `AppleCLCD 1080x2340` a `0x9c000000` presentato come 1125×2436, inizializzazione BSD, rete USB CDC-ECM (`Sweet iOS (USB Ethernet)`, `1209:0001`; il telefono risponde al ping su `192.168.7.2`), driver UFS che legge `userdata` (`BSD root: ufsroot0`). La root non si monta perché `userdata` contiene ancora Android (`hfs_ValidateHFSPlusVolumeHeader: unknown Volume Signature : 14df`) e il kernel riprova in ciclo: **è il punto d'arrivo previsto della fase 2** |
 
