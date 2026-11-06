@@ -78,6 +78,13 @@ nella sezione "Fonti").
 | **MakrSas**, `ios-topaz` (nessuna licenza) | `IOAcceleratorES` minimo per backboardd (Adreno 610) |
 | Linux drm/msm (`a6xx_gmu.c`, `a6xx_hfi.c`, `a6xx_gpu.c`) e kernel Xiaomi `andromeda-p-oss` | sequenze e indirizzi della GPU SM8150 |
 
+## Ricerche consultate (App Store e altre)
+
+Le ricerche in `docs/research/` (App Store, fotocamere, audio, sospensione, sensori, modem) elencano nella loro sezione
+"Fonti" ogni autore, progetto e commit consultato. Per l'App Store in particolare: OOSEX GANG / **vcvkk** (HakiOS, interfaccia
+dell'App Store aperta sul POCO X5 Pro), **dipa-studio** (ios-sweet), gli autori di **IOS-26-Hot** (HotStore per `.ipa` non
+cifrate), **Nick Wylynko** (ios-flame) e gli autori di **ios-apollo** (installazione di app non cifrate). Nessun codice copiato.
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |
