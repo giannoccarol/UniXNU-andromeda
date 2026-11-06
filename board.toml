@@ -121,12 +121,19 @@ kernel_args = [
 [payload.adt]
 tool = "scripts/make-andromeda-adt.py"
 unique_chip_id = "required"
-# Match the working guacamole shim window: a 3 GiB kernel-managed window is
-# what the SM8150 bring-up needs to reserve early I/O page tables for the
-# 36 MiB cont_splash framebuffer. It is NOT the DRAM size; see dram_size.
-# andromeda: 0xC0000000..0x180000000 lies inside the contiguous 5 GiB run
-# measured above, and no fixed reserved-memory region is above 0xB0000000.
-owned_memory_size = "0xc0000000"
+# Kernel-managed window DarwinBoot allocates. It is NOT the DRAM size; see
+# dram_size. guacamole needed 3 GiB instead of DarwinBoot's 256 MiB default to
+# reserve early I/O page tables for the 36 MiB cont_splash framebuffer.
+# andromeda: DarwinBoot needs ONE contiguous run of UEFI conventional memory
+# this big (32 MiB aligned plus the kernel base offset). The live FDT shows
+# 0xC0000000..0x200000000 as contiguous, but the Aloha xiaomi-andromeda UEFI
+# map is not: MPSS_EFS is reserved at 0xC0000000 (+3 MiB; the Mi 9 map has DXE
+# Heap there) and PStore at 0x17FE00000 (+2 MiB). That leaves ~2.99 GiB from
+# 0xC0300000 and 2 GiB above 0x180000000, so 3 GiB fails with "Out of
+# Resources" (seen on the phone, 2026-11-06). 2 GiB fits the low run with
+# ~900 MB to spare for the firmware's own allocations, and is the value the
+# raphael port gives for 6 GB units.
+owned_memory_size = "0x80000000"
 
 [bootimg.image]
 base = 0x0

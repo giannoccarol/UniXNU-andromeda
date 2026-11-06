@@ -93,9 +93,9 @@ DEVICES = {
         #   0x080000000 + 0x3CC00000  (low bank, ends 0x0BCC00000)
         #   0x0C0000000 + 0x80000000  (mid bank, ends 0x140000000)
         #   0x140000000 + 0xC0000000  (high bank, ends 0x200000000)
-        # 0xC0000000..0x200000000 is one contiguous 5 GiB run and no fixed
-        # reserved-memory node lies above 0xB0000000, so the 3 GiB window at
-        # 0xC0000000 the Mi 9 uses is valid here too; the rest is 2 GiB.
+        # The UEFI map splits that run (MPSS_EFS reserved at 0xC0000000, PStore
+        # at 0x17FE00000), so the kernel window DarwinBoot allocates is 2 GiB
+        # (board.toml owned_memory_size) and DarwinBoot, not this table, places it.
         'phys_base': 0xc0000000,
         'mem_size': 0xc0000000,
         'high_phys_base': 0x180000000,
