@@ -26,8 +26,12 @@ concurrency:
 
 jobs:
   kernel:
-    # XNU 8796 needs Xcode 15 (iig ABI) -> macos-14, like ios-sweet.
-    runs-on: macos-14
+    # macos-14 (Xcode 15) was retired on 2026-11-02 (actions/runner-images#13518),
+    # and the macos-15 label now means arm64 hosts. Like the Mi 9 port since
+    # 2026-11-05: the Intel host with Xcode 16.2, whose iig still emits the
+    # IORPC layout xnu-8796 expects (later Xcode adds IORPC.kernelContent).
+    # The kernel is still built for arm64; only the build machine changes.
+    runs-on: macos-15-intel
     timeout-minutes: 240
     env:
       # Without MACOS_VERSION build.sh pops an interactive menu and dies.
@@ -75,7 +79,8 @@ jobs:
           # build.sh only checks that xcodes exists (Xcode is preinstalled); stub it
           printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
           sudo chmod +x /usr/local/bin/xcodes
-          XC=$(ls -d /Applications/Xcode_*.app | sort -V | head -1)
+          XC=/Applications/Xcode_16.2.app
+          test -d "$XC"
           echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
           sudo xcode-select -s "$XC"
           xcodebuild -version

@@ -74,7 +74,8 @@ voce di avvio che UniXNU registra non viene scritta sul telefono.
 
 Il kernel è lo stesso del Mi 9 (`xnu-8796`, `MACHINE_CONFIG=SWEET`, da `dipa-studio/ios-sweet`): stesso SoC, e le
 aggiunte del Mi 9 (touch, SoC) partono solo con `sweettouch=1` / `cephsoc=1`, che `board.toml` lascia spenti. Si compila
-solo su macOS, con il workflow manuale `kernel-andromeda` (runner `macos-14`): usa solo sorgenti pubblici, non scarica
+solo su macOS, con il workflow manuale `kernel-andromeda` (runner `macos-15-intel` con Xcode 16.2: `macos-14` è stato
+ritirato il 2 novembre 2026, e gli Xcode successivi al 16.2 non compilano `xnu-8796`): usa solo sorgenti pubblici, non scarica
 nulla dall'IPSW, e l'artifact `andromeda-kernel` scade dopo 7 giorni.
 
 ```bash
