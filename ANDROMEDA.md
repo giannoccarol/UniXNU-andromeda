@@ -17,7 +17,9 @@ Crediti: [CREDITS.md](CREDITS.md).
 | 1. UEFI (Aloha `xiaomi-andromeda` + UniXNU/DarwinBoot) | **funziona sul telefono** (6 novembre 2026): menu UniXNU a schermo |
 | 2. Kernel + ADT | **funziona sul telefono** (6 novembre 2026): XNU arriva al montaggio della root |
 | 3. Sistema iOS su `userdata` | **funziona sul telefono** (6 novembre 2026): `launchd`, backboardd, SpringBoard; **schermata di blocco con l'orario visibile** |
-| 4. Touch | da fare: adattare `xnu/cepheus_touch.c` (reset GPIO54, alimentazioni L1C + GPIO37) |
+| 4. Touch | **in diagnosi**: driver adattato (reset GPIO54 nel tile SOUTH, alimentazioni L1C + GPIO37); il chip risponde (`36:39`), accetta la scansione e il reset, ma non segnala contatti riconosciuti. Prossimo passo: eventi grezzi con `sweettouchraw` |
+| 4b. Tasti | **funzionano sul telefono** (6 novembre 2026): power, volume e blocco/sblocco schermo (PON, patch 0083 del Mi 9) |
+| Avvio | misurato: sistema montato a 43 s, SpringBoard a 73 s, schermata di blocco a **116 s** dal `fastboot boot` |
 
 ## Compilare l'UEFI
 
