@@ -61,6 +61,22 @@ nella sezione "Fonti"). Il codice dei progetti senza licenza dichiarata non vien
 | **RigoLigoRLC**, [`unixnu-nativeqcomspmi`](https://github.com/RigoLigoRLC/unixnu-nativeqcomspmi); **rponeawa** e **bluseliu50**, `UniXNU-sheng` (`ShengBattery`) | libreria SPMI e modello di servizio batteria per XNU |
 | Xiaomi / Qualcomm, kernel `andromeda-p-oss` (`qpnp-smb5.c`, `smb5-lib.c`, `qpnp-fg-gen4.c`); Project Aloha (`QcomChargerCfg.cfg`) | sequenza di carica del telefono e configurazione del caricatore UEFI |
 
+## Ricerca: GPU (consultati)
+
+Usati come riferimento per il piano in [docs/research/gpu.md](docs/research/gpu.md) (elenco completo con commit e file
+nella sezione "Fonti").
+
+| Progetto / autore | Cosa ci insegna |
+|---|---|
+| **Nick Wylynko** ([NWylynko](https://github.com/NWylynko)), [`ios-flame`](https://github.com/NWylynko/ios-flame) (Pixel 4, SM8150 + Adreno 640, base `ios-sweet`; MIT, patch XNU APSL 2.0) | accensione della stessa GPU sotto XNU, composizione Metal di backboardd/SpringBoard via UniXNU + metal2vulkan + Turnip, CPU a frequenza piena |
+| **YangQi0408**, [`UniXNU-cepheus`](https://github.com/YangQi0408/UniXNU-cepheus) ramo `feat/adreno640` | moduli GMU/HFI/CP/SMMU/QMP/PDC per l'A640 e le salvaguardie del Mi 9 |
+| **UniXNU** (bluseliu50, rponeawa, HuJK e collaboratori): Adreno740, AdrenoMetal, AdrenoFirmware, XnuPrelink, AdrenoPM4, ArmSmmu4K | interfaccia `IOAcceleratorES`, plugin Metal, gestione memoria GPU |
+| **steelbrain**, [`metal2vulkan`](https://github.com/steelbrain/metal2vulkan) (GPL-2.0-or-later OR LGPL-3.0-or-later) | traduzione Metal → Vulkan |
+| **Mesa** (freedreno, Turnip, ir3; MIT) | driver Vulkan per Adreno a6xx |
+| **OOSEX GANG** (shimoku74, vcvkk, yehorkaa, dlz3388461878-cmd), HakiOS (APSL 2.0 + MIT); **nomorecoolnicknames**, `hakios-sm8150` (nessuna licenza); **HeliumStudio-Dev**, Chengdong-Yu | accensione Adreno e percorso OpenGL ES (ripiego) |
+| **MakrSas**, `ios-topaz` (nessuna licenza) | `IOAcceleratorES` minimo per backboardd (Adreno 610) |
+| Linux drm/msm (`a6xx_gmu.c`, `a6xx_hfi.c`, `a6xx_gpu.c`) e kernel Xiaomi `andromeda-p-oss` | sequenze e indirizzi della GPU SM8150 |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |
