@@ -51,6 +51,9 @@ KERNEL = Path(os.environ.get("KERNEL", ROOT / "inputs" / NAME / "kernel.macho"))
 # GPU firmware for the ADT (/chosen gpufw,<name>): the ADT tool runs from the
 # assembled tree copy, so tell it where the repository's (git-ignored) copy is.
 os.environ.setdefault("ANDROMEDA_GPUFW", str(ROOT / "inputs" / NAME / "gpufw"))
+# Bluetooth firmware for the ADT (/chosen btfw,<name>, andrbt=2), same reason;
+# scripts/pull-bt-fw.sh fills it.
+os.environ.setdefault("ANDROMEDA_BTFW", str(ROOT / "inputs" / NAME / "btfw"))
 if not KERNEL.is_file():
     raise SystemExit(f"payload: no kernel at {KERNEL} (run the kernel-{NAME} workflow and download its artifact)")
 

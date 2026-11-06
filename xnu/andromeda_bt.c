@@ -1,22 +1,52 @@
 /*
- * Mi Mix 3 5G (andromeda, SM8150): WCN3990 Bluetooth bring-up, step B1 of
- * docs/research/wifi-bluetooth.md. Off unless the boot-arg andrbt=1 is set.
+ * Mi Mix 3 5G (andromeda, SM8150): WCN3990 Bluetooth bring-up, steps B1 and
+ * B2 of docs/research/wifi-bluetooth.md. Off unless the boot-arg andrbt=1 or
+ * andrbt=2 is set.
  *
  * Boot-args:
- *   andrbt=1        once, andrbtdelay seconds after start: vote the three BT
- *                   rails over RPMh (sweet_rpmh.c, patch 0092), mux GPIO 43-46
- *                   to qup13, vote and clock SE13, GENI UART in FIFO mode,
- *                   power pulses 0xC0 at 2400 baud and 0xFC at 115200, then H4
- *                   commands: Qualcomm EDL "read SoC version" (0xFC00, 0x19),
- *                   HCI_Reset and HCI_Read_Local_Version_Information. Every
- *                   reply byte is logged. Then the chip is powered down again
- *                   (0xC0 at 2400, rails off) and pins/clock are restored.
- *                   Any error stops the sequence and powers down the same way.
+ *   andrbt=1        B1, once, andrbtdelay seconds after start: vote the three
+ *                   BT rails over RPMh (sweet_rpmh.c, patch 0092), mux GPIO
+ *                   43-46 to qup13, vote and clock SE13, GENI UART in FIFO
+ *                   mode, power pulses 0xC0 at 2400 baud and 0xFC at 115200,
+ *                   then H4 commands: Qualcomm EDL "read SoC version" (0xFC00,
+ *                   0x19), HCI_Reset and HCI_Read_Local_Version_Information.
+ *                   Every reply byte is logged. Then the chip is powered down
+ *                   again (0xC0 at 2400, rails off) and pins/clock are
+ *                   restored. Any error stops the sequence and powers down
+ *                   the same way.
+ *   andrbt=2        B1 power-on and EDL version read, then B2 (the order of
+ *                   Linux qca_setup + qca_uart_setup for WCN399x): pick the
+ *                   files from the ROM version (crbtfwXX.tlv, crnvXX.bin; the
+ *                   WCN3998 ROM layout 0xX00Y and the WCN3991 "u" NVM are
+ *                   handled), read them from the Apple device tree (/chosen
+ *                   "btfw,<name>", added by scripts/make-andromeda-adt.py
+ *                   --btfw from inputs/andromeda/btfw), check and log their
+ *                   SHA-256 and TLV headers, Read_Local_Version in ROM as a
+ *                   baseline, operating speed (0xFC48 with flow control off,
+ *                   then RCG/SE, flow control on, vendor event, EDL version
+ *                   again as a link check), rampatch then NVM as
+ *                   EDL_PATCH_TLV_REQ segments of 243 bytes with the
+ *                   acknowledgements the TLV download mode asks for, then
+ *                   HCI_Reset and Read_Local_Version at the operating speed:
+ *                   PASS needs manufacturer 29 and lmp_subver/hci_rev
+ *                   changed from the ROM baseline. NVM tag 17 gets the
+ *                   operating baud index (as Linux), but in-band sleep (tag
+ *                   17 bit 7) and deep sleep (tag 27 bit 0) are cleared:
+ *                   there is no IBS on our side yet. Then powered down as B1.
+ *   andrbtbaud=N    B2 operating speed: 3000000 (default), 2000000, 1000000,
+ *                   921600 or 115200 (no speed change). The RCG never goes
+ *                   above 50 MHz, the VDD_MIN limit of this clock in the
+ *                   Android gcc-sm8150.c, because this driver casts no CX
+ *                   vote: with 32x oversampling 3000000 falls back to the
+ *                   next speed that fits. 3200000 (102.4 MHz, VDD_NOMINAL)
+ *                   waits for a CX vote.
  *   andrbtdelay=N   seconds before starting (default 150, after the touch and
  *                   the andrprobe threads have finished with the GCC vote).
  *   andrbtxo=1      115200 baud from XO * 48/125 instead of the Linux table
- *                   entry GPLL0_OUT_EVEN * 384/15625 (both 7.3728 MHz).
- *   andrbtflow=0    HCI phase without RTS/CTS flow control (diagnostic).
+ *                   entry GPLL0_OUT_EVEN * 384/15625 (both 7.3728 MHz). B2
+ *                   still needs GPLL0_EVEN above 115200 and checks it first.
+ *   andrbtflow=0    HCI phase without RTS/CTS flow control (diagnostic; B1
+ *                   only, refused with andrbt=2).
  *
  * Hardware numbers: live DT of the phone (qupv3_se13_4uart @0xc8c000,
  * pinctrl qupv3_se13_{ctsrx,rts,tx}, bt_wcn3990 supplies) and the
@@ -29,7 +59,18 @@
  * 100 ms boot wait, the power-off sequence), drivers/bluetooth/btqca.c/.h
  * (EDL version request and reply layout), drivers/clk/qcom/gcc-sm8150.c
  * (SE13 RCG, parent map, frequency table) and clk-rcg2.c (M/N/D, update).
- * See CREDITS.md.
+ * B2, also documentation only: btqca.c/.h qca_uart_setup, qca_tlv_check_data
+ * (patch header, NVM tags 2/17/27, baud byte), qca_tlv_send_segment and
+ * qca_download_firmware (243-byte segments, download modes, last segment
+ * always acknowledged), hci_qca.c qca_setup/qca_set_speed/qca_set_baudrate
+ * (speed change before the download, flow control around it, WCN3990 vendor
+ * event); the WCN3998 ROM version layout from Dmitry Baryshkov's patch
+ * "Bluetooth: qca: fix ROM version reading on WCN3998 chips" (2026); the
+ * VDD_MIN limit of gcc_qupv3_wrap2_s3_clk_src from Xiaomi's andromeda-p-oss
+ * gcc-sm8150.c; the acknowledgement bytes 04 FF 03 00 04 00 as observed by
+ * nomorecoolnicknames' hakios-sm8150 vayu_bt.c (fact only, no code). The
+ * firmware files are Qualcomm's (linux-firmware qca/ or the phone's
+ * bluetooth partition); they are never in the repository. See CREDITS.md.
  */
 #if defined(ARM64_BOARD_CONFIG_SWEET)
 #include <sys/param.h>
@@ -40,6 +81,19 @@
 #include <kern/sched_prim.h>
 #include <machine/machine_routines.h>
 #include <pexpert/pexpert.h>
+#if defined(KERNEL)
+#include <pexpert/device_tree.h>
+#include <libkern/crypto/sha2.h>
+#else	/* host syntax check: stubinc plus the kernel-only declarations */
+typedef const void *DTEntry;
+#define kSuccess 0
+int SecureDTLookupEntry(const void *, const char *, DTEntry *);
+int SecureDTGetProperty(DTEntry, const char *, void const **, unsigned int *);
+typedef struct { unsigned char opaque[128]; } SHA256_CTX;
+void SHA256_Init(SHA256_CTX *);
+void SHA256_Update(SHA256_CTX *, const void *, size_t);
+void SHA256_Final(void *, SHA256_CTX *);
+#endif
 #include "cepheus_clock_status.h"
 
 extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
@@ -161,6 +215,8 @@ void andromeda_bt_init(void);
 #define UART_PACK1      0x000c3e0eu
 
 #define BT_RX_MAX       192u
+#define BT_TX_MAX       256u         /* one H4 packet: 6 + 243 bytes for a TLV segment */
+#define BT_115200_HZ    7372800u     /* RCG rate of the 115200 phase (both variants) */
 
 static struct {
 	vm_offset_t gcc, tlmm, se, qup;
@@ -174,6 +230,9 @@ static struct {
 
 static unsigned bt_sleep_chan;
 static unsigned bt_delay_s = 150;
+static int bt_level;
+static unsigned bt_baud_req = 3000000u;
+static unsigned bt_rx_dropped;     /* RX bytes that found the caller's buffer full */
 
 static const char *const bt_rail_name[3] = {"ldoa7", "ldoc2", "ldoc11"};
 
@@ -385,17 +444,23 @@ bt_rx_read(uint8_t *buf, unsigned have, unsigned cap)
 		for (unsigned b = 0; b < 4 && 4u * w + b < total; ++b) {
 			if (have < cap) {
 				buf[have++] = (uint8_t)(word >> (8u * b));
+			} else {
+				bt_rx_dropped++;
 			}
 		}
 	}
 	return have;
 }
 
-/* One FIFO transmission (Linux setup_tx + send_chunk_fifo), polled. */
+/*
+ * One FIFO transmission (Linux setup_tx + send_chunk_fifo), polled. The words
+ * go in only as fast as the FIFO has room, so a packet may be longer than the
+ * FIFO (B2 segments are 249 bytes).
+ */
 static int
 bt_tx(const uint8_t *data, unsigned n, unsigned timeout_ms)
 {
-	if (bt.se_dead || n == 0 || n > 4u * bt.tx_depth) {
+	if (bt.se_dead || n == 0 || n > BT_TX_MAX) {
 		return EINVAL;
 	}
 	if (bt_rd(bt.se, GENI_STATUS) & 1u) {
@@ -405,15 +470,17 @@ bt_tx(const uint8_t *data, unsigned n, unsigned timeout_ms)
 	bt_m_clear();
 	bt_wr(bt.se, UART_TX_TRANS_LEN, n);
 	bt_wr(bt.se, GENI_M_CMD0, UART_START_TX << 27);
-	for (unsigned i = 0; i < n; i += 4) {
-		uint32_t word = 0;
-		for (unsigned b = 0; b < 4 && i + b < n; ++b) {
-			word |= (uint32_t)data[i + b] << (8u * b);
-		}
-		bt_wr(bt.se, GENI_TX_FIFO, word);
-	}
+	unsigned sent = 0;
 	uint32_t irq = 0;
 	for (unsigned i = 0; i < timeout_ms * 20u; ++i) {
+		while (sent < n && (bt_rd(bt.se, GENI_TX_FIFO_STS) & 0x0fffffffu) < bt.tx_depth) {
+			uint32_t word = 0;
+			for (unsigned b = 0; b < 4 && sent + b < n; ++b) {
+				word |= (uint32_t)data[sent + b] << (8u * b);
+			}
+			bt_wr(bt.se, GENI_TX_FIFO, word);
+			sent += 4;
+		}
 		irq = bt_rd(bt.se, GENI_M_IRQ_STATUS);
 		if (irq & (M_CMD_DONE | M_ERRORS)) {
 			break;
@@ -424,8 +491,8 @@ bt_tx(const uint8_t *data, unsigned n, unsigned timeout_ms)
 		bt_m_clear();
 		return 0;
 	}
-	printf(BT_TAG " TX %s irq=%#x status=%#x tx-fifo=%#x ios=%#x\n",
-	    (irq & M_ERRORS) ? "error" : "timeout (CTS not asserted?)", irq,
+	printf(BT_TAG " TX %s after %u/%u bytes queued: irq=%#x status=%#x tx-fifo=%#x ios=%#x\n",
+	    (irq & M_ERRORS) ? "error" : "timeout (CTS not asserted?)", sent < n ? sent : n, n, irq,
 	    bt_rd(bt.se, GENI_STATUS), bt_rd(bt.se, GENI_TX_FIFO_STS), bt_rd(bt.se, GENI_IOS));
 	/* Cancel, then abort, the primary sequencer (qcom_geni_serial). */
 	bt_wr(bt.se, GENI_M_CMD_CTRL, 1u << 2);
@@ -662,32 +729,63 @@ bt_command(const char *what, const uint8_t *cmd, unsigned n, bool (*match)(const
 	return found;
 }
 
+static uint32_t
+bt_le32(const uint8_t *p)
+{
+	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static unsigned
+bt_le16(const uint8_t *p)
+{
+	return (unsigned)p[0] | ((unsigned)p[1] << 8);
+}
+
+/* btqca.h struct qca_btsoc_version. */
+struct bt_ver {
+	uint32_t product, soc;
+	unsigned patch, rom;
+};
+
+/* HCI_Read_Local_Version_Information return parameters. */
+struct bt_lver {
+	unsigned hci, rev, lmp, manufacturer, subver;
+};
+
+/* btqca.c qca_read_soc_version: EDL_PATCH_CMD_OPCODE 0xFC00, EDL_PATCH_VER_REQ_CMD 0x19. */
 static const char *
-bt_hci(void)
+bt_edl_version(const char *what, struct bt_ver *ver)
 {
 	uint8_t rx[BT_RX_MAX];
 	unsigned rx_n = 0;
 	struct bt_event e;
-
-	/* btqca.c qca_read_soc_version: EDL_PATCH_CMD_OPCODE 0xFC00, EDL_PATCH_VER_REQ_CMD 0x19. */
 	static const uint8_t edl[] = {0x01, 0x00, 0xfc, 0x01, 0x19};
-	if (!bt_command("tx EDL version", edl, sizeof(edl), bt_is_edl_version, rx, &rx_n, 500, &e)) {
+	if (!bt_command(what, edl, sizeof(edl), bt_is_edl_version, rx, &rx_n, 500, &e)) {
 		return "no EDL version reply";
 	}
 	/* qca_btsoc_version after {cresp, rtype}; a Command Complete adds num, opcode, status. */
 	const uint8_t *v = e.code == 0xff ? e.p + 2 : e.p + 6;
-	uint32_t product = (uint32_t)v[0] | ((uint32_t)v[1] << 8) | ((uint32_t)v[2] << 16) | ((uint32_t)v[3] << 24);
-	unsigned patch = v[4] | (v[5] << 8), rom = v[6] | (v[7] << 8);
-	uint32_t soc = (uint32_t)v[8] | ((uint32_t)v[9] << 8) | ((uint32_t)v[10] << 16) | ((uint32_t)v[11] << 24);
+	ver->product = bt_le32(v);
+	ver->patch = bt_le16(v + 4);
+	ver->rom = bt_le16(v + 6);
+	ver->soc = bt_le32(v + 8);
 	printf(BT_TAG " SoC version: product_id=%#x soc_id=%#x rom_ver=%#x patch_ver=%#x (%s)\n",
-	    product, soc, rom, patch, e.code == 0xff ? "vendor event" : "command complete");
-	if (soc == 0 || rom == 0) {
+	    ver->product, ver->soc, ver->rom, ver->patch, e.code == 0xff ? "vendor event" : "command complete");
+	if (ver->soc == 0 || ver->rom == 0) {
 		return "EDL version reply with soc_id or rom_ver 0";
 	}
+	return NULL;
+}
 
+static const char *
+bt_reset(const char *what, unsigned ms)
+{
+	uint8_t rx[BT_RX_MAX];
+	unsigned rx_n = 0;
+	struct bt_event e;
 	static const uint8_t reset[] = {0x01, 0x03, 0x0c, 0x00};
 	bt_cc_opcode = 0x0c03;
-	if (!bt_command("tx HCI_Reset", reset, sizeof(reset), bt_is_complete, rx, &rx_n, 1000, &e)) {
+	if (!bt_command(what, reset, sizeof(reset), bt_is_complete, rx, &rx_n, ms, &e)) {
 		return "no HCI_Reset completion";
 	}
 	if (e.code != 0x0e || e.p[3] != 0) {
@@ -695,21 +793,652 @@ bt_hci(void)
 		return "HCI_Reset failed";
 	}
 	printf(BT_TAG " HCI_Reset status=0\n");
+	return NULL;
+}
 
+static const char *
+bt_local_version(const char *what, unsigned ms, struct bt_lver *lv)
+{
+	uint8_t rx[BT_RX_MAX];
+	unsigned rx_n = 0;
+	struct bt_event e;
 	static const uint8_t version[] = {0x01, 0x01, 0x10, 0x00};
 	bt_cc_opcode = 0x1001;
-	if (!bt_command("tx Read_Local_Version", version, sizeof(version), bt_is_complete, rx, &rx_n,
-	    500, &e)) {
+	if (!bt_command(what, version, sizeof(version), bt_is_complete, rx, &rx_n, ms, &e)) {
 		return "no Read_Local_Version completion";
 	}
 	if (e.code != 0x0e || e.len < 12 || e.p[3] != 0) {
 		return "Read_Local_Version failed";
 	}
 	const uint8_t *q = e.p + 4;
-	unsigned manufacturer = q[4] | (q[5] << 8);
+	lv->hci = q[0];
+	lv->rev = bt_le16(q + 1);
+	lv->lmp = q[3];
+	lv->manufacturer = bt_le16(q + 4);
+	lv->subver = bt_le16(q + 6);
 	printf(BT_TAG " local version: hci=%u rev=%#x lmp=%u manufacturer=%u lmp_subver=%#x\n",
-	    q[0], q[1] | (q[2] << 8), q[3], manufacturer, q[6] | (q[7] << 8));
-	return manufacturer == 29 ? NULL : "manufacturer is not 29 (Qualcomm)";
+	    lv->hci, lv->rev, lv->lmp, lv->manufacturer, lv->subver);
+	return NULL;
+}
+
+/* B1: EDL version, HCI_Reset and Read_Local_Version, all in ROM at 115200. */
+static const char *
+bt_hci(void)
+{
+	struct bt_ver ver;
+	struct bt_lver lv;
+	const char *err = bt_edl_version("tx EDL version", &ver);
+	if (!err) {
+		err = bt_reset("tx HCI_Reset", 1000);
+	}
+	if (!err) {
+		err = bt_local_version("tx Read_Local_Version", 500, &lv);
+	}
+	if (!err && lv.manufacturer != 29) {
+		err = "manufacturer is not 29 (Qualcomm)";
+	}
+	return err;
+}
+
+/* ---- B2: rampatch and NVM download --------------------------------------- */
+
+/* btqca.h names and values. */
+#define EDL_OPCODE          0xfc00u   /* EDL_PATCH_CMD_OPCODE */
+#define EDL_TLV_REQ         0x1eu     /* EDL_PATCH_TLV_REQ_CMD */
+#define EDL_REQ_RES_EVT     0x00u     /* EDL_CMD_REQ_RES_EVT */
+#define EDL_TLV_RES_EVT     0x04u     /* EDL_TVL_DNLD_RES_EVT */
+#define EDL_SEG_MAX         243u      /* MAX_SIZE_PER_TLV_SEGMENT */
+#define EDL_TAG_BD_ADDR     2u
+#define EDL_TAG_HCI         17u
+#define EDL_TAG_DEEP_SLEEP  27u
+#define QCA_WCN3991_SOC_ID  0x40014320u
+#define QCA_DISABLE_LOGGING 0xfc17u
+#define TLV_PATCH_HDR       28u       /* tlv_type_hdr (4) + tlv_type_patch (24) */
+#define TLV_NVM_HDR         12u       /* tlv_type_nvm before its data */
+#define BT_PATCH_MAX        (512u * 1024u)
+#define BT_NVM_MAX          16384u
+#define BT_RXS_MAX          640u
+#define BT_EV_MAX           260u      /* H4 type + code + length + 255 */
+
+/* What qca_uart_setup decides from the chip: file names and per-chip rules. */
+struct bt_rules {
+	unsigned idx;               /* the %02x of crbtfw%02x.tlv / crnv%02x.bin */
+	bool rom_3998;              /* WCN3998 ROM version layout 0xX00Y */
+	bool wcn3991;               /* "u" NVM, baud at tag 17 byte 1, Command Complete acks */
+	char patch[24], nvm[24];
+};
+
+/*
+ * gcc_qupv3_wrap2_s3_clk_src rates from GPLL0_OUT_EVEN (300 MHz, hid /1, M/N)
+ * up to 50 MHz, the VDD_MIN limit of this RCG in the Android gcc-sm8150.c.
+ * Nothing faster is offered: this driver holds no CX vote.
+ */
+static const struct bt_rate {
+	uint32_t hz;
+	uint16_t m, n;
+} bt_rates[] = {
+	{7372800u, 384, 15625}, {14745600u, 768, 15625}, {29491200u, 1536, 15625},
+	{32000000u, 8, 75}, {48000000u, 4, 25},
+};
+
+/* btqca.h enum qca_baudrate, fastest first (the fallback order). */
+static const struct {
+	uint32_t baud;
+	uint8_t idx;
+} bt_bauds[] = {
+	{3000000u, 14}, {2000000u, 13}, {1000000u, 11}, {921600u, 10}, {115200u, 0},
+};
+
+static uint8_t bt_rxs[BT_RXS_MAX];   /* H4 receive stream of the download phase */
+static unsigned bt_rxs_n, bt_rxs_junk, bt_rxs_ibs, bt_ev_extra, bt_ev_unexpected;
+static uint8_t bt_seg[6u + EDL_SEG_MAX];
+static uint8_t bt_nvm[BT_NVM_MAX];  /* patched copy: the ADT copy stays untouched */
+
+static bool
+bt_baud_known(unsigned baud)
+{
+	for (unsigned i = 0; i < sizeof(bt_bauds) / sizeof(bt_bauds[0]); ++i) {
+		if (bt_bauds[i].baud == baud) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void
+bt_pump(void)
+{
+	if (!bt.se_dead) {
+		bt_rxs_n = bt_rx_read(bt_rxs, bt_rxs_n, BT_RXS_MAX);
+	}
+}
+
+static void
+bt_rxs_consume(unsigned n)
+{
+	for (unsigned i = n; i < bt_rxs_n; ++i) {
+		bt_rxs[i - n] = bt_rxs[i];
+	}
+	bt_rxs_n -= n;
+}
+
+/* Drop what is pending in the stream, logging it under why. */
+static void
+bt_rxs_flush(const char *why)
+{
+	bt_pump();
+	if (bt_rxs_n && why) {
+		bt_hex(why, bt_rxs, bt_rxs_n);
+	}
+	bt_rxs_n = 0;
+}
+
+static bool
+bt_event_code_ok(uint8_t code)
+{
+	/* Command Complete/Status, Hardware Error, Data Buffer Overflow, vendor. */
+	return code == 0x0e || code == 0x0f || code == 0x10 || code == 0x1a || code == 0xff;
+}
+
+/* Pop the next complete H4 event from the stream into ev (whole packet). */
+static bool
+bt_pop_event(uint8_t *ev, unsigned *len)
+{
+	unsigned skip = 0;
+	while (skip < bt_rxs_n) {
+		uint8_t b = bt_rxs[skip];
+		if (b == 0x04 && (skip + 1u >= bt_rxs_n || bt_event_code_ok(bt_rxs[skip + 1u]))) {
+			break;
+		}
+		if (b == 0xfc || b == 0xfd || b == 0xfe) {
+			bt_rxs_ibs++;       /* IBS wake ack / wake / sleep byte */
+		} else {
+			bt_rxs_junk++;
+		}
+		skip++;
+	}
+	bt_rxs_consume(skip);
+	if (bt_rxs_n < 3u || bt_rxs_n < 3u + bt_rxs[2]) {
+		return false;
+	}
+	unsigned total = 3u + bt_rxs[2];
+	for (unsigned i = 0; i < total; ++i) {
+		ev[i] = bt_rxs[i];
+	}
+	bt_rxs_consume(total);
+	*len = total;
+	return true;
+}
+
+static void
+bt_unexpected(const uint8_t *ev, unsigned len)
+{
+	if (bt_ev_unexpected++ < 8) {
+		bt_hex("unexpected event", ev, len);
+	}
+}
+
+/*
+ * btqca.c qca_tlv_send_segment acknowledgement. Before WCN3991: vendor event
+ * {cresp 0x00, rtype EDL_TVL_DNLD_RES_EVT, result} (04 FF 03 00 04 00). WCN3991:
+ * Command Complete for 0xFC00 carrying {cresp 0x00, rtype 0x1E}. A Command
+ * Status with an error for 0xFC00 also ends the wait (result = its status).
+ */
+static bool
+bt_tlv_ack(bool cc, unsigned ms, uint8_t *result)
+{
+	uint8_t ev[BT_EV_MAX];
+	unsigned len;
+	for (unsigned t = 0; t <= ms; ++t) {
+		bt_pump();
+		while (bt_pop_event(ev, &len)) {
+			bool cc_edl = ev[1] == 0x0e && ev[2] >= 3 && bt_le16(ev + 4) == EDL_OPCODE;
+			if (!cc && ev[1] == 0xff && ev[2] >= 3 && ev[3] == EDL_REQ_RES_EVT && ev[4] == EDL_TLV_RES_EVT) {
+				if (ev[2] != 3) {
+					bt_hex("TLV ack with unexpected length", ev, len);
+				}
+				*result = ev[5];
+				return true;
+			}
+			if (cc && cc_edl) {
+				*result = (ev[2] >= 5 && ev[6] == EDL_REQ_RES_EVT && ev[7] == EDL_TLV_REQ) ? 0u : 0xffu;
+				if (*result) {
+					bt_hex("TLV completion not {00 1e}", ev, len);
+				}
+				return true;
+			}
+			if (ev[1] == 0x0f && ev[2] >= 4 && ev[3] != 0 && bt_le16(ev + 5) == EDL_OPCODE) {
+				bt_hex("TLV command status error", ev, len);
+				*result = ev[3];
+				return true;
+			}
+			if (!cc && cc_edl) {
+				bt_ev_extra++;      /* a Command Complete next to the vendor event */
+			} else {
+				bt_unexpected(ev, len);
+			}
+		}
+		if (t < ms) {
+			bt_wait(1);
+		}
+	}
+	return false;
+}
+
+/*
+ * btqca.c qca_download_firmware + qca_tlv_send_segment: the whole file in
+ * EDL_PATCH_TLV_REQ commands {0x1E, length, data} of at most 243 bytes. In
+ * download modes 1 and 3 (QCA_SKIP_EVT_VSE, QCA_SKIP_EVT_VSE_CC) only the last
+ * segment is acknowledged; otherwise every segment is. Flow control is on, so
+ * the controller paces the back-to-back segments with CTS.
+ */
+static const char *
+bt_tlv_download(const char *what, const uint8_t *fw, unsigned size, unsigned mode, bool cc)
+{
+	bool skip = mode == 1u || mode == 3u;
+	unsigned segs = (size + EDL_SEG_MAX - 1u) / EDL_SEG_MAX, acked = 0, bad = 0, next_pct = 25;
+	bt_ev_extra = 0;
+	bt_ev_unexpected = 0;
+	printf(BT_TAG " %s: %u bytes, %u segments of <= %u, download mode %u (%s)\n", what, size, segs,
+	    EDL_SEG_MAX, mode, skip ? "only the last segment is acknowledged" : "every segment is acknowledged");
+	unsigned off = 0;
+	for (unsigned s = 0; s < segs; ++s) {
+		unsigned len = size - off < EDL_SEG_MAX ? size - off : EDL_SEG_MAX;
+		bool last = off + len >= size;
+		bt_seg[0] = 0x01;                       /* H4 command */
+		bt_seg[1] = (uint8_t)(EDL_OPCODE & 0xffu);
+		bt_seg[2] = (uint8_t)(EDL_OPCODE >> 8);
+		bt_seg[3] = (uint8_t)(len + 2u);
+		bt_seg[4] = EDL_TLV_REQ;
+		bt_seg[5] = (uint8_t)len;
+		for (unsigned i = 0; i < len; ++i) {
+			bt_seg[6u + i] = fw[off + i];
+		}
+		if (!bt_clock_ok(what)) {
+			return "SE13 clock lost during the download";
+		}
+		if (s == 0) {
+			bt_hex("first segment header", bt_seg, 6u);
+		}
+		int err = bt_tx(bt_seg, 6u + len, 500);
+		if (err) {
+			printf(BT_TAG " %s: segment %u/%u (offset %u) not sent, err=%d\n", what, s + 1u, segs, off, err);
+			return "segment not sent";
+		}
+		off += len;
+		if (!skip || last) {
+			uint8_t result = 0;
+			/* btqca.c waits up to HCI_INIT_TIMEOUT (10 s); the last ack may follow patch checks. */
+			if (!bt_tlv_ack(cc, last ? 5000u : 2000u, &result)) {
+				printf(BT_TAG " %s: no acknowledgement for segment %u/%u (offset %u)\n", what, s + 1u, segs,
+				    off - len);
+				bt_rxs_flush("rx pending");
+				return "segment not acknowledged";
+			}
+			acked++;
+			if (result && bad++ < 4) {
+				/* btqca.c logs a nonzero result and goes on; so do we. */
+				printf(BT_TAG " %s: segment %u result %#x\n", what, s + 1u, result);
+			}
+		} else {
+			uint8_t ev[BT_EV_MAX];
+			unsigned len_ev;
+			bt_pump();
+			while (bt_pop_event(ev, &len_ev)) {
+				bt_unexpected(ev, len_ev);
+			}
+		}
+		if (segs >= 8u && next_pct < 100u && (s + 1u) * 100u >= next_pct * segs) {
+			printf(BT_TAG " %s: %u%% (%u/%u segments)\n", what, next_pct, s + 1u, segs);
+			next_pct += 25u;
+		}
+	}
+	printf(BT_TAG " %s: done, %u segments sent, %u acknowledged, %u with nonzero result,"
+	    " %u extra 0xFC00 completions, %u other events\n", what, segs, acked, bad, bt_ev_extra,
+	    bt_ev_unexpected);
+	return NULL;
+}
+
+/* qca_uart_setup: ROM version -> file names (only rom_ver reaches the name). */
+static void
+bt_rules_for(const struct bt_ver *v, struct bt_rules *r)
+{
+	unsigned rom = v->rom;
+	r->wcn3991 = v->soc == QCA_WCN3991_SOC_ID;
+	r->rom_3998 = !r->wcn3991 && (rom & 0x0f00u) == 0 && (rom & 0xf000u) != 0;
+	r->idx = (r->rom_3998 ? ((rom & 0xf000u) >> 7) : ((rom & 0x0f00u) >> 4)) | (rom & 0x000fu);
+	r->idx &= 0xffu;            /* u8 rom_ver in btqca.c */
+	snprintf(r->patch, sizeof(r->patch), "crbtfw%02x.tlv", r->idx);
+	snprintf(r->nvm, sizeof(r->nvm), "crnv%02x%s.bin", r->idx, r->wcn3991 ? "u" : "");
+	printf(BT_TAG " chip: %s, rom_ver %#x -> files %s + %s\n",
+	    r->wcn3991 ? "WCN3991 (soc_id 0x40014320)" :
+	    r->rom_3998 ? "WCN3998 ROM layout 0xX00Y" : "WCN3990 ROM layout 0x0X0Y (DT qca,wcn3990)",
+	    rom, r->patch, r->nvm);
+}
+
+/* /chosen "btfw,<name>" (make-andromeda-adt.py --btfw); logs size and SHA-256. */
+static const uint8_t *
+bt_firmware(const char *name, unsigned max, unsigned *size)
+{
+	DTEntry chosen;
+	void const *data = NULL;
+	unsigned int len = 0;
+	char prop[40];
+	snprintf(prop, sizeof(prop), "btfw,%s", name);
+	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) != kSuccess ||
+	    SecureDTGetProperty(chosen, prop, &data, &len) != kSuccess || !data || !len) {
+		printf(BT_TAG " firmware %s not in the ADT (/chosen %s; make-andromeda-adt.py --btfw)\n", name, prop);
+		return NULL;
+	}
+	if (len > max) {
+		printf(BT_TAG " firmware %s is %u bytes, more than the %u this step accepts\n", name, len, max);
+		return NULL;
+	}
+	uint8_t digest[32];
+	char hex[65];
+	SHA256_CTX ctx;
+	SHA256_Init(&ctx);
+	SHA256_Update(&ctx, data, len);
+	SHA256_Final(digest, &ctx);
+	for (unsigned i = 0; i < 32; ++i) {
+		snprintf(hex + 2u * i, 3, "%02x", digest[i]);
+	}
+	printf(BT_TAG " firmware %s: %u bytes, sha256 %s\n", name, len, hex);
+	*size = len;
+	return (const uint8_t *)data;
+}
+
+/* qca_tlv_check_data, TLV_TYPE_PATCH: header sanity plus the product check. */
+static const char *
+bt_patch_check(const uint8_t *fw, unsigned size, const struct bt_ver *v, unsigned *mode)
+{
+	if (size < TLV_PATCH_HDR) {
+		return "rampatch shorter than its header";
+	}
+	uint32_t type_len = bt_le32(fw);
+	unsigned type = type_len & 0xffu, length = type_len >> 8;
+	unsigned product = bt_le16(fw + 16), rom_build = bt_le16(fw + 18);
+	printf(BT_TAG " rampatch: type %u length %u total %u data %u format %u signature %u download mode %u"
+	    " product %#x rom_build %#x patch %#x entry %#x\n", type, length, bt_le32(fw + 4), bt_le32(fw + 8),
+	    fw[12], fw[13], fw[14], product, rom_build, bt_le16(fw + 20), bt_le32(fw + 24));
+	if (type != 1u) {
+		return "rampatch is not TLV type 1 (patch)";
+	}
+	if (length > size - 4u) {
+		return "rampatch length beyond the file";
+	}
+	if (length != size - 4u) {
+		printf(BT_TAG " rampatch: %u bytes after the TLV length (sent as btqca.c does)\n", size - 4u - length);
+	}
+	if (product != v->product) {
+		return "rampatch product id differs from the chip's";
+	}
+	if (rom_build != v->rom) {
+		/* Expected on WCN3998: rom_ver 0x1001 uses the 0x0201 build (Linux does the same). */
+		printf(BT_TAG " rampatch rom_build %#x, chip rom_ver %#x\n", rom_build, v->rom);
+	}
+	*mode = fw[14];
+	return NULL;
+}
+
+/*
+ * qca_tlv_check_data, TLV_TYPE_NVM: first tag set (inside a type 4 wrapper if
+ * present) must be type 2. Tag 17 (HCI transport) gets the operating baud
+ * index at byte 2 (byte 1 on WCN3991) like Linux, but its in-band sleep bit
+ * 0x80 is cleared instead of set, and tag 27 deep sleep bit 0 is cleared too:
+ * this host does not speak IBS yet. Tag 2 (BD address) is only checked.
+ */
+static const char *
+bt_nvm_patch(uint8_t *nvm, unsigned size, bool wcn3991, uint8_t baud_idx)
+{
+	unsigned hdr = 4;
+	if (size < 4u) {
+		return "NVM shorter than its header";
+	}
+	uint32_t type_len = bt_le32(nvm);
+	if ((type_len & 0xffu) == 4u) {
+		if (size < 8u) {
+			return "NVM type 4 without an inner header";
+		}
+		type_len = bt_le32(nvm + 4);
+		hdr = 8;
+	}
+	unsigned type = type_len & 0xffu, length = type_len >> 8;
+	printf(BT_TAG " NVM: %u bytes, tag set type %u length %u at offset %u\n", size, type, length, hdr);
+	if (type != 2u) {
+		return "NVM tag set is not type 2";
+	}
+	if (length > size - hdr) {
+		return "NVM tag set beyond the file";
+	}
+	bool hci = false;
+	unsigned tags = 0;
+	for (unsigned idx = 0; idx + TLV_NVM_HDR <= length; ++tags) {
+		uint8_t *t = nvm + hdr + idx;
+		unsigned tag = bt_le16(t), len = bt_le16(t + 2);
+		uint8_t *d = t + TLV_NVM_HDR;
+		if (len > length - idx - TLV_NVM_HDR) {
+			printf(BT_TAG " NVM tag %u at %u: length %u beyond the set\n", tag, idx, len);
+			return "NVM tag beyond its set";
+		}
+		if (tag == EDL_TAG_BD_ADDR) {
+			if (len != 6u) {
+				return "NVM BD address tag is not 6 bytes";
+			}
+			printf(BT_TAG " NVM tag 2 (BD address): present, sent unchanged\n");
+		} else if (tag == EDL_TAG_HCI) {
+			unsigned at = wcn3991 ? 1u : 2u;
+			if (len < 3u) {
+				return "NVM HCI tag shorter than 3 bytes";
+			}
+			uint8_t b0 = d[0], b1 = d[1], b2 = d[2];
+			d[0] &= (uint8_t)~0x80u;
+			d[at] = baud_idx;
+			printf(BT_TAG " NVM tag 17 (HCI): %02x %02x %02x -> %02x %02x %02x (in-band sleep off,"
+			    " baud index %u at byte %u)\n", b0, b1, b2, d[0], d[1], d[2], baud_idx, at);
+			hci = true;
+		} else if (tag == EDL_TAG_DEEP_SLEEP) {
+			if (len < 1u) {
+				return "NVM deep sleep tag empty";
+			}
+			uint8_t b0 = d[0];
+			d[0] &= (uint8_t)~0x01u;
+			printf(BT_TAG " NVM tag 27 (deep sleep): %02x -> %02x\n", b0, d[0]);
+		}
+		idx += TLV_NVM_HDR + len;
+	}
+	printf(BT_TAG " NVM: %u tags walked\n", tags);
+	return hci ? NULL : "NVM has no HCI transport tag 17";
+}
+
+/* Fastest known speed <= want whose SE clock fits the table; 115200 = no change. */
+static bool
+bt_pick_speed(unsigned want, unsigned *baud, uint8_t *idx, const struct bt_rate **rate)
+{
+	bool from = false;
+	for (unsigned b = 0; b < sizeof(bt_bauds) / sizeof(bt_bauds[0]); ++b) {
+		from |= bt_bauds[b].baud == want;
+		if (!from) {
+			continue;
+		}
+		*baud = bt_bauds[b].baud;
+		*idx = bt_bauds[b].idx;
+		*rate = NULL;
+		if (*baud == 115200u) {
+			return true;
+		}
+		unsigned need = *baud * bt.oversampling;
+		for (unsigned r = 0; r < sizeof(bt_rates) / sizeof(bt_rates[0]); ++r) {
+			if (bt_rates[r].hz % need == 0 && bt_rates[r].hz / need <= 0xfffu) {
+				*rate = &bt_rates[r];
+				return true;
+			}
+		}
+		printf(BT_TAG " %u baud x %u needs an SE clock above 50 MHz (no CX vote here); trying lower\n",
+		    *baud, bt.oversampling);
+	}
+	return false;
+}
+
+/*
+ * hci_qca.c qca_set_speed + qca_set_baudrate for WCN399x: flow control off
+ * and RTS deasserted, 0xFC48 {index} sent at 115200, 1-10 ms for the
+ * controller, host clock and dividers to the new speed, flow control on.
+ * The WCN3990 then answers with a vendor event at the new speed (hci_qca
+ * waits 100 ms and drops it). The EDL version is read again as a link check.
+ */
+static const char *
+bt_set_speed(unsigned baud, uint8_t idx, const struct bt_rate *rate, const struct bt_ver *ver)
+{
+	uint8_t cmd[5] = {0x01, 0x48, 0xfc, 0x01, idx};
+	if (!bt_clock_ok("set baud") || !bt_uart_baud(115200, BT_115200_HZ, false)) {
+		return "flow control off for the speed change";
+	}
+	bt_hex("tx set baud (0xFC48)", cmd, sizeof(cmd));
+	int err = bt_tx(cmd, sizeof(cmd), 100);
+	if (err) {
+		printf(BT_TAG " 0xFC48 not sent, err=%d\n", err);
+		return "0xFC48 not sent";
+	}
+	bt_char_time(115200);
+	bt_wait(10);
+	if (!bt_rx_stop() || !bt_rcg_program(RCG_SRC_GPLL0_EVEN, true, rate->m, rate->n)) {
+		return "RCG for the operating speed";
+	}
+	vm_offset_t r = bt.gcc + BT_RCG;
+	printf(BT_TAG " RCG now %u Hz (GPLL0_EVEN * %u/%u): cmd=%#x cfg=%#x m=%#x n=%#x d=%#x\n", rate->hz,
+	    rate->m, rate->n, bt_rd(r, RCG_CMD), bt_rd(r, RCG_CFG), bt_rd(r, RCG_M), bt_rd(r, RCG_N),
+	    bt_rd(r, RCG_D));
+	if (!bt_clock_ok("operating speed") || !bt_uart_baud(baud, rate->hz, true)) {
+		return "host operating speed";
+	}
+	bt_rxs_n = 0;
+	uint8_t ev[BT_EV_MAX];
+	unsigned len;
+	bool seen = false;
+	for (unsigned t = 0; t < 200u && !seen; ++t) {
+		bt_pump();
+		while (!seen && bt_pop_event(ev, &len)) {
+			seen = ev[1] == 0xff;
+			bt_hex(seen ? "baud-change vendor event" : "event after the speed change", ev, len);
+		}
+		if (!seen) {
+			bt_wait(1);
+		}
+	}
+	if (!seen) {
+		printf(BT_TAG " no vendor event within 200 ms of the speed change; checking the link\n");
+	}
+	bt_rxs_flush("rx after the speed change");
+	struct bt_ver check;
+	if (bt_edl_version("tx EDL version (speed check)", &check)) {
+		return "no EDL version reply at the operating speed";
+	}
+	if (check.soc != ver->soc || check.rom != ver->rom) {
+		return "EDL version at the operating speed differs";
+	}
+	printf(BT_TAG " speed check: EDL version answered at %u baud\n", baud);
+	return NULL;
+}
+
+/* B2 after the B1 power-on: qca_setup / qca_uart_setup for WCN399x. */
+static const char *
+bt_b2(void)
+{
+	struct bt_ver ver;
+	struct bt_rules rules;
+	struct bt_lver rom_lv, lv;
+	const char *err = bt_edl_version("tx EDL version", &ver);
+	if (err) {
+		return err;
+	}
+	bt_rules_for(&ver, &rules);
+	unsigned psize = 0, nsize = 0, mode = 0;
+	const uint8_t *patch = bt_firmware(rules.patch, BT_PATCH_MAX, &psize);
+	const uint8_t *nvm = bt_firmware(rules.nvm, BT_NVM_MAX, &nsize);
+	if (!patch || !nvm) {
+		return "firmware not in the ADT";
+	}
+	if ((err = bt_patch_check(patch, psize, &ver, &mode))) {
+		return err;
+	}
+
+	unsigned baud = 115200;
+	uint8_t idx = 0;
+	const struct bt_rate *rate = NULL;
+	if (!bt_pick_speed(bt_baud_req, &baud, &idx, &rate)) {
+		return "no usable operating speed";
+	}
+	if (rate && bt.xo_mnd && !bt_gpll0_even_ok()) {
+		printf(BT_TAG " GPLL0_EVEN not usable: staying at 115200\n");
+		baud = 115200;
+		idx = 0;
+		rate = NULL;
+	}
+	printf(BT_TAG " operating speed %u baud (QCA index %u, requested %u)%s\n", baud, idx, bt_baud_req,
+	    rate ? "" : ", no speed change");
+	for (unsigned i = 0; i < nsize; ++i) {
+		bt_nvm[i] = nvm[i];
+	}
+	if ((err = bt_nvm_patch(bt_nvm, nsize, rules.wcn3991, idx))) {
+		return err;
+	}
+
+	/* Baseline for "the patch is running": the ROM's own version. */
+	bool have_rom = bt_local_version("tx Read_Local_Version (ROM)", 500, &rom_lv) == NULL;
+	if (!have_rom) {
+		printf(BT_TAG " no ROM Read_Local_Version (not fatal): no lmp_subver baseline\n");
+	}
+	if (rate && (err = bt_set_speed(baud, idx, rate, &ver))) {
+		return err;
+	}
+
+	bt_rxs_flush("rx before the rampatch");
+	bt_rxs_junk = 0;
+	bt_rxs_ibs = 0;
+	bt_rx_dropped = 0;
+	if ((err = bt_tlv_download("rampatch", patch, psize, mode, rules.wcn3991))) {
+		return err;
+	}
+	bt_wait(10);                /* btqca.c: time to get ready for the NVM */
+	/* qca_tlv_check_data resets the download mode for the NVM: every segment acked. */
+	if ((err = bt_tlv_download("NVM", bt_nvm, nsize, 0, rules.wcn3991))) {
+		return err;
+	}
+	printf(BT_TAG " stream: %u junk bytes, %u IBS bytes, %u bytes dropped\n", bt_rxs_junk, bt_rxs_ibs,
+	    bt_rx_dropped);
+	bt_rxs_flush("rx after the NVM");
+
+	if (rules.wcn3991) {
+		/* btqca.c qca_disable_soc_logging (WCN3991 only): 0xFC17 {0x14, 0x00}. */
+		static const uint8_t logoff[] = {0x01, 0x17, 0xfc, 0x02, 0x14, 0x00};
+		uint8_t rx[BT_RX_MAX];
+		unsigned rx_n = 0;
+		struct bt_event e;
+		bt_cc_opcode = QCA_DISABLE_LOGGING;
+		if (!bt_command("tx disable SoC logging", logoff, sizeof(logoff), bt_is_complete, rx, &rx_n, 500,
+		    &e) || e.code != 0x0e) {
+			return "SoC logging not disabled";
+		}
+	}
+	if ((err = bt_reset("tx HCI_Reset (patched)", 5000))) {
+		return err;
+	}
+	if ((err = bt_local_version("tx Read_Local_Version (patched)", 500, &lv))) {
+		return err;
+	}
+	if (lv.manufacturer != 29) {
+		return "manufacturer is not 29 (Qualcomm)";
+	}
+	if (have_rom) {
+		printf(BT_TAG " ROM -> patched: hci_rev %#x -> %#x, lmp_subver %#x -> %#x\n", rom_lv.rev, lv.rev,
+		    rom_lv.subver, lv.subver);
+		if (rom_lv.rev == lv.rev && rom_lv.subver == lv.subver) {
+			return "hci_rev and lmp_subver unchanged after the download";
+		}
+	}
+	printf(BT_TAG " running %s + %s at %u baud\n", rules.patch, rules.nvm, baud);
+	return NULL;
 }
 
 /* ---- sequence ------------------------------------------------------------ */
@@ -890,7 +1619,7 @@ bt_sequence(void)
 		return "0xC0 pulse";
 	}
 	bt_wait(10);
-	unsigned rate = 7372800u;
+	unsigned rate = BT_115200_HZ;
 	if (bt.xo_mnd) {
 		printf(BT_TAG " 115200 from XO * 48/125 (andrbtxo=1)\n");
 		if (!bt_rcg_program(RCG_SRC_XO, true, 48, 125)) {
@@ -922,7 +1651,7 @@ bt_sequence(void)
 	uint32_t ios = bt_rd(bt.se, GENI_IOS);
 	printf(BT_TAG " lines: RX %s, CTS %s (ios=%#x)\n", (ios & 1u) ? "high (idle)" : "LOW",
 	    (ios & 2u) ? "deasserted" : "asserted", ios);
-	return bt_hci();
+	return bt_level >= 2 ? bt_b2() : bt_hci();
 }
 
 static void
@@ -930,13 +1659,21 @@ bt_thread(void *arg, wait_result_t result)
 {
 	(void)arg;
 	(void)result;
-	printf(BT_TAG " B1 starting in %u s (andrbt=1, %s, flow control %s)\n", bt_delay_s,
-	    bt.xo_mnd ? "115200 from XO M/N" : "115200 from GPLL0_EVEN M/N", bt.flow ? "on" : "off");
+	printf(BT_TAG " B%d starting in %u s (andrbt=%d, %s, flow control %s", bt_level, bt_delay_s,
+	    bt_level, bt.xo_mnd ? "115200 from XO M/N" : "115200 from GPLL0_EVEN M/N", bt.flow ? "on" : "off");
+	if (bt_level >= 2) {
+		printf(", operating speed %u requested)\n", bt_baud_req);
+	} else {
+		printf(")\n");
+	}
 	bt_wait(bt_delay_s * 1000u);
 	printf(BT_TAG " begin\n");
 	const char *failed = bt_sequence();
 	if (failed) {
-		printf(BT_TAG " B1 FAIL at: %s\n", failed);
+		printf(BT_TAG " B%d FAIL at: %s\n", bt_level, failed);
+	} else if (bt_level >= 2) {
+		printf(BT_TAG " B2 PASS: rampatch and NVM accepted, HCI_Reset and Read_Local_Version"
+		    " (manufacturer 29) at the operating speed\n");
 	} else {
 		printf(BT_TAG " B1 PASS: WCN3990 answered EDL version, HCI_Reset and Read_Local_Version\n");
 	}
@@ -958,12 +1695,13 @@ andromeda_bt_init(void)
 	}
 	started = true;
 	(void)PE_parse_boot_argn("andrbt", &level, sizeof(level));
-	if (level != 1) {
+	if (level != 1 && level != 2) {
 		if (level) {
-			printf(BT_TAG " andrbt=%d not supported (only 1)\n", level);
+			printf(BT_TAG " andrbt=%d not supported (1 = B1, 2 = B1 + B2)\n", level);
 		}
 		return;
 	}
+	bt_level = level;
 	(void)PE_parse_boot_argn("andrbtdelay", &bt_delay_s, sizeof(bt_delay_s));
 	value = 0;
 	(void)PE_parse_boot_argn("andrbtxo", &value, sizeof(value));
@@ -971,6 +1709,16 @@ andromeda_bt_init(void)
 	value = 1;
 	(void)PE_parse_boot_argn("andrbtflow", &value, sizeof(value));
 	bt.flow = value != 0;
+	(void)PE_parse_boot_argn("andrbtbaud", &bt_baud_req, sizeof(bt_baud_req));
+	if (level == 2 && !bt.flow) {
+		printf(BT_TAG " refusing: andrbt=2 downloads firmware and needs flow control (andrbtflow=0)\n");
+		return;
+	}
+	if (level == 2 && !bt_baud_known(bt_baud_req)) {
+		printf(BT_TAG " refusing: andrbtbaud=%u (3000000, 2000000, 1000000, 921600 or 115200)\n",
+		    bt_baud_req);
+		return;
+	}
 	/* andrprobe=2 toggles the same s3 vote bit: keep the two apart in time. */
 	int probe = 0;
 	unsigned probe_delay = 100;

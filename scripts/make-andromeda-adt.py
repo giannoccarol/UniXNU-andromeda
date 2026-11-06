@@ -16,6 +16,11 @@ into /chosen as a property "gpufw,<filename>", the convention ios-flame uses
 verify them without a filesystem. Absent directory: no properties added, and
 the step is otherwise unchanged. Firmware bytes never enter git; the directory
 is git-ignored. See CREDITS.md.
+
+Bluetooth firmware: --btfw DIR (or ANDROMEDA_BTFW, or the default
+inputs/andromeda/btfw, filled by scripts/pull-bt-fw.sh) is embedded the same
+way as /chosen "btfw,<filename>" for the WCN399x step B2 (bsd/dev/
+andromeda_bt.c, andrbt=2: Qualcomm rampatch crbtfwXX.tlv and NVM crnvXX.bin).
 """
 import argparse
 import os
@@ -32,22 +37,32 @@ import adt  # noqa: E402  (scripts/adt.py: ADT parse/serialize)
 _SKIP = {"SHA256SUMS", "SHA256SUMS.txt"}
 
 
-def _gpufw_dir(explicit):
+def _fw_dir(explicit, env_name, default):
     if explicit:
         return Path(explicit)
-    env = os.environ.get("ANDROMEDA_GPUFW")
+    env = os.environ.get(env_name)
     if env:
         return Path(env)
-    return SCRIPTS.parent / "inputs/andromeda/gpufw"
+    return SCRIPTS.parent / default
 
 
 def embed_gpufw(output, gpufw_dir):
     """Add one /chosen "gpufw,<name>" property per firmware file. No-op (and no
     error) if the directory is absent, so a tree without local firmware still
     builds; the kernel then logs the missing images and the GPU stays off."""
-    directory = _gpufw_dir(gpufw_dir)
+    embed_fw(output, _fw_dir(gpufw_dir, "ANDROMEDA_GPUFW", "inputs/andromeda/gpufw"), "gpufw", "gpu")
+
+
+def embed_btfw(output, btfw_dir):
+    """Same for the Bluetooth firmware, as /chosen "btfw,<name>". Absent
+    directory: nothing added; andrbt=2 then logs the missing file and powers
+    the chip down again."""
+    embed_fw(output, _fw_dir(btfw_dir, "ANDROMEDA_BTFW", "inputs/andromeda/btfw"), "btfw", "bluetooth")
+
+
+def embed_fw(output, directory, prefix, what):
     if not directory.is_dir():
-        print(f"make-andromeda-adt: no gpu firmware at {directory}; ADT left without gpufw properties",
+        print(f"make-andromeda-adt: no {what} firmware at {directory}; ADT left without {prefix} properties",
               file=sys.stderr)
         return
     files = sorted(p for p in directory.iterdir()
@@ -65,7 +80,7 @@ def embed_gpufw(output, gpufw_dir):
     existing = {name for name, _flags, _val in chosen.props}
     total = 0
     for path in files:
-        prop = f"gpufw,{path.name}"
+        prop = f"{prefix},{path.name}"
         if len(prop.encode()) > 32:
             raise SystemExit(f"make-andromeda-adt: property name too long for the ADT: {prop}")
         if prop in existing:
@@ -75,7 +90,7 @@ def embed_gpufw(output, gpufw_dir):
         total += len(data)
         print(f"make-andromeda-adt: embedded {prop} ({len(data)} bytes)", file=sys.stderr)
     Path(output).write_bytes(adt.serialize(root))
-    print(f"make-andromeda-adt: {len(files)} firmware files, {total} bytes added to /chosen",
+    print(f"make-andromeda-adt: {len(files)} {what} firmware files, {total} bytes added to /chosen",
           file=sys.stderr)
 
 
@@ -89,6 +104,9 @@ def main():
     parser.add_argument("--gpufw", default=None,
                         help="directory of GPU firmware to embed as /chosen gpufw,<name> "
                              "(default: $ANDROMEDA_GPUFW or inputs/andromeda/gpufw)")
+    parser.add_argument("--btfw", default=None,
+                        help="directory of Bluetooth firmware to embed as /chosen btfw,<name> "
+                             "(default: $ANDROMEDA_BTFW or inputs/andromeda/btfw)")
     known, _unknown = parser.parse_known_args()
     tool = SCRIPTS / "mkadt.py"
     command = [sys.executable, str(tool), known.output, "--device", "andromeda",
@@ -102,6 +120,7 @@ def main():
     else:
         subprocess.run(command, check=True)
     embed_gpufw(known.output, known.gpufw)
+    embed_btfw(known.output, known.btfw)
 
 
 if __name__ == "__main__":

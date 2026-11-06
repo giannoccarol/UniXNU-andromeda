@@ -35,7 +35,7 @@ RULES = [
     ("GPU", "firmware", r"ANDROMEDA GPU: probe: firmware (\S+ \S+)"),
     ("Fotocamera", "C1", r"ANDROMEDA CAM: (C1 PASS.*|C1 FAIL.*|imx363 reg .*)"),
     ("Wi-Fi", "modem", r"ANDROMEDA WLAN: (modem READY.*|W0 done.*|.*FAIL.*|PAS .*)"),
-    ("Bluetooth", "esito", r"ANDROMEDA BT: (B1 PASS|.*FAIL.*|down: .*)"),
+    ("Bluetooth", "esito", r"ANDROMEDA BT: (B1 PASS|B2 PASS.*|.*FAIL.*|down: .*)"),
     ("Bluetooth", "versione", r"ANDROMEDA BT: (SoC version: .*)"),
     ("Luminosità", "esito", r"ANDROMEDA BL: (level \d+ .*|DCS 51 .*)"),
     ("Consumo", "statistiche", r"ANDROMEDA PWR: (t=.*)"),
