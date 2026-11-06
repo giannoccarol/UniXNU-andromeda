@@ -125,6 +125,10 @@ kernel_args = [
   # Bring-up: dump the first 60 non-empty FIFO events raw (the parser
   # recognised no contact so far). Remove once touch works.
   "sweettouchraw=60",
+  # Scan settings byte: 0x01 (Xiaomi fts_521, multi-touch) gave no events;
+  # 0xff = every scan the IC configuration supports, as ios-flame does on the
+  # Pixel 4's ST FTM5.
+  "sweettouchscan=255",
   # Keys and Home as verified on the Mi 9 (patch 0083): power key via PON only,
   # one synthetic Home press after start so the lock screen opens even without
   # touch. andromeda: at 90 s it arrived 14 s before the lock screen was drawn
