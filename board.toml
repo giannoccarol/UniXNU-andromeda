@@ -146,7 +146,11 @@ kernel_args = [
   # persistent log and the USB live log).
   "sweetfb_noconsole=1",
   "sweetfb_hz=30",
-  "sweetgpu=3",
+  # Adreno 640 (andromeda_gpu.c, port of ios-flame): 1 = read-only probe and
+  # firmware check (GPUCC/SMMU/GMU read only when their clocks/power are on),
+  # 2 = CX + GMU boot, 3 = GX + CP + ZAP, 4 = CP_MEM_WRITE test. One step per
+  # boot, watching the log.
+  "andrgpu=1",
   # Bring-up (andromeda_probe.c): 100 s after start, log Bluetooth UART pins,
   # clocks and SE13, Wi-Fi/BT regulators and the PM8150B charger/fuel gauge.
   # PMIC reads only; level 2 also sets the s3 clock vote briefly and restores

@@ -66,6 +66,7 @@ extern int cepheus_touch_power_enable(void);
 extern void cepheus_soc_init(void);
 extern void andromeda_probe_init(void); /* andromeda_probe.c, andrprobe=1 */
 extern void andromeda_cpufreq_init(void); /* andromeda_cpufreq.c, andrcpu=1 */
+extern void andromeda_gpu_init(void); /* andromeda_gpu.c, andrgpu=N */
 extern void cepheus_cpu_activity(void);
 void sweet_touch_init(void);
 
@@ -983,6 +984,7 @@ sweet_touch_init(void)
 	cepheus_soc_init(); /* opt-in independent CPU/GPU thread */
 	andromeda_probe_init(); /* opt-in read-only BT/Wi-Fi/charger probe */
 	andromeda_cpufreq_init(); /* opt-in full CPU clock with thermal guard */
+	andromeda_gpu_init(); /* opt-in Adreno 640 bring-up steps (andrgpu, off by default) */
 	int enabled = 1;
 	thread_t thread;
 	if (st.started) {
