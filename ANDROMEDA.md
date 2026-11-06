@@ -70,6 +70,28 @@ Per uscire tieni premuto il tasto di accensione per 10-15 secondi; per tornare i
 Parti con la batteria sopra il 50%. Le variabili UEFI di Aloha sono emulate in RAM (`PcdEmuVariableNvModeEnable`): la
 voce di avvio che UniXNU registra non viene scritta sul telefono.
 
+## Fase 2: kernel e device tree Apple
+
+Il kernel è lo stesso del Mi 9 (`xnu-8796`, `MACHINE_CONFIG=SWEET`, da `dipa-studio/ios-sweet`): stesso SoC, e le
+aggiunte del Mi 9 (touch, SoC) partono solo con `sweettouch=1` / `cephsoc=1`, che `board.toml` lascia spenti. Si compila
+solo su macOS, con il workflow manuale `kernel-andromeda` (runner `macos-14`): usa solo sorgenti pubblici, non scarica
+nulla dall'IPSW, e l'artifact `andromeda-kernel` scade dopo 7 giorni.
+
+```bash
+gh workflow run kernel-andromeda.yml --ref andromeda
+gh run download <run-id> -n andromeda-kernel -D inputs/andromeda     # -> inputs/andromeda/kernel.macho
+scripts/get-base-d22ap.sh       # device tree dell'iPhone X: solo DeviceTree.d22ap.im4p dall'IPSW Apple (~33 KB)
+./build-boot.sh                 # payload GUACESP 34 MiB + out/andromeda/boot/boot-andromeda-xnu.img
+```
+
+`get-base-d22ap.sh` ha bisogno dei pacchetti Python `remotezip` e `lzfse`; nel container si installano in un ambiente
+temporaneo (`python3 -m venv /tmp/venv`). Il device tree Apple del Mix 3 5G (`--device andromeda` in `scripts/mkadt.py`)
+si presenta come iPhone X (`D22AP`), con la memoria misurata sul telefono: `dram-base 0xC0000000`, 6 GiB, finestra
+kernel da 3 GiB.
+
+Il primo avvio di prova mostra il log del kernel a schermo. Senza il sistema iOS su `userdata` (fase 3) il kernel non
+trova la partizione di root e si ferma lì: è il traguardo atteso della fase 2.
+
 ## Dati del telefono
 
 `scripts/pull-phone-info.sh` legge via adb proprietà, memoria, id di SoC e scheda. Con il root legge anche il device tree
