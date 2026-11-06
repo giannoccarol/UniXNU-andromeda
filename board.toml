@@ -107,9 +107,18 @@ kernel_args = [
   # 192.168.7.1:5140 while the phone is 192.168.7.2 on ue0. Host side:
   #   tools/sweet-usbnet.sh boot.log     (needs sudo for the address)
   "sweetusb=2",
-  # Input is deliberately disabled while validating the userspace root.
-  # Enable one driver at a time after SpringBoard starts successfully.
-  "sweettouch=0",
+  # Touch (ST-FTS on SE17, 0x49), as confirmed on the Mi 9: bit-banged I2C on
+  # the SE17 pins (the GENI FIFO is GSI-only), an RPMh enable vote for ldoc1
+  # (XOB, fixed 1.8 V, the same regulator here), and a 60 s delay so that
+  # SpringBoard is up first. andromeda: reset on GPIO54 (SOUTH tile), 1.8 V
+  # regulator enable on GPIO37 (only ever driven high: it is also
+  # disp_vddio_vreg). Keys stay off until touch is verified.
+  "sweettouch=1",
+  "sweettouchgpio=1",
+  "sweettouchpower=1",
+  "sweettouchdelay=60",
+  "sweettouchrst=54",
+  "sweettouchvddio=37",
   "sweetkeys=0",
   # Debug build: keep drawing kernel text over the GUI so the screen shows
   # where it stops. Set to 1 for a clean GUI (the console still reaches the
