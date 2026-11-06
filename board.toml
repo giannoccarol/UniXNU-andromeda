@@ -114,7 +114,7 @@ kernel_args = [
   "sweettouch=1",
   "sweettouchgpio=1",
   "sweettouchpower=1",
-  "sweettouchdelay=60",
+  "sweettouchdelay=120",
   "sweettouchrst=54",
   "sweettouchvddio=37",
   # andromeda: the touch controller is unpowered until the driver raises its
@@ -124,11 +124,15 @@ kernel_args = [
   "sweettouchreset=1",
   # Bring-up: dump the first 60 non-empty FIFO events raw (the parser
   # recognised no contact so far). Remove once touch works.
-  "sweettouchraw=60",
-  # Scan settings byte: 0x01 (Xiaomi fts_521, multi-touch) gave no events;
-  # 0xff = every scan the IC configuration supports, as ios-flame does on the
-  # Pixel 4's ST FTM5.
-  "sweettouchscan=255",
+  "sweettouchraw=200",
+  # Scan settings byte. 0x01 (Xiaomi fts_521, multi-touch) sent before the
+  # controller-ready event gave nothing; 0xff (ios-flame, Pixel 4) gave only
+  # display-noise contacts, then silence after the IC recalibrated. The
+  # experiment below starts from 0x01 after the ready event.
+  "sweettouchscan=1",
+  # Bring-up: every 20 s one controller command (charger mode, force
+  # calibration, sense off/on, 0xff, register reset) while the user touches.
+  "sweettouchexp=1",
   # Keys and Home as verified on the Mi 9 (patch 0083): power key via PON only,
   # one synthetic Home press after start so the lock screen opens even without
   # touch. andromeda: at 90 s it arrived 14 s before the lock screen was drawn

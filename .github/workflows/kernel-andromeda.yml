@@ -182,7 +182,7 @@ jobs:
           K=dxb/fakeroot/System/Library/Kernels/kernel.development.sweet
           python3 cepheus/scripts/verify-touch-kernel.py "$K"
           # andromeda: the touch driver must carry the configurable pins.
-          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"pins reset=%u vddio=%u" in d and b"allowed 12/54, 84/37" in d and b"controller ready %s" in d and b"sweettouchscan" in d'
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"pins reset=%u vddio=%u" in d and b"allowed 12/54, 84/37" in d and b"controller ready %s" in d and b"sweettouchscan" in d and b"sweettouchexp" in d'
           grep 'Applying patch:' dxb/build.log | grep 0084-cepheus-touch-power.patch
           grep 'Applying patch:' dxb/build.log | grep 0085-cepheus-soc.patch
           cmp cepheus/xnu/cepheus_soc.c dxb/xnu/bsd/dev/cepheus_soc.c

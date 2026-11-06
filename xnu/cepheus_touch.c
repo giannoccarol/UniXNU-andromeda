@@ -108,6 +108,11 @@ static unsigned touch_raw_nonempty;
  * (Xiaomi fts_521 Sense ON uses 0x01 = multi-touch). Default 0x01. */
 static unsigned touch_scan_settings = 0x01u;
 static unsigned touch_rescans;
+/* sweettouchexp=1: after start-up, one controller command every 20 s while
+ * the user keeps touching, counting finger-enter events per step (andromeda
+ * bring-up: the IC reports display noise but no fingers). */
+static unsigned touch_exp;
+static unsigned touch_exp_enters;
 #define FTS_EVT_CONTROLLER_READY 0x03u
 #define TOUCH_I2C_ADDR   0x49u
 #define TOUCH_X_MAX      1080
@@ -609,6 +614,7 @@ touch_fts(void)
 		const uint8_t *e = buf + i * FTS_FIFO_EVENT_SIZE;
 		if (e[0] == 0) { break; }
 		touch_raw_event("raw", e);
+		if (e[0] == 0x13u) { touch_exp_enters++; }
 		/* Controller ready = the IC rebooted (ESD, watchdog, late boot) and
 		 * is back in its default sense-off state: switch scanning on again. */
 		if (e[0] == FTS_EVT_CONTROLLER_READY) { rescan = true; }
@@ -776,6 +782,73 @@ touch_se_init(void)
 	return true;
 }
 
+/* sweettouchexp: send one controller command and log what it answers. */
+static void
+touch_exp_cmd(const char *what, const uint8_t *cmd, unsigned n)
+{
+	int err = touch_msg(TOUCH_I2C_ADDR, cmd, n, NULL, 0, false);
+	printf("SWEET TOUCH EXP: %s err=%d\n", what, err);
+	(void)touch_drain_log("exp answer", 100, 0);
+}
+
+static void
+touch_exp_scan(const char *why, unsigned settings)
+{
+	unsigned keep = touch_scan_settings;
+	touch_scan_settings = settings;
+	(void)touch_scan_on(why);
+	touch_scan_settings = keep;
+	(void)touch_drain_log("exp answer", 100, 0);
+}
+
+/*
+ * One step every 20 s. Commands from Xiaomi fts_521 (ftsSoftware.h,
+ * ftsCore.c): setFeatures A2, writeSysCmd A4, setScanMode A0, system reset
+ * by register 0x20000024. None writes the controller flash.
+ */
+static void
+touch_experiment(unsigned step)
+{
+	printf("SWEET TOUCH EXP: step %u ended, finger-enter events in it: %u\n",
+	    step, touch_exp_enters);
+	touch_exp_enters = 0;
+	switch (step) {
+	case 0: {
+		const uint8_t c[] = {0xa2, 0x02, 0x01};
+		touch_exp_cmd("step 1: charger mode on (A2 02 01)", c, sizeof(c));
+		break;
+	}
+	case 1: {
+		const uint8_t c[] = {0xa4, 0x02};
+		touch_exp_cmd("step 2: force calibration (A4 02)", c, sizeof(c));
+		break;
+	}
+	case 2: {
+		const uint8_t c[] = {0xa0, 0x00, 0x00};
+		touch_exp_cmd("step 3: sense off (A0 00 00)", c, sizeof(c));
+		touch_wait(50);
+		touch_exp_scan("exp step 3: sense on 0x01", 0x01u);
+		break;
+	}
+	case 3:
+		touch_exp_scan("exp step 4: sense on 0xff", 0xffu);
+		break;
+	case 4: {
+		const uint8_t c[] = {0xfa, 0x20, 0x00, 0x00, 0x24, 0x80};
+		touch_exp_cmd("step 5: system reset (FA 20000024 80)", c, sizeof(c));
+		bool ready = touch_drain_log("exp boot", 1000, FTS_EVT_CONTROLLER_READY);
+		printf("SWEET TOUCH EXP: controller ready %s\n", ready ? "seen" : "NOT seen");
+		const uint8_t chg[] = {0xa2, 0x02, 0x01};
+		touch_exp_cmd("step 5: charger mode on", chg, sizeof(chg));
+		touch_exp_scan("exp step 5: sense on 0x01", 0x01u);
+		break;
+	}
+	default:
+		printf("SWEET TOUCH EXP: done\n");
+		break;
+	}
+}
+
 static void
 touch_thread(void *arg, wait_result_t result)
 {
@@ -860,7 +933,20 @@ touch_thread(void *arg, wait_result_t result)
 	printf("SWEET TOUCH (cepheus): selected ST-FTS, %dx%d, poll=10ms irq-hint=%d\n",
 	    TOUCH_X_MAX, TOUCH_Y_MAX, st.irq_hint);
 	unsigned errors = 0, ticks = 0;
+	uint64_t exp_interval = 0, exp_next = 0;
+	unsigned exp_step = 0;
+	if (touch_exp) {
+		nanoseconds_to_absolutetime(20ull * NSEC_PER_SEC, &exp_interval);
+		exp_next = mach_absolute_time() + exp_interval;
+		touch_exp_enters = 0;
+		printf("SWEET TOUCH EXP: start; step 0 = settings %#x as configured, 20 s per step\n",
+		    touch_scan_settings);
+	}
 	while (!st.dead) {
+		if (touch_exp && exp_step <= 5 && mach_absolute_time() >= exp_next) {
+			touch_experiment(exp_step++);
+			exp_next = mach_absolute_time() + exp_interval;
+		}
 		/* Optional IRQ hint still reads every 100 ms, and always while down. */
 		if (!st.irq_hint || st.active ||
 		    !(touch_rd(st.south, TOUCH_GPIO_IO(TOUCH_PIN_IRQ)) & 1u) ||
@@ -916,6 +1002,7 @@ sweet_touch_init(void)
 	(void)PE_parse_boot_argn("sweettouchraw", &touch_raw_log, sizeof(touch_raw_log));
 	(void)PE_parse_boot_argn("sweettouchscan", &touch_scan_settings, sizeof(touch_scan_settings));
 	touch_scan_settings &= 0xffu;
+	(void)PE_parse_boot_argn("sweettouchexp", &touch_exp, sizeof(touch_exp));
 	if ((pin_reset != 12u && pin_reset != 54u) || (pin_vddio != 84u && pin_vddio != 37u)) {
 		printf("SWEET TOUCH (cepheus): refusing pins reset=%u vddio=%u (allowed 12/54, 84/37)\n",
 		    pin_reset, pin_vddio);
