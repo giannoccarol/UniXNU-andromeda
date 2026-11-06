@@ -84,6 +84,10 @@ Le ricerche in `docs/research/` (App Store, fotocamere, audio, sospensione, sens
 "Fonti" ogni autore, progetto e commit consultato. Per l'App Store in particolare: OOSEX GANG / **vcvkk** (HakiOS, interfaccia
 dell'App Store aperta sul POCO X5 Pro), **dipa-studio** (ios-sweet), gli autori di **IOS-26-Hot** (HotStore per `.ipa` non
 cifrate), **Nick Wylynko** (ios-flame) e gli autori di **ios-apollo** (installazione di app non cifrate). Nessun codice copiato.
+Per l'audio (`docs/research/audio.md`): OOSEX GANG (HakiOS, driver APSL e plug-in `HakiosAudio.driver` MIT),
+**nomorecoolnicknames** (`hakios-sm8150`, audio del POCO X3 Pro: solo riferimento, nessuna licenza), UniXNU (UniXNU-sheng, clock
+di CoreAudio), **MakrSas** (ios-topaz), Scion-Project (`starlte`), PixelExperience, Texas Instruments / Xiaomi (driver TAS2557,
+GPL, solo documentazione) e Linux (q6dsp, WCD934x, SLIMbus).
 
 ## Hardware del Mi Mix 3 5G
 
