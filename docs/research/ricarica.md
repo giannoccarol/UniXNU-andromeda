@@ -51,6 +51,28 @@ Tutti gli indirizzi del caricatore e del fuel gauge sono sul **PM8150B, SPMI SID
 - **Esperimento rapido in parallelo:** compilare l'UEFI con `EnableChargerWdog = 0` (è un file di testo nel nostro
   albero Aloha). Se con quell'UEFI la ricarica tiene più di 3 minuti, l'ipotesi è confermata senza toccare il kernel.
 
+## 0. Misura su andromeda (6 novembre 2026, sonda `andrprobe=2`)
+
+Prima lettura sotto XNU, cavo collegato al PC, circa 2 minuti e mezzo dopo il `fastboot boot` (sola lettura SPMI):
+
+| Registro | Valore | Significato |
+|---|---|---|
+| `0x1006` stato carica | `0x03` | **FULLON**: il caricatore sta caricando |
+| `0x1042` comando di carica | `0x01` | acceso |
+| `0x1061` FCC / `0x1070` FV | `0x14` / `0x50` | 1,0 A / **4,40 V** (sezione `[PlatformE5G]` dell'UEFI) |
+| `0x1308` APSD | `0x01` | SDP (porta USB del PC) |
+| `0x1106`-`0x1108` ICL / `0x1370` | `0x0A` | **500 mA** in ingresso |
+| `0x1310` USBIN INT_RT_STS | `0x10` | cavo presente |
+| `0x1651` / `0x1653` watchdog | `0x62` / **`0x0C`** | watchdog armato, ma **il morso non spegne la ricarica** (bit 7 a 0, diverso dal G8X), abbaio 128 s |
+| `0x41A0/A1` VBATT | `0x8C5E` | **4,386 V** |
+| `0x41A2/A3` IBATT | `0xFFB3` | **-37,6 mA** (negativa = entra corrente) |
+| `0x4009` MSOC | `0xFF` | 100 % (da confermare: potrebbe essere un valore non ancora valido) |
+
+Conclusione: sotto iOS **il telefono carica**. Con la porta del PC (500 mA) quasi tutta la corrente va al consumo del
+telefono e alla batteria arrivano circa 40 mA; la batteria è vicina alla tensione finale (4,39 su 4,40 V). Il
+watchdog non è un problema su questo esemplare. Il prossimo passo per la ricarica è il servizio batteria con valori veri
+per iOS e, con un alimentatore da muro, la scelta della corrente d'ingresso dopo il riconoscimento del caricatore.
+
 ## 1. L'hardware (FDT attivo)
 
 ### SPMI e PMIC
