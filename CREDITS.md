@@ -98,6 +98,10 @@ Per vibrazione, sensori e slider (`docs/research/sensori-vibrazione.md`): Xiaomi
 **Sebastiano Barezzi** (kernel e KeyHandler), **nomorecoolnicknames** (`hakios-sm8150` `vayu`, solo riferimento), OOSEX GANG e
 gli autori di Scion (vcvkk, dylanneve1, shimoku74), Dylan Van Assche (libssc), Richard Acayan (hexagonrpc), Caleb Connolly,
 Andrew Gigena.
+Per rete cellulare, GPS e NFC (`docs/research/modem-gps-nfc.md`): **HoshinoYumeka** (@chiba233, `UniXNU/QcomBaseband`, BSD-2),
+**tycykp** (`UniXNU-OnePlus-Ace5`, BSD-2-Clause-Patent), OOSEX GANG (HakiOS), nomorecoolnicknames (`hakios-sm8150`, solo
+riferimento), akshaynexus (iOSPlus10), Nick Wylynko (ios-flame), seemoo-lab, Mehta/Pathak, Andrew Gigena (IPA v4.1), Richard
+Acayan, Stephan Gerhold, linux-msm/Linaro, libqmi/ModemManager e il wiki di postmarketOS.
 
 ## Bluetooth e luminosità (patch 0092/0093)
 
