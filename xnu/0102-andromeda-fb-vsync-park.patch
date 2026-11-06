@@ -1,0 +1,137 @@
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -51,6 +51,13 @@ extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
+ #include <kern/clock.h>
+ #include <sys/proc.h>
+ 
++/*
++ * bsd/dev/andromeda_power.c (andromeda, patch 0100): display state for the
++ * polled drivers, vsync counters for the ANDROMEDA PWR line (andrpwr=1).
++ */
++extern "C" void andromeda_display_set(int off);
++extern "C" uint64_t andromeda_pwr_fb_vsync, andromeda_pwr_fb_notify;
++
+ enum {
+ 	kSweetFBGetLayerDefaultSurface  = 3,
+ 	kSweetFBSwapBegin               = 4,
+@@ -135,6 +142,16 @@ public:
+ 	uint64_t      fCopiedBytes, fMissed;
+ 	uint32_t      fFixedTimer, fPerfStats;
+ 	void finishTick(IOTimerEventSource *sender);
++	/*
++	 * andromeda, boot-arg andrfbpark=1 (patch 0102, default off): once the
++	 * display is off and its black frame is written, the vsync timer is not
++	 * re-armed: no 60 Hz kernel wakeups and no vsync notifications to
++	 * backboardd until RequestPowerChange(on) restarts it, as the display
++	 * pipe of a real iPhone stops while the display is off.
++	 */
++	uint32_t      fPark;
++	bool          fVsyncParked;   /* timer not armed; fLock */
++	void vsyncResume(void);
+ 
+ 	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
+ 	void addClient(IOMobileFramebufferUserClient *client);
+@@ -238,6 +255,10 @@ AppleCLCD::start(IOService *provider)
+ 
+ 	PE_parse_boot_argn("sweetfb_fixedtimer", &fFixedTimer, sizeof(fFixedTimer));
+ 	PE_parse_boot_argn("sweetfb_stats", &fPerfStats, sizeof(fPerfStats));
++	PE_parse_boot_argn("andrfbpark", &fPark, sizeof(fPark));
++	if (fPark) {
++		IOLog("SWEET FB: vsync timer stops while the display is off (andrfbpark=%u)\n", fPark);
++	}
+ 	clock_interval_to_absolutetime_interval(SWEET_FB_VSYNC_US, NSEC_PER_USEC, &fPeriod);
+ 	clock_interval_to_absolutetime_interval(10, NSEC_PER_SEC, &fStatsPeriod);
+ 	fStatsAt = mach_absolute_time();
+@@ -265,6 +286,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 		0, 0,
+ 	};
+ 
++	__atomic_fetch_add(&andromeda_pwr_fb_vsync, 1, __ATOMIC_RELAXED);
+ 	IOLockLock(fb->fLock);
+ 	for (unsigned int i = 0; i < fb->fClients->getCount(); i++) {
+ 		IOMobileFramebufferUserClient *client =
+@@ -273,6 +295,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 	}
+ 	if (fb->fPowerOff) {
+ 		bool blank = !fb->fBlanked;
++		bool park = fb->fPark != 0;
+ 		uint64_t begin = 0;
+ 		if (blank) {
+ 			begin = mach_absolute_time();
+@@ -282,6 +305,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 			bzero((void *)fb->fPixels, (size_t)fb->fRowBytes * fb->fHeight);
+ 			fb->fBlanked = true;
+ 		}
++		fb->fVsyncParked = park;        /* vsyncResume() re-arms it */
+ 		IOLockUnlock(fb->fLock);
+ 		if (blank) {
+ 			uint64_t ns;
+@@ -289,6 +313,10 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 			IOLog("SWEET BLANK: clear_us=%llu bytes=%llu\n", ns / 1000,
+ 			    (uint64_t)fb->fRowBytes * fb->fHeight);
+ 		}
++		if (park) {
++			IOLog("SWEET FB: vsync parked at tick %llu (display off)\n", count);
++			return;
++		}
+ 		fb->finishTick(sender);
+ 		return;
+ 	}
+@@ -346,6 +374,24 @@ AppleCLCD::finishTick(IOTimerEventSource *sender)
+ 	sender->wakeAtTime(fDeadline);
+ }
+ 
++/* andrfbpark: restart the parked vsync timer once the display is on again. */
++void
++AppleCLCD::vsyncResume(void)
++{
++	uint64_t deadline = 0;
++	IOLockLock(fLock);
++	if (fVsyncParked && !fPowerOff) {
++		fVsyncParked = false;
++		deadline = mach_absolute_time() + fPeriod;
++		fDeadline = deadline;           /* sweetfb_fixedtimer restarts from now */
++	}
++	IOLockUnlock(fLock);
++	if (deadline != 0) {
++		fVsync->wakeAtTime(deadline);
++		IOLog("SWEET FB: vsync resumed (display on)\n");
++	}
++}
++
+ void
+ AppleCLCD::addClient(IOMobileFramebufferUserClient *client)
+ {
+@@ -616,6 +662,9 @@ IOMobileFramebufferUserClient::notify(uint32_t type, const uint64_t *values, uin
+ 	setAsyncReference64(ref, fPort, (mach_vm_address_t)fFunc[type], fRefcon[type], fTask);
+ 	sendAsyncResult64WithOptions(ref, kIOReturnSuccess, (io_user_reference_t *)values, count,
+ 	    kIOUserNotifyOptionCanDrop);
++	if (type == SWEET_FB_NOTIFY_VSYNC) {
++		__atomic_fetch_add(&andromeda_pwr_fb_notify, 1, __ATOMIC_RELAXED);
++	}
+ }
+ 
+ static uint64_t sweet_fb_logged;        /* selectors already logged (< 64) */
+@@ -684,13 +733,21 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 	case kSweetFBRequestPowerChange:
+ 		if (args->scalarInputCount >= 1) {
+ 			bool off = args->scalarInput[0] == 0;
++			bool changed = false;
+ 			IOLockLock(fFB->fLock);
+ 			if (off != fFB->fPowerOff) {
+ 				fFB->fPowerOff = off;
+ 				fFB->fBlanked = false;
+ 				fFB->fDirty = true;     /* on: redraw the latest frame */
++				changed = true;
+ 			}
+ 			IOLockUnlock(fFB->fLock);
++			if (changed) {
++				andromeda_display_set(off ? 1 : 0);
++			}
++			if (!off) {
++				fFB->vsyncResume();
++			}
+ 			IOLog("SWEET FB: display %s\n", off ? "off" : "on");
+ 		}
+ 		break;

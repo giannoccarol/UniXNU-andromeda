@@ -154,6 +154,17 @@ Acayan, Stephan Gerhold, linux-msm/Linaro, libqmi/ModemManager e il wiki di post
 | **dipa-studio**, `ios-sweet` (`45263bee`, MIT) | piattaforma `SWEET` e root in lettura-scrittura da cui il driver legge i file |
 | **YangQi0408**, `UniXNU-cepheus` | la cautela "is-call-available prima di ogni chiamata, niente `PAS_SHUTDOWN`", condivisa con `andromeda_gpu.c` |
 
+## Consumo e risvegli (patch 0100-0105)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **OOSEX GANG** (shimoku74, vcvkk e collaboratori), [`hakios-xnu-kernel`](https://github.com/oosexgang/hakios-xnu-kernel) `63fc2b46` (kernel APSL 2.0) | l'idea di non svuotare la L1 per set/way a ogni ingresso in idle sulle schede generiche: la 0101 fa la stessa scelta, a runtime con `andridle=1` e misurandone il costo; nessun codice copiato |
+| **aTechGeekDev**, [`ios-apollo`](https://github.com/aTechGeekDev/ios-apollo) `1f75f381` (MIT) | dalle loro note (xnu 0153/0155) le idee di non mandare vsync a schermo spento e di rallentare il touch a schermo spento: 0102 (`andrfbpark`) e il cambiamento in `cepheus_touch.c` (`andrtouchidle`); nessun codice copiato |
+| **dipa-studio**, `ios-sweet` `45263bee` (MIT) | i driver che le 0102-0104 modificano: `SweetFramebuffer.cpp`, `sweet_usb.c`, `sweet_keys.c` |
+| **YangQi0408**, `UniXNU-cepheus` (`feat/adreno640`) | lo spegnimento del display della loro 0083, su cui si appoggia la 0102; il driver del touch |
+| **Apple**, XNU `xnu-8796.141.3` (APSL 2.0) | `processor_info` (`PROCESSOR_CPU_LOAD_INFO`, `PROCESSOR_CPU_STAT64`), `cpu_idle()`, `platform_cache_idle_enter()`, `lck_mtx_sleep_deadline` |
+| **Linux** (Danny Lin, commit `81188f585d02`, stati PSCI SM8150; `arch/arm64` `cpu_do_idle()`); USB-IF, *USB 2.0 Specification* §9.2.6.4 | solo documentazione: soglia dei 4 ms, idle di Linux senza manutenzione delle cache, tempi delle richieste di controllo che limitano `andrusbidle` a 20 ms |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |

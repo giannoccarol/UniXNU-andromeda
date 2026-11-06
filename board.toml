@@ -202,6 +202,22 @@ kernel_args = [
   # inputs/andromeda/modemfw (scripts/pull-modem-fw.sh). Never together with
   # andrgpu=3 (both use the AOP QMP mailbox). Also andrwlandelay, andrwlanwait.
   "andrwlan=0",
+  # Power P0 (andromeda_power.c, patch 0100): every andrpwrsecs s (default 10)
+  # one ANDROMEDA PWR line: per-CPU idle %, IRQ/IPI/WFI rates, share of idle
+  # time in periods >= 4 ms, cost of the idle cache flush, FB/USB/keys/touch
+  # polling rates, battery. Read only.
+  "andrpwr=0",
+  # Power P1, one change at a time (patches 0101-0105, all off): andridle=1 no
+  # set/way L1 flush at each idle entry; andrfbpark=1 vsync timer stopped while
+  # the display is off; andrusbidle=20 USB event polling every 20 ms after 1 s
+  # without events; andrkeysidle=50 and andrtouchidle=100 slower key and touch
+  # polling while the display is off. Test image, e.g.:
+  # ANDROMEDA_TAG=pwr ANDROMEDA_ARGS="andrpwr=1 andrfbpark=1" ./build-boot.sh
+  "andridle=0",
+  "andrfbpark=0",
+  "andrusbidle=0",
+  "andrkeysidle=0",
+  "andrtouchidle=0",
 ]
 
 [payload.adt]

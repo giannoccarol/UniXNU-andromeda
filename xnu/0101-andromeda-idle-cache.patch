@@ -1,0 +1,123 @@
+diff --git a/osfmk/arm64/cpu.c b/osfmk/arm64/cpu.c
+--- a/osfmk/arm64/cpu.c
++++ b/osfmk/arm64/cpu.c
+@@ -120,6 +120,88 @@ sysreg_restore_t sysreg_restore __attribute__((section("__DATA, __const"))) = {
+ //  1 : normal
+ //  2 : overhead simulation (delay & flags)
+ TUNABLE(unsigned int, wfi, "wfi", 1);
++#if defined(SWEET)
++/*
++ * andromeda (SM8150; docs/research/sospensione.md P0/P1, patch 0101).
++ * Boot-arg andridle, a bit mask, default 0 (bits 1 and up are left for P2):
++ *   bit 0  skip platform_cache_idle_enter() at every idle entry. On SWEET
++ *          (no APPLE_ARM64_ARCH_FAMILY, no __ARM_COHERENT_IO__) that is
++ *          FlushPoU_Dcache(): a clean + invalidate of the L1 data cache by
++ *          set/way (~1024 "dc cisw" on an A76), every time a core idles.
++ *          Nothing here needs it: the core only executes WFI (SWEET never
++ *          asks PSCI for a power-down state), so it stays powered with its
++ *          caches retained and coherent, and a core that lost its state
++ *          would restart at the reset vector, not return below; the cluster
++ *          is hardware coherent (SWEET.h __ARM_COHERENT_CACHE__) and set/way
++ *          operations are local to a core anyway; the drivers' DMA buffers
++ *          are cleaned to the PoC by VA, which a PoU flush never reached.
++ *          Apple's own SoCs skip it as well, and HakiOS (OOSEX GANG) removed
++ *          it for its generic boards.
++ * With andrpwr=1 (bsd/dev/andromeda_power.c, patch 0100) cpu_idle() also
++ * counts, per CPU: WFI entries, time in WFI, time in WFI periods >= 4 ms,
++ * and the number, time and maximum of the flushes, for ANDROMEDA PWR.
++ */
++TUNABLE(unsigned int, andromeda_idle, "andridle", 0);
++#define ANDROMEDA_IDLE_NO_FLUSH 1u
++/* bsd/dev/andromeda_power.c; layout as bsd/dev/andromeda_power.h. */
++extern int andromeda_pwr_measure;
++extern uint64_t andromeda_pwr_long_abs;
++extern uint64_t andromeda_pwr_idle[];
++#define ANDROMEDA_IDLE_CPUS       8
++#define ANDROMEDA_IDLE_WFI        0u      /* WFI entries */
++#define ANDROMEDA_IDLE_WFI_ABS    1u      /* time in WFI */
++#define ANDROMEDA_IDLE_LONG_ABS   2u      /* time in WFI periods >= andromeda_pwr_long_abs */
++#define ANDROMEDA_IDLE_FLUSH      3u      /* platform_cache_idle_enter() calls */
++#define ANDROMEDA_IDLE_FLUSH_ABS  4u      /* time in them */
++#define ANDROMEDA_IDLE_FLUSH_MAX  5u      /* longest, zeroed by the reader */
++#define ANDROMEDA_IDLE_SLOT(c, i) (&andromeda_pwr_idle[(unsigned)(c) * 8u + (i)])
++
++/* Single writer (this CPU, interrupts masked); the reader uses atomics. */
++static inline void
++andromeda_idle_add(uint64_t *slot, uint64_t v)
++{
++	__atomic_store_n(slot, __atomic_load_n(slot, __ATOMIC_RELAXED) + v, __ATOMIC_RELAXED);
++}
++
++/* Replaces platform_cache_idle_enter(); returns the WFI start time (0 = not measuring). */
++static inline uint64_t
++andromeda_idle_enter(const cpu_data_t *cdp)
++{
++	int cpu = cdp->cpu_number;
++	bool measure = __atomic_load_n(&andromeda_pwr_measure, __ATOMIC_ACQUIRE) != 0 &&
++	    cpu >= 0 && cpu < ANDROMEDA_IDLE_CPUS;
++	uint64_t start = measure ? mach_absolute_time() : 0;
++
++	if (!(andromeda_idle & ANDROMEDA_IDLE_NO_FLUSH)) {
++		platform_cache_idle_enter();
++		if (measure) {
++			uint64_t now = mach_absolute_time(), took = now - start;
++			uint64_t *max = ANDROMEDA_IDLE_SLOT(cpu, ANDROMEDA_IDLE_FLUSH_MAX);
++			andromeda_idle_add(ANDROMEDA_IDLE_SLOT(cpu, ANDROMEDA_IDLE_FLUSH), 1);
++			andromeda_idle_add(ANDROMEDA_IDLE_SLOT(cpu, ANDROMEDA_IDLE_FLUSH_ABS), took);
++			if (took > __atomic_load_n(max, __ATOMIC_RELAXED)) {
++				__atomic_store_n(max, took, __ATOMIC_RELAXED);
++			}
++			start = now;
++		}
++	}
++	return start;
++}
++
++static inline void
++andromeda_idle_exit(const cpu_data_t *cdp, uint64_t start)
++{
++	if (start != 0) {
++		int cpu = cdp->cpu_number;
++		uint64_t took = mach_absolute_time() - start;
++		andromeda_idle_add(ANDROMEDA_IDLE_SLOT(cpu, ANDROMEDA_IDLE_WFI), 1);
++		andromeda_idle_add(ANDROMEDA_IDLE_SLOT(cpu, ANDROMEDA_IDLE_WFI_ABS), took);
++		if (took >= andromeda_pwr_long_abs) {
++			andromeda_idle_add(ANDROMEDA_IDLE_SLOT(cpu, ANDROMEDA_IDLE_LONG_ABS), took);
++		}
++	}
++}
++#endif /* SWEET */
+ #if DEVELOPMENT || DEBUG
+ 
+ // wfi_flags
+@@ -487,6 +569,9 @@ cpu_idle(void)
+ 	cpu_data_t     *cpu_data_ptr = getCpuDatap();
+ 	uint64_t        new_idle_timeout_ticks = 0x0ULL, lastPop;
+ 	bool idle_disallowed = false;
++#if defined(SWEET)
++	uint64_t        andromeda_wfi_start = 0;
++#endif
+ 
+ 	if (__improbable((!idle_enable))) {
+ 		idle_disallowed = true;
+@@ -568,7 +653,9 @@ cpu_idle(void)
+ #endif /* MONOTONIC */
+ 
+ 	if (wfi) {
+-#if !defined(APPLE_ARM64_ARCH_FAMILY)
++#if defined(SWEET)
++		andromeda_wfi_start = andromeda_idle_enter(cpu_data_ptr);
++#elif !defined(APPLE_ARM64_ARCH_FAMILY)
+ 		platform_cache_idle_enter();
+ #endif
+ 
+@@ -590,6 +677,9 @@ cpu_idle(void)
+ #else
+ 		__builtin_arm_wfi();
+ #endif
++#if defined(SWEET)
++		andromeda_idle_exit(cpu_data_ptr, andromeda_wfi_start);
++#endif
+ 
+ #if defined(APPLETYPHOON)
+ 		// <rdar://problem/15827409> CPU1 Stuck in WFIWT Because of MMU Prefetch

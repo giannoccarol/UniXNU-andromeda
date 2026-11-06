@@ -57,6 +57,7 @@
 #include "cepheus_clock_status.h"
 #include "cepheus_gpi_layout.h"
 #include "cepheus_i2c_bitbang.h"
+#include "andromeda_power.h"
 
 extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 /* Mach MIG declaration is not included by BSD's exported thread.h. */
@@ -119,6 +120,13 @@ static unsigned touch_rescans;
  * bring-up: the IC reports display noise but no fingers). */
 static unsigned touch_exp;
 static unsigned touch_exp_enters;
+/* andrtouchidle=N (andromeda, patch 0105; 20..1000 ms, default 0 = off):
+ * while the display is off and no finger is down, read the FIFO every N ms
+ * instead of every 10 ms (each read is a bit-banged I2C transfer that keeps
+ * the CPU busy for a few ms). The controller keeps scanning and queues up to
+ * 32 events, so a touch is delayed, not lost; a finger down, or the display
+ * coming on (which wakes the wait), brings the 10 ms period back at once. */
+static unsigned touch_idle_ms;
 #define FTS_EVT_CONTROLLER_READY 0x03u
 #define TOUCH_I2C_ADDR   0x49u
 #define TOUCH_X_MAX      1080
@@ -974,8 +982,14 @@ touch_thread(void *arg, wait_result_t result)
 			} else {
 				errors = 0;
 			}
+			__atomic_fetch_add(&andromeda_pwr_touch_polls, 1, __ATOMIC_RELAXED);
 		}
-		touch_wait(10);
+		if (touch_idle_ms && !st.active &&
+		    __atomic_load_n(&andromeda_display_off, __ATOMIC_RELAXED)) {
+			andromeda_display_wait(touch_idle_ms);
+		} else {
+			touch_wait(10);
+		}
 	}
 	touch_report(0, st.x, st.y);
 out:
@@ -1015,6 +1029,12 @@ sweet_touch_init(void)
 	(void)PE_parse_boot_argn("sweettouchscan", &touch_scan_settings, sizeof(touch_scan_settings));
 	touch_scan_settings &= 0xffu;
 	(void)PE_parse_boot_argn("sweettouchexp", &touch_exp, sizeof(touch_exp));
+	(void)PE_parse_boot_argn("andrtouchidle", &touch_idle_ms, sizeof(touch_idle_ms));
+	if (touch_idle_ms) {
+		touch_idle_ms = touch_idle_ms < 20 ? 20 : (touch_idle_ms > 1000 ? 1000 : touch_idle_ms);
+		printf("SWEET TOUCH (cepheus): %u ms polling while the display is off (andrtouchidle)\n",
+		    touch_idle_ms);
+	}
 	if ((pin_reset != 12u && pin_reset != 54u) || (pin_vddio != 84u && pin_vddio != 37u)) {
 		printf("SWEET TOUCH (cepheus): refusing pins reset=%u vddio=%u (allowed 12/54, 84/37)\n",
 		    pin_reset, pin_vddio);
