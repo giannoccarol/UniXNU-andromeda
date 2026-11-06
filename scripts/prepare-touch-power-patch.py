@@ -71,6 +71,10 @@ def main():
         root = Path(tmp)
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
         for p in sorted(patches.glob('*.patch')):
+            # This generator emits 0084. A later GPU-only include must not
+            # become context required by the earlier patch on a clean build.
+            if p.name == '0086-cepheus-gpu-arc.patch':
+                continue
             subprocess.run(['git', '-C', str(root), 'apply', '--whitespace=nowarn',
                             f'--include={TARGET}', str(p.resolve())], check=True)
         before = (root / TARGET).read_text()

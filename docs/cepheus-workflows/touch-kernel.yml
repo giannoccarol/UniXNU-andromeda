@@ -5,7 +5,9 @@ permissions:
   contents: read
 jobs:
   kernel:
-    runs-on: macos-14
+    # macos-15 now aliases arm64 hosts; explicitly retain the Intel build host
+    # and Xcode16.2. Target ARCHS remains arm64, not the runner architecture.
+    runs-on: macos-15-intel
     timeout-minutes: 150
     env:
       MACOS_VERSION: "13.5"
@@ -34,11 +36,47 @@ jobs:
           cp cepheus/xnu/cepheus_i2c_bitbang.h dxb/patches/
           cp cepheus/xnu/cepheus_soc.c cepheus/xnu/cepheus_soc.h dxb/patches/
           cp cepheus/xnu/cepheus_cpu_policy.h dxb/patches/
+          cp cepheus/xnu/cepheus_gpu_power.h dxb/patches/
+          cp cepheus/xnu/cepheus_arc.h cepheus/xnu/cepheus_arc_probe.h dxb/patches/
+          cp cepheus/xnu/cepheus_bcm.h dxb/patches/
+          for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
+            cepheus_gpu_memory_state.h \
+            cepheus_gmu_upload_mmio.h \
+            cepheus_qmp_connect.h \
+            cepheus_gpu_tsens.h \
+            cepheus_cp_ring_config.h \
+            cepheus_cp_protection.h \
+            cepheus_cp_snapshot_mmio.h \
+            cepheus_cp_workspace.c cepheus_cp_workspace.h \
+            cepheus_gpu_vm39.h \
+            cepheus_gx_core.h \
+            cepheus_gx_perfcounter.h cepheus_cp_preinit.h cepheus_gx_gbif.h cepheus_gx_llc.h cepheus_scm_discovery.h cepheus_gx_va_layout.h cepheus_gx_hwcg.h cepheus_cp_unsecure_gate.h \
+            cepheus_gx_smmu_plan.h \
+            cepheus_gmu_workspace.c cepheus_gmu_workspace.h \
+            cepheus_gpu_retire.c cepheus_gpu_retire.h cepheus_gpu_memory_private.h \
+            cepheus_gmu_hfi_link.c cepheus_gmu_hfi_link.h \
+            cepheus_gmu_mmio.h cepheus_gpu_config.h cepheus_qmp_mmio.h cepheus_gmu_retire_mmio.h cepheus_pdc_mmio.h cepheus_gpu_fault_mmio.h \
+            cepheus_gmu_bringup.c cepheus_gmu_bringup.h \
+            cepheus_hfi.h cepheus_hfi_boot.h cepheus_hfi_messages.h cepheus_hfi_session.h \
+            cepheus_gmu_firmware.h cepheus_gmu_upload.h cepheus_smmu_plan.h cepheus_smmu_install.h \
+            cepheus_gpu_power_txn.h cepheus_gpu_submit.h cepheus_gmu_start.h \
+            cepheus_gpu_ring.h cepheus_a640_pm4.h cepheus_sqe.h cepheus_gpu_bw.h cepheus_gpu_firmware.h cepheus_gpu_fault.h cepheus_gpu_vm.h cepheus_gpu_va.h cepheus_gpu_pdc.h cepheus_gpu_bin.h cepheus_gpu_thermal.h cepheus_cp_init.h cepheus_smmu_detach.h cepheus_gmu_park.h cepheus_gmu_slumber.h cepheus_cp_protect.h cepheus_qmp_acd.h cepheus_smmu_geometry.h cepheus_smmu_mmio.h cepheus_gmu_oob.h; do
+            cp "cepheus/xnu/$file" dxb/patches/
+          done
           # Retain the verified one-shot Home, PON-only keys and fast blank.
           python3 cepheus/scripts/prepare-performance-patch.py ios-sweet/xnu/patches dxb/patches/0083-cepheus-performance.patch
           python3 cepheus/scripts/test-performance.py
           python3 cepheus/scripts/prepare-touch-power-patch.py ios-sweet/xnu/patches dxb/patches/0084-cepheus-touch-power.patch
           python3 cepheus/scripts/test-touch-power.py ios-sweet/xnu/patches
+          python3 cepheus/scripts/test-gpu-arc.py ios-sweet/xnu/patches
+          python3 cepheus/scripts/test-gpu-integration.py
+          python3 cepheus/scripts/test-pmap-cache-pa.py
+          python3 cepheus/scripts/test-pmap-cache-verifier.py
+          python3 cepheus/scripts/test-tree.py
+          python3 cepheus/scripts/test-gpu-fdt.py
+          python3 cepheus/scripts/test-gpu-diagnostic-log.py
+          python3 cepheus/scripts/test-zap-layout.py
+          bash cepheus/scripts/test-gpu-memory-host.sh
           # The SWEET kernel is plain arm64, not arm64e.
           python3 -c 'from pathlib import Path; p=Path("dxb/build.sh"); s=p.read_text(); old="ARCHS=\"x86_64 arm64e\" VALID_ARCHS=\"x86_64 arm64e\""; assert s.count(old)==1; p.write_text(s.replace(old,"ARCHS=\"x86_64 arm64e arm64\" VALID_ARCHS=\"x86_64 arm64e arm64\""))'
       - name: Toolchain and event parser regression
@@ -47,9 +85,9 @@ jobs:
           brew install jq gum bash cmake ninja
           printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
           sudo chmod +x /usr/local/bin/xcodes
-          test -d /Applications/Xcode_15.4.app
-          echo "DEVELOPER_DIR=/Applications/Xcode_15.4.app/Contents/Developer" >> "$GITHUB_ENV"
-          sudo xcode-select -s /Applications/Xcode_15.4.app
+          test -d /Applications/Xcode_16.2.app
+          echo "DEVELOPER_DIR=/Applications/Xcode_16.2.app/Contents/Developer" >> "$GITHUB_ENV"
+          sudo xcode-select -s /Applications/Xcode_16.2.app
           xcodebuild -version
           xcrun --find iig
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_fts_events.c -o /tmp/fts-test
@@ -64,6 +102,46 @@ jobs:
           /tmp/pm4-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gmu_firmware.c -o /tmp/gmu-test
           /tmp/gmu-test
+          bash cepheus/scripts/test-gpu-sanitizers.sh
+          bash cepheus/scripts/test-gpu-stack.sh
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gpu_config.c -o /tmp/ceph-config
+          /tmp/ceph-config
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_qmp_mmio.c -o /tmp/ceph-qmp-mmio
+          /tmp/ceph-qmp-mmio
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gmu_retire_mmio.c -o /tmp/ceph-retire-mmio
+          /tmp/ceph-retire-mmio
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_pdc_mmio.c -o /tmp/ceph-pdc-mmio
+          /tmp/ceph-pdc-mmio
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gpu_fault_mmio.c -o /tmp/ceph-fault-mmio
+          /tmp/ceph-fault-mmio
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gmu_upload_mmio.c -o /tmp/ceph-upload-mmio
+          /tmp/ceph-upload-mmio
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_qmp_connect.c -o /tmp/ceph-qmp-connect
+          /tmp/ceph-qmp-connect
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gpu_tsens.c -o /tmp/ceph-gpu-tsens
+          /tmp/ceph-gpu-tsens
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_cp_ring_config.c -o /tmp/ceph-cp-ring
+          /tmp/ceph-cp-ring
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_cp_protection.c -o /tmp/ceph-cp-protection
+          /tmp/ceph-cp-protection
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_cp_snapshot_mmio.c -o /tmp/ceph-cp-snapshot
+          /tmp/ceph-cp-snapshot
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gpu_vm39.c -o /tmp/ceph-gpu-vm39
+          /tmp/ceph-gpu-vm39
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gx_core.c -o /tmp/ceph-gx-core
+          /tmp/ceph-gx-core
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gpu_keepalive.c -o /tmp/ceph-keepalive
+          /tmp/ceph-keepalive
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gx_smmu_plan.c -o /tmp/ceph-gx-plan
+          /tmp/ceph-gx-plan
+          for name in gpu_power gpu_power_txn gpu_memory_state gpu_firmware gpu_fault gpu_pdc gpu_thermal gmu_loader gmu_upload gmu_start gmu_park gmu_slumber gmu_oob gmu_mmio hfi hfi_messages hfi_session gpu_vm gpu_va smmu_plan smmu_geometry smmu_mmio smmu_install smmu_detach gpu_submit gpu_ring cp_init qmp_acd sqe arc bcm gpu_bw; do
+            cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined "cepheus/xnu/test_${name}.c" -o "/tmp/ceph-${name}"
+            "/tmp/ceph-${name}"
+          done
+      - name: GPU production host static analysis
+        run: python3 cepheus/scripts/analyze-gpu-host.py
+      - name: Restricted SCM AArch64 codegen (never executed)
+        run: python3 cepheus/scripts/test-scm-codegen.py
       - name: Build XNU
         working-directory: dxb
         run: |
@@ -73,7 +151,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -89,6 +167,16 @@ jobs:
           grep 'Applying patch:' dxb/build.log | grep 0084-cepheus-touch-power.patch
           grep 'Applying patch:' dxb/build.log | grep 0085-cepheus-soc.patch
           cmp cepheus/xnu/cepheus_soc.c dxb/xnu/bsd/dev/cepheus_soc.c
+          cmp cepheus/xnu/cepheus_gpu_power.h dxb/xnu/bsd/dev/cepheus_gpu_power.h
+          cmp cepheus/xnu/cepheus_arc.h dxb/xnu/bsd/dev/cepheus_arc.h
+          cmp cepheus/xnu/cepheus_arc_probe.h dxb/xnu/bsd/dev/cepheus_arc_probe.h
+          grep -F '#include "cepheus_arc_probe.h"' dxb/xnu/bsd/dev/sweet_rpmh.c
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"CEPHEUS ARC:" in d and b"cepharc" in d'
+          python3 cepheus/scripts/verify-gpu-kernel.py dxb/xnu "$K"
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0088-cepheus-pmap-cache-pa.patch'
+          python3 -c 'from pathlib import Path; s=Path("dxb/xnu/osfmk/arm/pmap/pmap.c").read_text(); assert "flush_dcache((vm_offset_t) ptoa(pp), PAGE_SIZE, TRUE);" in s; assert "(pp << PAGE_SHIFT)" not in s'
+          python3 cepheus/scripts/verify-pmap-cache-kernel.py "$K"
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"CX_HW_CTRL=" in d; assert all(s not in d for s in (b"SWEET FASTBOOT:", b"sweetfastboot"))'
           python3 -c 'from pathlib import Path;d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes();assert all(s in d for s in (b"SWEET BLANK:",b"one-shot Home complete",b"SWEET GPI: SMMU"))'
           cp "$K" out/kernel.macho
           (cd out && shasum -a 256 kernel.macho > SHA256SUMS)

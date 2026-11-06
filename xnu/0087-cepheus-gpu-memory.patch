@@ -1,0 +1,23 @@
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -108,6 +108,12 @@
+ bsd/dev/sweet_sample.c			standard
+ bsd/dev/sweet_keys.c			standard
+ bsd/dev/cepheus_touch.c			standard
+ bsd/dev/cepheus_soc.c			standard
++bsd/dev/cepheus_gpu_compile.c		standard
++bsd/dev/cepheus_gmu_workspace.c		standard
++bsd/dev/cepheus_gpu_retire.c		standard
++bsd/dev/cepheus_gmu_hfi_link.c		standard
++bsd/dev/cepheus_gmu_bringup.c		standard
++bsd/dev/cepheus_cp_workspace.c		standard
+ bsd/dev/sweet_rpmh.c			standard
+ bsd/dev/sweet_spmi.c			standard
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -15,4 +15,5 @@
+ iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
+ iokit/Kernel/arm/SweetSurface.cpp                                optional iokitcpp
+ iokit/Kernel/arm/SweetFramebuffer.cpp                            optional iokitcpp
++iokit/Kernel/arm/cepheus_gpu_memory.cpp                          optional iokitcpp
+ iokit/Kernel/arm/SweetBattery.cpp                                optional iokitcpp

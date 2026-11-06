@@ -31,5 +31,6 @@ int main(void)
 	assert(ceph_gmu_region_for(0x44000, 0x3c000) == CE_GMU_DCACHE);
 	assert(ceph_gmu_region_for(0x60000000, 4096) == CE_GMU_KERNEL);
 	assert(ceph_gmu_region_for(0xc0000000, 4) == CE_GMU_BAD);
+	assert(ceph_gmu_plan(file,sizeof(file),p,257,&count)==-1 && count==0);
 	puts("GMU synthetic image plans: boundaries, truncation, overflow, metadata and overlap PASS");
 }

@@ -106,6 +106,7 @@ ctx = types.SimpleNamespace(
     jobs=int(os.environ.get("JOBS", "8")),
     args=types.SimpleNamespace(skip_preflight=False),
     uefi=UEFI,
+    device=ROOT,  # newer UniXNU preflight passes UNIXNU_DEVICE to its scripts
 )
 # RELEASE is required: DEBUG does not fit in the 3 MiB the memory map reserves.
 TARGET = os.environ.get("FW_TARGET", "RELEASE")

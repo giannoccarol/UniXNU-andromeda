@@ -1,0 +1,95 @@
+name: upstream-firmware-candidate
+on:
+  workflow_dispatch:
+  # New workflows cannot be dispatched until present on the default branch.
+  # Keep the candidate isolated there too: only this development branch and
+  # firmware integration edits trigger the build, never a phone operation.
+  push:
+    branches: [feat/adreno640]
+    paths:
+      - .github/workflows/upstream-firmware.yml
+      - upstream-lock.json
+      - scripts/prepare-upstream-firmware.py
+      - scripts/build-firmware.py
+permissions:
+  contents: read
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read reviewed pins
+        id: pins
+        run: |
+          python3 - <<'PY'
+          import json, os
+          pins = json.load(open('upstream-lock.json'))['firmware_candidate']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              for key in ('unixnu', 'aloha'):
+                  print(f'{key}={pins[key]}', file=out)
+          PY
+      - uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: ${{ steps.pins.outputs.unixnu }}
+          path: unixnu
+      - uses: actions/checkout@v4
+        with:
+          repository: Project-Aloha/mu_aloha_platforms
+          ref: ${{ steps.pins.outputs.aloha }}
+          path: uefi
+          submodules: recursive
+      - name: Fetch only the firmware component
+        run: git -C unixnu submodule update --init --depth 1 -- drivers/DarwinBoot
+      - name: Host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build uuid-dev bison flex nasm acpica-tools gcc g++ python3-dev clang lld llvm unzip
+          command -v clang lld-link llvm-lib llvm-rc
+      - name: Apply reviewed integration (no rejected hunks)
+        run: |
+          python3 scripts/test-tree.py
+          python3 scripts/prepare-upstream-firmware.py --unixnu unixnu --uefi uefi
+          python3 scripts/fix_aloha_tree.py uefi
+          python3 scripts/prune_submodules.py uefi board.toml
+          python3 unixnu/drivers/DarwinBoot/Test/test-kernel-parser.py
+          ! find unixnu uefi -name '*.rej' -print -quit | grep .
+      - name: Obtain existing Mu crypto binary dependency
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/crypto uefi/MU_BASECORE/CryptoPkg/Binaries/edk2-basecrypto-driver-bin_extdep
+          gh release download v1.1.3 -R microsoft/mu_crypto_release -p Mu_CryptoBin_v1_1_3.zip -D /tmp/crypto
+          echo '2136c410dc44135830e2e33062243563d642e0be868d6affc2930c6b0854f5cf  /tmp/crypto/Mu_CryptoBin_v1_1_3.zip' | sha256sum -c -
+          unzip -q /tmp/crypto/Mu_CryptoBin_v1_1_3.zip -d uefi/MU_BASECORE/CryptoPkg/Binaries/edk2-basecrypto-driver-bin_extdep
+      - name: Build host tools and seed flags
+        run: |
+          make -C uefi/MU_BASECORE/BaseTools/Source/C -j8 EXTRA_OPTFLAGS='-Wno-error -std=gnu17'
+          mkdir -p out/cepheus/edk2-conf
+          for n in target tools_def build_rule; do
+            cp "uefi/MU_BASECORE/BaseTools/Conf/$n.template" "out/cepheus/edk2-conf/$n.txt"
+          done
+          python3 scripts/relax_clang.py out/cepheus/edk2-conf/tools_def.txt
+      - name: Build firmware only (no payload, boot image or phone)
+        env:
+          FW_TARGET: RELEASE
+        run: |
+          python3 scripts/build-firmware.py
+          mkdir -p out/upstream-candidate
+          cp uefi/Build/SurfaceDuo1Pkg/RELEASE_CLANGPDB/FV/SM8150_EFI.fd out/upstream-candidate/
+          test "$(stat -c %s out/upstream-candidate/SM8150_EFI.fd)" = 3145728
+          cp upstream-lock.json out/upstream-candidate/
+          git rev-parse HEAD > out/upstream-candidate/device-commit.txt
+          (cd out/upstream-candidate && sha256sum SM8150_EFI.fd > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upstream-firmware-NOT-HARDWARE-TESTED
+          path: out/upstream-candidate/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upstream-firmware-build-logs
+          path: out/cepheus/logs/
+          if-no-files-found: ignore

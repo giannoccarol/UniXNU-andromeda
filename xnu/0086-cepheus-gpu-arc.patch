@@ -1,0 +1,8 @@
+--- a/bsd/dev/sweet_rpmh.c
++++ b/bsd/dev/sweet_rpmh.c
+@@ -354,4 +354,5 @@
+ 	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
+ 	return error;
+ }
++#include "cepheus_arc_probe.h"
+ #endif /* ARM64_BOARD_CONFIG_SWEET */

@@ -59,7 +59,11 @@ def assemble(work, unixnu, device):
             if path.is_dir() or '__pycache__' in relative.parts or relative.parts[0] == 'unixnu':
                 continue
             target = scripts / relative
-            if target.is_file() and target.stat().st_size == path.stat().st_size:
+            # UniXNU a4419c8: size (even with mtime) does not detect same-size
+            # script changes. Also never overwrite an external symlink target.
+            if target.is_symlink():
+                target.unlink()
+            if target.is_file() and target.read_bytes() == path.read_bytes():
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)

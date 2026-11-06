@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "checked_at": "2026-11-04",
+  "baseline": {
+    "unixnu": "b6ae99c17194e6a18fd819d3148e69fe405e91fc",
+    "aloha": "0b79812897177e9fdd1fb8cb02f05f5338322541",
+    "darwinboot": "85332b317ee80898fc78939ea64e6ca52d3837a3"
+  },
+  "firmware_candidate": {
+    "unixnu": "350ddc2a23dcaea7d74d8a469259c2efcec3e4a9",
+    "aloha": "d8aab0e2c272caeef5329716ff554c08cfebd6bd",
+    "darwinboot": "3c75734014cdab0acd9541e88057b7606ee7ae08",
+    "mu_basecore": "9067996aec2fb186c30fdd747b719f0d42d819b9",
+    "surface_duo_acpi": "3e11538eecd549f6b10664eb798895e07ab91a45"
+  },
+  "kernel": {
+    "ios_sweet": "45263bee51df4a0f55cdf9c649af886399488ddb",
+    "darwin_xnu_build": "663906528d1cd5ea8fde7de6f16de73db9511549"
+  },
+  "reference_only": {
+    "raphael": "b5b46ed979a8104952c9fadea196240abb633ede"
+  },
+  "policy": "Firmware candidate only; preserve SWEET/iOS16/A640 and baseline. No phone operations. Not a format-2 kernel migration or hardware acceptance."
+}

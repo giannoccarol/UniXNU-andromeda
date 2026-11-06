@@ -6,6 +6,8 @@
  */
 #ifndef CEPHEUS_GMU_FIRMWARE_H
 #define CEPHEUS_GMU_FIRMWARE_H
+#include <stddef.h>
+#include <stdint.h>
 enum ceph_gmu_region { CE_GMU_ITCM, CE_GMU_ICACHE, CE_GMU_DTCM, CE_GMU_DCACHE,
                       CE_GMU_KERNEL, CE_GMU_USER, CE_GMU_BAD };
 struct ceph_gmu_block {
@@ -37,7 +39,7 @@ static int ceph_gmu_plan(const uint8_t *file, size_t size,
 {
 	if (!count) { return -1; }
 	*count = 0;
-	if (!file || !plan || !size || size > 1024u * 1024u || !capacity) { return -1; }
+	if (!file || !plan || !size || size > 1024u * 1024u || !capacity || capacity>256) { return -1; }
 	size_t pos = 0;
 	unsigned n = 0;
 	while (pos < size) {
