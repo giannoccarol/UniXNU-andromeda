@@ -12,7 +12,7 @@ Valutazione completa: [`../VALUTAZIONE-PORT.md`](../VALUTAZIONE-PORT.md).
 | Fase | Stato |
 |---|---|
 | 1. UEFI (Aloha `xiaomi-andromeda` + UniXNU/DarwinBoot) | **funziona sul telefono** (6 novembre 2026): menu UniXNU a schermo |
-| 2. Kernel + ADT | da fare: dati di memoria e framebuffer già misurati (`board.toml`) |
+| 2. Kernel + ADT | **funziona sul telefono** (6 novembre 2026): XNU arriva al montaggio della root |
 | 3. Sistema iOS su `userdata` | da fare (cancella i dati Android) |
 | 4. Touch | da fare: adattare `xnu/cepheus_touch.c` (reset GPIO54, alimentazioni L1C + GPIO37) |
 
@@ -46,6 +46,29 @@ Telefono: Mi Mix 3 5G, `board-id 0x2d`, SM8150 v2.2, 6 GB, EvolutionX 16 (kernel
 | UEFI + UniXNU, ramdisk vuoto | **schermo nero, bloccato** |
 | UEFI semplice + solo `ShengBootMemoryDxe`, ramdisk vuoto | **bloccato** (nessun dispositivo USB): il colpevole è questo modulo |
 | UEFI + UniXNU, payload FAT da 34 MiB | **menu UniXNU**; dopo 10 s torna al firmware (prima voce della configurazione di riserva: "Return to firmware") |
+
+### Fase 2: primo avvio di XNU
+
+| Finestra del kernel (`owned_memory_size`) | Risultato |
+|---|---|
+| 3 GiB | `Out of Resources`: nessun blocco libero così grande nella mappa UEFI (MPSS_EFS riservato a `0xC0000000`, PStore a `0x17FE00000`) |
+| 2 GiB | `Not Found`: `AllocatePages(AllocateAddress)` di EDK II non accetta un intervallo che copre due voci della mappa (`Page.c`, "covers multiple entries"), mentre DarwinBoot misura lo spazio sommando voci adiacenti |
+| **1,5 GiB** | **XNU parte**: 8/8 core (PSCI `CPU_ON`, SGI verificati), `AppleCLCD 1080x2340` a `0x9c000000` presentato come 1125×2436, inizializzazione BSD, rete USB CDC-ECM (`Sweet iOS (USB Ethernet)`, `1209:0001`; il telefono risponde al ping su `192.168.7.2`), driver UFS che legge `userdata` (`BSD root: ufsroot0`). La root non si monta perché `userdata` contiene ancora Android (`hfs_ValidateHFSPlusVolumeHeader: unknown Volume Signature : 14df`) e il kernel riprova in ciclo: **è il punto d'arrivo previsto della fase 2** |
+
+Sul telefono non viene scritto nulla: senza `ufsrw=1` il driver UFS rifiuta ogni scrittura, e il log persistente
+(`sweetlog`) è spento.
+
+**Log in diretta via USB.** Con `sweetusb=2` il kernel manda la console in UDP a `192.168.7.1:5140`; al primo
+collegamento rimanda gli ultimi 64 KiB. Sul PC:
+
+```bash
+sudo bash -c 'nmcli device set enp0s20f0u1 managed no; ip addr replace 192.168.7.1/24 dev enp0s20f0u1 && ip link set enp0s20f0u1 up && iptables -I INPUT -i enp0s20f0u1 -p udp --dport 5140 -j ACCEPT'
+python3 scripts/udplog.py phone/logs/xnu.log
+```
+
+Se l'indirizzo arriva dopo il primo invio, l'inizio dell'avvio va perso (il kernel non ritrasmette): per averlo intero,
+`sudo scripts/watch-usb-log.sh` va lanciato prima di `fastboot boot`, così riassegna l'indirizzo appena compare
+l'interfaccia (MAC `02:00:5e:77:ee:01`).
 
 **Perché si bloccava.** Se il ramdisk non è un FAT `GUACESP`, `ShengBootMemoryDxe` cerca il payload leggendo pagina per
 pagina tutta la memoria della mappa UEFI, comprese le zone `EfiReservedMemoryType`. Sul Mix 3 5G tra queste c'è
