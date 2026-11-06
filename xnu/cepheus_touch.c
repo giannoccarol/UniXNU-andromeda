@@ -65,6 +65,7 @@ extern void sweet_hid_touch(int finger, int down, int x, int y);
 extern int cepheus_touch_power_enable(void);
 extern void cepheus_soc_init(void);
 extern void andromeda_probe_init(void); /* andromeda_probe.c, andrprobe=1 */
+extern void andromeda_cpufreq_init(void); /* andromeda_cpufreq.c, andrcpu=1 */
 extern void cepheus_cpu_activity(void);
 void sweet_touch_init(void);
 
@@ -895,6 +896,7 @@ sweet_touch_init(void)
 {
 	cepheus_soc_init(); /* opt-in independent CPU/GPU thread */
 	andromeda_probe_init(); /* opt-in read-only BT/Wi-Fi/charger probe */
+	andromeda_cpufreq_init(); /* opt-in full CPU clock with thermal guard */
 	int enabled = 1;
 	thread_t thread;
 	if (st.started) {

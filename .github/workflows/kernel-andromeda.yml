@@ -55,7 +55,7 @@ jobs:
           cp cepheus/xnu/cepheus_gpu_power.h dxb/patches/
           cp cepheus/xnu/cepheus_arc.h cepheus/xnu/cepheus_arc_probe.h dxb/patches/
           cp cepheus/xnu/cepheus_bcm.h dxb/patches/
-          cp cepheus/xnu/andromeda_probe.c dxb/patches/
+          cp cepheus/xnu/andromeda_probe.c cepheus/xnu/andromeda_cpufreq.c dxb/patches/
           for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
             cepheus_gpu_memory_state.h \
             cepheus_gmu_upload_mmio.h \
@@ -199,7 +199,9 @@ jobs:
           grep -F 'Applying patch:' dxb/build.log | grep -F '0089-andromeda-probe.patch'
           grep -E '^bsd/dev/andromeda_probe.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
           cmp cepheus/xnu/andromeda_probe.c dxb/xnu/bsd/dev/andromeda_probe.c
-          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA PROBE:" in d and b"andrprobe" in d'
+          grep -E '^bsd/dev/andromeda_cpufreq.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
+          cmp cepheus/xnu/andromeda_cpufreq.c dxb/xnu/bsd/dev/andromeda_cpufreq.c
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA PROBE:" in d and b"andrprobe" in d and b"ANDROMEDA CPU:" in d and b"andrcpuhot" in d'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"CX_HW_CTRL=" in d; assert all(s not in d for s in (b"SWEET FASTBOOT:", b"sweetfastboot"))'
           python3 -c 'from pathlib import Path;d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes();assert all(s in d for s in (b"SWEET BLANK:",b"one-shot Home complete",b"SWEET GPI: SMMU"))'
           cp "$K" out/kernel.macho

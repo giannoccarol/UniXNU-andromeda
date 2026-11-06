@@ -144,6 +144,10 @@ kernel_args = [
   # PMIC reads only; level 2 also sets the s3 clock vote briefly and restores
   # it. Remove once Bluetooth, Wi-Fi and charging have their own drivers.
   "andrprobe=2",
+  # CPU at full clock (andromeda_cpufreq.c, method of ios-flame for the same
+  # SoC): Gold/Prime drop to <= 1.4 GHz above 80 C and return below 70 C; an
+  # unreadable temperature counts as hot.
+  "andrcpu=1",
 ]
 
 [payload.adt]
