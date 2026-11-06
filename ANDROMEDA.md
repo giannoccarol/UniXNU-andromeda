@@ -12,6 +12,8 @@ Crediti: [CREDITS.md](CREDITS.md).
 
 ## Stato
 
+Riepilogo di cosa è pronto da provare e di cosa manca: [docs/COSA-MANCA.md](docs/COSA-MANCA.md).
+
 | Fase | Stato |
 |---|---|
 | 1. UEFI (Aloha `xiaomi-andromeda` + UniXNU/DarwinBoot) | **funziona sul telefono** (6 novembre 2026): menu UniXNU a schermo |
