@@ -80,12 +80,21 @@ void sweet_touch_init(void);
 #define TOUCH_GPIO_IO(n)  (TOUCH_GPIO_CFG(n) + 4u)
 #define TOUCH_MAX        10u
 
-/* Xiaomi Mi 9 pins (live FDT). Reset is ACTIVE LOW: 0 asserts, 1 releases. */
+/* Xiaomi Mi 9 pins (live FDT). Reset is ACTIVE LOW: 0 asserts, 1 releases.
+ * The Mi Mix 3 5G (andromeda) has the same controller on the same SE17 pins
+ * and IRQ, but reset on GPIO54 and the 1.8 V regulator enable on GPIO37
+ * (live FDT fts@49: fts,reset-gpio <&tlmm 54>, touch_vddio_vreg gpio 37).
+ * Boot-args sweettouchrst= and sweettouchvddio= select them; only the pins
+ * of these two phones are accepted, so a wrong value cannot drive a random pin.
+ * The GPIO37 regulator is named disp_vddio_vreg there: it is only ever
+ * driven high, never low. */
 #define TOUCH_PIN_SDA    55u
 #define TOUCH_PIN_SCL    56u
-#define TOUCH_PIN_RESET  12u
+#define TOUCH_PIN_RESET  touch_pin_reset
 #define TOUCH_PIN_IRQ    122u
-#define TOUCH_PIN_VDDIO  84u  /* touch_vddio_vreg enable, active high */
+#define TOUCH_PIN_VDDIO  touch_pin_vddio  /* touch_vddio_vreg enable, active high */
+static unsigned touch_pin_reset = 12u;
+static unsigned touch_pin_vddio = 84u;
 #define TOUCH_I2C_ADDR   0x49u
 #define TOUCH_X_MAX      1080
 #define TOUCH_Y_MAX      2340
@@ -231,13 +240,26 @@ touch_wait_clear(vm_offset_t base, uint32_t off, uint32_t mask)
 	return false;
 }
 
+/* SM8150 TLMM tile of each pin this driver may touch (Linux
+ * drivers/pinctrl/qcom/pinctrl-sm8150.c): 54, 55, 56 and 122 are SOUTH;
+ * 12, 37 and 84 are NORTH. */
+static vm_offset_t
+touch_tile(unsigned pin)
+{
+	switch (pin) {
+	case 54u: case 55u: case 56u: case 122u:
+		return st.south;
+	default:
+		return st.gpio;
+	}
+}
+
 static void
 touch_gpio(unsigned pin, unsigned mux, unsigned pull, unsigned drive, bool out,
     bool high)
 {
 	uint32_t off = TOUCH_GPIO_CFG(pin);
-	vm_offset_t base = (pin == TOUCH_PIN_SDA || pin == TOUCH_PIN_SCL ||
-	    pin == TOUCH_PIN_IRQ) ? st.south : st.gpio;
+	vm_offset_t base = touch_tile(pin);
 	uint32_t cfg = touch_rd(base, off);
 	if (out) {
 		/* Set the latch before enabling output; reset is active low. */
@@ -621,9 +643,11 @@ touch_se_init(void)
 		printf("SWEET TOUCH (cepheus): inherited pins SDA=%#x/%#x SCL=%#x/%#x RESET=%#x/%#x IRQ=%#x/%#x VDDIO=%#x/%#x\n",
 		    touch_rd(st.south, TOUCH_GPIO_CFG(55)), touch_rd(st.south, TOUCH_GPIO_IO(55)),
 		    touch_rd(st.south, TOUCH_GPIO_CFG(56)), touch_rd(st.south, TOUCH_GPIO_IO(56)),
-		    touch_rd(st.gpio, TOUCH_GPIO_CFG(12)), touch_rd(st.gpio, TOUCH_GPIO_IO(12)),
+		    touch_rd(touch_tile(TOUCH_PIN_RESET), TOUCH_GPIO_CFG(TOUCH_PIN_RESET)),
+		    touch_rd(touch_tile(TOUCH_PIN_RESET), TOUCH_GPIO_IO(TOUCH_PIN_RESET)),
 		    touch_rd(st.south, TOUCH_GPIO_CFG(122)), touch_rd(st.south, TOUCH_GPIO_IO(122)),
-		    touch_rd(st.gpio, TOUCH_GPIO_CFG(84)), touch_rd(st.gpio, TOUCH_GPIO_IO(84)));
+		    touch_rd(touch_tile(TOUCH_PIN_VDDIO), TOUCH_GPIO_CFG(TOUCH_PIN_VDDIO)),
+		    touch_rd(touch_tile(TOUCH_PIN_VDDIO), TOUCH_GPIO_IO(TOUCH_PIN_VDDIO)));
 		(void)touch_gpi_probe();
 		return false;
 	}
@@ -705,9 +729,9 @@ touch_thread(void *arg, wait_result_t result)
 		touch_wait(10);
 	}
 	printf("SWEET TOUCH (cepheus): TLMM reset=%#x irq=%#x vddio=%#x\n",
-	    touch_rd(st.gpio, TOUCH_GPIO_IO(TOUCH_PIN_RESET)),
+	    touch_rd(touch_tile(TOUCH_PIN_RESET), TOUCH_GPIO_IO(TOUCH_PIN_RESET)),
 	    touch_rd(st.south, TOUCH_GPIO_IO(TOUCH_PIN_IRQ)),
-	    touch_rd(st.gpio, TOUCH_GPIO_IO(TOUCH_PIN_VDDIO)));
+	    touch_rd(touch_tile(TOUCH_PIN_VDDIO), TOUCH_GPIO_IO(TOUCH_PIN_VDDIO)));
 	/* SDA/SCL on qup17, IRQ input with pull-up, VDDIO enable high. */
 	if (!st.gpio_i2c) {
 		touch_gpio(TOUCH_PIN_SDA, 1, 0, 0, false, false);
@@ -725,8 +749,10 @@ touch_thread(void *arg, wait_result_t result)
 	touch_gpio(TOUCH_PIN_RESET, 0, 3, 3, true, true);
 	touch_wait(300);
 	printf("SWEET TOUCH (cepheus): powered RESET cfg=%#x io=%#x VDDIO cfg=%#x io=%#x\n",
-	    touch_rd(st.gpio, TOUCH_GPIO_CFG(12)), touch_rd(st.gpio, TOUCH_GPIO_IO(12)),
-	    touch_rd(st.gpio, TOUCH_GPIO_CFG(84)), touch_rd(st.gpio, TOUCH_GPIO_IO(84)));
+	    touch_rd(touch_tile(TOUCH_PIN_RESET), TOUCH_GPIO_CFG(TOUCH_PIN_RESET)),
+	    touch_rd(touch_tile(TOUCH_PIN_RESET), TOUCH_GPIO_IO(TOUCH_PIN_RESET)),
+	    touch_rd(touch_tile(TOUCH_PIN_VDDIO), TOUCH_GPIO_CFG(TOUCH_PIN_VDDIO)),
+	    touch_rd(touch_tile(TOUCH_PIN_VDDIO), TOUCH_GPIO_IO(TOUCH_PIN_VDDIO)));
 	if (st.gpio_i2c && !touch_bb_init()) { goto out; }
 
 	uint8_t id[2] = {0};
@@ -797,6 +823,17 @@ sweet_touch_init(void)
 		printf("SWEET TOUCH (cepheus): disabled (sweettouch=0)\n");
 		return;
 	}
+	unsigned pin_reset = touch_pin_reset, pin_vddio = touch_pin_vddio;
+	(void)PE_parse_boot_argn("sweettouchrst", &pin_reset, sizeof(pin_reset));
+	(void)PE_parse_boot_argn("sweettouchvddio", &pin_vddio, sizeof(pin_vddio));
+	if ((pin_reset != 12u && pin_reset != 54u) || (pin_vddio != 84u && pin_vddio != 37u)) {
+		printf("SWEET TOUCH (cepheus): refusing pins reset=%u vddio=%u (allowed 12/54, 84/37)\n",
+		    pin_reset, pin_vddio);
+		return;
+	}
+	touch_pin_reset = pin_reset;
+	touch_pin_vddio = pin_vddio;
+	printf("SWEET TOUCH (cepheus): pins reset=%u vddio=%u\n", touch_pin_reset, touch_pin_vddio);
 	kern_return_t kr = kernel_thread_start(touch_thread, NULL, &thread);
 	if (kr == KERN_SUCCESS) {
 		thread_deallocate(thread);
