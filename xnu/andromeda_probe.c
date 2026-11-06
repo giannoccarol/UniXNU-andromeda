@@ -661,7 +661,7 @@ ap_reboot_bootloader(const char *why)
  * Two Hall sensors on TLMM GPIO 42 (NORTH tile) and 114 (SOUTH tile), as the
  * Xiaomi halls.c (DEF_HALL_GPIO_1/2) and the LineageOS rewrite by Demon000
  * read them: (42, 114) = (0, 1) slider down, (1, 0) slider up, anything else
- * moving (docs/research/sensori-vibrazione.md 1.3). Read only: the IN bit of
+ * moving; which one is open is to be confirmed on the phone (docs/research/sensori-vibrazione.md 1.3). Read only: the IN bit of
  * GPIO_IN_OUT, polled every 100 ms; pin configuration is not changed.
  */
 #define AP_TLMM_NORTH_PA 0x03900000u
@@ -670,11 +670,12 @@ ap_reboot_bootloader(const char *why)
 static const char *
 ap_slider_name(unsigned h42, unsigned h114)
 {
+	/* LineageOS: (0, 1) = STATE_SLIDER_DOWN = open; to be confirmed on the phone. */
 	if (h42 == 0 && h114 == 1) {
-		return "down (closed)";
+		return "slider down (open?)";
 	}
 	if (h42 == 1 && h114 == 0) {
-		return "up (open)";
+		return "slider up (closed?)";
 	}
 	return "moving";
 }
