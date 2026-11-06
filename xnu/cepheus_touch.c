@@ -95,6 +95,13 @@ void sweet_touch_init(void);
 #define TOUCH_PIN_VDDIO  touch_pin_vddio  /* touch_vddio_vreg enable, active high */
 static unsigned touch_pin_reset = 12u;
 static unsigned touch_pin_vddio = 84u;
+/* sweettouchraw=N: print the first N non-empty FIFO events as raw bytes and a
+ * poll counter now and then, to see what the controller reports when the
+ * parser recognises nothing (andromeda bring-up). 0 (default) = silent. */
+static unsigned touch_raw_log;
+static unsigned touch_raw_logged;
+static unsigned touch_raw_polls;
+static unsigned touch_raw_nonempty;
 #define TOUCH_I2C_ADDR   0x49u
 #define TOUCH_X_MAX      1080
 #define TOUCH_Y_MAX      2340
@@ -525,6 +532,20 @@ touch_fts(void)
 	memcpy(frame.y, st.y, sizeof(frame.y));
 	int err = fts_read_cmd(FTS_CMD_READ_ALL_EVENTS, buf, FTS_FIFO_EVENT_SIZE);
 	if (err) { return err; }
+	if (touch_raw_log) {
+		touch_raw_polls++;
+		if (buf[0] != 0) {
+			touch_raw_nonempty++;
+			if (touch_raw_logged < touch_raw_log) {
+				touch_raw_logged++;
+				printf("SWEET TOUCH (cepheus): raw %02x %02x %02x %02x %02x %02x %02x %02x\n",
+				    buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
+			}
+		}
+		if ((touch_raw_polls % 3000u) == 0) {
+			printf("SWEET TOUCH (cepheus): polls=%u nonempty=%u\n", touch_raw_polls, touch_raw_nonempty);
+		}
+	}
 	unsigned remaining = buf[7] & 0x1fu;
 	/* Preserve the first popped event; read only the remaining events into
 	 * buf+8, matching Linux fts_event_handler. Do not overwrite the enter.
@@ -826,6 +847,7 @@ sweet_touch_init(void)
 	unsigned pin_reset = touch_pin_reset, pin_vddio = touch_pin_vddio;
 	(void)PE_parse_boot_argn("sweettouchrst", &pin_reset, sizeof(pin_reset));
 	(void)PE_parse_boot_argn("sweettouchvddio", &pin_vddio, sizeof(pin_vddio));
+	(void)PE_parse_boot_argn("sweettouchraw", &touch_raw_log, sizeof(touch_raw_log));
 	if ((pin_reset != 12u && pin_reset != 54u) || (pin_vddio != 84u && pin_vddio != 37u)) {
 		printf("SWEET TOUCH (cepheus): refusing pins reset=%u vddio=%u (allowed 12/54, 84/37)\n",
 		    pin_reset, pin_vddio);

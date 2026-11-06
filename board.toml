@@ -122,12 +122,16 @@ kernel_args = [
   # active scan ok) but reported no contacts. Linux pulses reset after the
   # supplies are stable: do the same.
   "sweettouchreset=1",
+  # Bring-up: dump the first 60 non-empty FIFO events raw (the parser
+  # recognised no contact so far). Remove once touch works.
+  "sweettouchraw=60",
   # Keys and Home as verified on the Mi 9 (patch 0083): power key via PON only,
-  # one synthetic Home press 90 s after start so the lock screen opens even
-  # without touch.
+  # one synthetic Home press after start so the lock screen opens even without
+  # touch. andromeda: at 90 s it arrived 14 s before the lock screen was drawn
+  # (display on 116 s after fastboot boot), so 150 s.
   "sweetkeys=1",
   "sweetkeyspononly=1",
-  "sweethidtest=90",
+  "sweethidtest=150",
   "sweethidonce=1",
   # Debug build: keep drawing kernel text over the GUI so the screen shows
   # where it stops. Set to 1 for a clean GUI (the console still reaches the
