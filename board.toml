@@ -155,6 +155,12 @@ kernel_args = [
   # 2 = CX + GMU boot, 3 = GX + CP + ZAP, 4 = CP_MEM_WRITE test. One step per
   # boot, watching the log.
   "andrgpu=1",
+  # Phase F4 (patch 0120, xnu/andromeda_gpu_present.c): with andrgpu=4 passing,
+  # andrgpupresent=1 lets the GPU do the fitted panel copy of sweetfb_fit=1; the
+  # first 8 GPU frames are compared with the CPU result (CRC-32,
+  # andrgpupresentcheck=N); a difference, fence timeout or thermal stop turns it
+  # off for the boot (CPU copy). 0 until step 4 has been seen to pass.
+  "andrgpupresent=0",
   # Bring-up (andromeda_probe.c): 100 s after start, log Bluetooth UART pins,
   # clocks and SE13, Wi-Fi/BT regulators and the PM8150B charger/fuel gauge.
   # PMIC reads only; level 2 also sets the s3 clock vote briefly and restores

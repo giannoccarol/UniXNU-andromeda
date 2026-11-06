@@ -32,6 +32,7 @@ RULES = [
     ("Batteria", "iOS", r"SWEET BATTERY: ([^\n]*)"),
     ("Batteria", "PM8150B", r"ANDROMEDA PROBE: battery (.*)"),
     ("GPU", "gradino", r"ANDROMEDA GPU: (step \d+ \([^)]*\) \S+)"),
+    ("GPU", "copia a schermo", r"ANDROMEDA GPU: (present: (?:first \d+ GPU frames checked.*|DISABLED.*|\d+ GPU frames.*)|present not used: .*)"),
     ("GPU", "firmware", r"ANDROMEDA GPU: probe: firmware (\S+ \S+)"),
     ("Fotocamera", "C1", r"ANDROMEDA CAM: (C1 PASS.*|C1 FAIL.*|imx363 reg .*)"),
     ("Wi-Fi", "modem", r"ANDROMEDA WLAN: (modem READY.*|W0 done.*|.*FAIL.*|PAS .*)"),

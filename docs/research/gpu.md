@@ -760,3 +760,11 @@ Script pronti, non ancora compilati con successo: `phone/turnip/`, `phone/metal2
 `gpu-userland-andromeda` scaricano Mesa `85fda3b3` con le patch di UniXNU e ios-flame e metal2vulkan `720ef1ce`, e
 producono `libvulkan_freedreno.dylib`, `vktest`/`v2test` e `SweetMetal2.bundle`. Manca il lato kernel: lo user client
 (ios-flame 0115) dietro un nostro parametro di avvio, poi F6.
+
+## Aggiornamento (7 novembre 2026): F4, copia a schermo con la GPU
+
+Compilato e provato solo sull'host (`xnu/andromeda_gpu_present.c`, patch 0120, `andrgpupresent=1` dopo `andrgpu=4`): 69
+copie 2D non scalate per fotogramma riproducono esattamente le tabelle della 0094; i primi 8 fotogrammi sono confrontati
+con la copia CPU (CRC-32 e pixel per pixel). Sul telefono va provato dopo che il gradino 4 è passato. F5: le librerie
+userland (Turnip, `SweetMetal2.bundle`) sono state compilate dal workflow `gpu-userland-andromeda`; manca lo user client
+del kernel.

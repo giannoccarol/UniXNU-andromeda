@@ -31,6 +31,9 @@
  *                      log path and the rest of the system are up first.
  *   andrgpuhot=C       refuse to power the GPU at/above C degC (default 80);
  *                      an unreadable temperature also refuses (fail-safe).
+ *   andrgpupresent=1   phase F4 (andromeda_gpu_present.c, patch 0120): after
+ *                      a step 4 PASS the GPU is handed to the framebuffer,
+ *                      which lets it copy the fitted frame (sweetfb_fit=1).
  */
 #if defined(ARM64_BOARD_CONFIG_SWEET)
 #include <sys/param.h>
@@ -59,6 +62,7 @@ void SHA256_Final(void *, SHA256_CTX *);
 int vprintf(const char *, va_list);
 #endif
 #include "andromeda_gpu.h"
+#include "andromeda_gpu_present.h"
 
 #define AG_TAG "ANDROMEDA GPU:"
 
@@ -499,6 +503,11 @@ ag_thread(void *arg, wait_result_t wr)
 	/* Step 4: CP_MEM_WRITE 0xcafef00d and read it back. */
 	rc = andr_cp_memtest(&gpu);
 	printf(AG_TAG " step 4 (CP_MEM_WRITE) %s\n", rc ? "FAILED" : "PASS");
+	if (!rc) {
+		/* F4, off unless andrgpupresent=1: the GPU goes to the framebuffer's
+		 * present path; this thread does not touch it again. */
+		andromeda_gpu_present_attach(&gpu, ag_pool_size);
+	}
 
 done:
 	absolutetime_to_nanoseconds(mach_absolute_time() - t0, &ns);

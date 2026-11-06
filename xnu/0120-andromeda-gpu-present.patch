@@ -1,0 +1,291 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -117,2 +117,3 @@ bsd/dev/andromeda_gpu.c			standard
+ bsd/dev/andromeda_gpu_core.c		standard
++bsd/dev/andromeda_gpu_present.c		standard
+ bsd/dev/andromeda_backlight.c		standard
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -37,6 +37,8 @@
+ #include "SweetSurface.h"
+ 
+ extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
++/* bsd/dev/andromeda_gpu_present.c (andromeda F4, patch 0120): the GPU copies the fitted frame. */
++#include "andromeda_gpu_present.h"
+ 
+ #if defined(SWEET)
+ #include <IOKit/IOService.h>
+@@ -116,6 +118,17 @@ public:
+ 	int32_t       fFitW, fFitH, fFitOffY;
+ 	uint16_t      fFitCol[1536];            /* panel column -> logical column */
+ 	uint16_t      fFitRow[3072];            /* fitted row -> logical row */
++	/*
++	 * andromeda (andrgpupresent=1, patch 0120): the Adreno 640 does the fit
++	 * copy instead of the CPU (bsd/dev/andromeda_gpu_present.c), the CPU copy
++	 * above stays the fallback. Surfaces the GPU has mapped, retained and
++	 * prepare()d until their slot is reused; work loop only.
++	 */
++	SweetSurface *fGPUSurf[ANDR_PRESENT_SLOTS];
++	uint64_t      fGPUUsed[ANDR_PRESENT_SLOTS];
++	uint64_t      fGPUClock;
++	uint32_t      fGPUWhy;                  /* fallback reasons already logged */
++	bool          fGPUSetup;
+ 	uintptr_t     fPixels;          /* kernel mapping of the panel memory */
+ 	IOMemoryMap  *fMap;
+ 	SweetSurface *fSurface;         /* the panel memory as an IOSurface */
+@@ -143,6 +156,10 @@ public:
+ 	void presentFit(SweetSurface *s, uintptr_t src, uint32_t bpe, int32_t sx, int32_t sy,
+ 	    int32_t lx, int32_t ly, int32_t w, int32_t h);
+ 	void present(const uint8_t *rec);
++	bool presentGPU(const uint8_t *rec);
++	int mapGPUSurface(SweetSurface *s);
++	bool gpuFallback(uint32_t why);
++	void dropGPUSurfaces(void);
+ };
+ 
+ OSDefineMetaClassAndStructors(AppleCLCD, IOMobileFramebuffer);
+@@ -413,6 +430,10 @@ AppleCLCD::present(const uint8_t *rec)
+ 		}
+ 	}
+ 
++	if (presentGPU(rec)) {
++		return;         /* andrgpupresent=1: the GPU copied (and fenced) this frame */
++	}
++
+ 	for (uint32_t layer = 0; layer < SWEET_FB_LAYERS; layer++) {
+ 		uint32_t id = get32(rec, 0x54 + 4 * layer);
+ 		const uint8_t *a = rec + 0x64 + 16 * layer;
+@@ -550,6 +571,231 @@ AppleCLCD::presentFit(SweetSurface *s, uintptr_t src, uint32_t bpe, int32_t sx,
+ 	}
+ }
+ 
++/*
++ * andromeda F4 (patch 0120, andrgpupresent=1): the GPU copies the frame with
++ * the fit above. Shape after ios-flame's presentGPU (Nick Wylynko, patch
++ * 0095-flame-gpu-present): one full-display layer, the surface's pages
++ * prepare()d and mapped for the GPU once per surface, fallback reasons logged
++ * once, false = the CPU copy does the frame. Unlike flame, the panel keeps
++ * its native stride (no MDP change), the fit is 0094's exactly, and the
++ * surfaces stay retained while mapped. See CREDITS.md.
++ */
++static const char *const sweet_fb_gpu_why[] = {
++	"sweetfb_fit is off (the GPU only does the fitted copy)",
++	"the GPU could not take the panel or the fit",
++	"not exactly one layer",
++	"layer is not the whole display at 0,0",
++	"no surface, or the panel's own",
++	"surface not 4-byte single-plane pixels",
++	"surface larger than a GPU slot",
++	"prepare() failed",
++	"surface pages not page-aligned physical memory",
++	"GPU mapping refused",
++	"GPU frame failed",
++	"a mapped surface could not be released (kept wired)",
++};
++
++bool
++AppleCLCD::gpuFallback(uint32_t why)
++{
++	if (why < 32 && !(fGPUWhy & (1u << why))) {
++		fGPUWhy |= 1u << why;
++		IOLog("ANDROMEDA GPU: present not used: %s; CPU copy\n",
++		    why < sizeof(sweet_fb_gpu_why) / sizeof(sweet_fb_gpu_why[0]) ? sweet_fb_gpu_why[why] : "?");
++	}
++	return false;
++}
++
++/* The GPU is off for this boot: give the surfaces back once their mappings are gone. */
++void
++AppleCLCD::dropGPUSurfaces(void)
++{
++	bool kept = false;
++	for (uint32_t i = 0; i < ANDR_PRESENT_SLOTS; i++) {
++		if (fGPUSurf[i] == NULL) {
++			continue;
++		}
++		if (andromeda_gpu_present_unmap(i) != 0) {
++			kept = true;    /* the GPU may still reach the pages: leave them wired */
++			continue;
++		}
++		fGPUSurf[i]->memory->complete();
++		fGPUSurf[i]->release();
++		fGPUSurf[i] = NULL;
++	}
++	if (kept) {
++		gpuFallback(11);
++	}
++	fGPUClock = 0;
++}
++
++/* Slot holding s after this call, or -1. */
++int
++AppleCLCD::mapGPUSurface(SweetSurface *s)
++{
++	static uint64_t pages[ANDR_PRESENT_SLOT_BYTES / 4096];
++	uint32_t victim = 0;
++	for (uint32_t i = 0; i < ANDR_PRESENT_SLOTS; i++) {
++		if (fGPUSurf[i] == NULL) {
++			victim = i;
++			break;
++		}
++		if (fGPUUsed[i] < fGPUUsed[victim]) {
++			victim = i;
++		}
++	}
++	if (fGPUSurf[victim] != NULL) {
++		if (andromeda_gpu_present_unmap(victim) != 0) {
++			gpuFallback(11);
++			return -1;
++		}
++		fGPUSurf[victim]->memory->complete();
++		fGPUSurf[victim]->release();
++		fGPUSurf[victim] = NULL;
++	}
++	uint64_t len = s->memory->getLength();
++	if (len == 0 || len > ANDR_PRESENT_SLOT_BYTES) {
++		gpuFallback(6);
++		return -1;
++	}
++	/* iOS surfaces must be prepare()d before getPhysicalSegment (flame, HANDOFF gpu8). */
++	if (s->memory->prepare() != kIOReturnSuccess) {
++		gpuFallback(7);
++		return -1;
++	}
++	uint32_t n = 0;
++	bool ok = true;
++	for (uint64_t off = 0; ok && off < len; off += PAGE_SIZE) {
++		IOByteCount seg = 0;
++		addr64_t pa = s->memory->getPhysicalSegment(off, &seg, kIOMemoryMapperNone);
++		ok = pa != 0 && (pa & PAGE_MASK) == 0 && n < sizeof(pages) / sizeof(pages[0]);
++		if (ok) {
++			pages[n++] = pa;
++		}
++	}
++	if (!ok) {
++		s->memory->complete();
++		gpuFallback(8);
++		return -1;
++	}
++	if (andromeda_gpu_present_map(victim, pages, n, (uint32_t)PAGE_SIZE) != 0) {
++		s->memory->complete();
++		gpuFallback(9);
++		return -1;
++	}
++	s->retain();
++	fGPUSurf[victim] = s;
++	fGPUUsed[victim] = ++fGPUClock;
++	return (int)victim;
++}
++
++bool
++AppleCLCD::presentGPU(const uint8_t *rec)
++{
++	if (!andromeda_gpu_present_ready()) {
++		if (fGPUClock != 0) {
++			dropGPUSurfaces();
++		}
++		return false;
++	}
++	if (!fFit) {
++		return gpuFallback(0);
++	}
++	if (!fGPUSetup) {
++		struct andr_present_geom geom;
++		bzero(&geom, sizeof(geom));
++		geom.panel_pa = fPhys;
++		geom.panel_kva = fPixels;
++		geom.panel_w = fWidth;
++		geom.panel_h = fHeight;
++		geom.panel_rowbytes = fRowBytes;
++		geom.logical_w = fLogicalW;
++		geom.logical_h = fLogicalH;
++		geom.fit_w = (uint32_t)fFitW;
++		geom.fit_h = (uint32_t)fFitH;
++		geom.fit_y = (uint32_t)fFitOffY;
++		geom.fit_col = fFitCol;
++		geom.fit_row = fFitRow;
++		if (andromeda_gpu_present_setup(&geom) != 0) {
++			return gpuFallback(1);
++		}
++		fGPUSetup = true;
++	}
++	uint32_t mask = get32(rec, 0x104), layer = 0;
++	if (mask == 0 || (mask & (mask - 1)) != 0) {
++		return gpuFallback(2);
++	}
++	while (!(mask & (1u << layer))) {
++		layer++;
++	}
++	if (layer >= SWEET_FB_LAYERS) {
++		return gpuFallback(2);
++	}
++	/* The CPU path's reading of the swap record (present()). */
++	uint32_t id = get32(rec, 0x54 + 4 * layer);
++	const uint8_t *a = rec + 0x64 + 16 * layer;
++	const uint8_t *b = rec + 0xc4 + 16 * layer;
++	int32_t sx = (int32_t)get32(a, 0), sy = (int32_t)get32(a, 4);
++	int32_t dx = (int32_t)get32(b, 0), dy = (int32_t)get32(b, 4);
++	int32_t w = (int32_t)get32(b, 8), h = (int32_t)get32(b, 12);
++	SweetSurface *s = id != 0 ? sweet_surface_copy(id) : NULL;
++	if (s == NULL || s == fSurface || s->memory == NULL) {
++		OSSafeReleaseNULL(s);
++		return gpuFallback(4);
++	}
++	if (w <= 0 || h <= 0) {
++		w = (int32_t)s->width;
++		h = (int32_t)s->height;
++	}
++	if (sx < 0 || sy < 0) {
++		sx = sy = 0;
++	}
++	if (dx < 0 || dy < 0) {
++		dx = dy = 0;
++	}
++	if (sx != 0 || sy != 0 || dx != 0 || dy != 0 || w != (int32_t)fLogicalW || h != (int32_t)fLogicalH ||
++	    s->width < fLogicalW || s->height < fLogicalH) {
++		s->release();
++		return gpuFallback(3);
++	}
++	uint32_t bpe = s->bytesPerElement ? s->bytesPerElement : 4;
++	uintptr_t kva = s->kernelAddress();
++	if (bpe != 4 || s->elementWidth != 1 || s->elementHeight != 1 || s->planeCount > 1 || kva == 0) {
++		s->release();
++		return gpuFallback(5);
++	}
++	int slot = -1;
++	for (uint32_t i = 0; i < ANDR_PRESENT_SLOTS; i++) {
++		if (fGPUSurf[i] == s) {
++			slot = (int)i;
++			break;
++		}
++	}
++	if (slot < 0) {
++		slot = mapGPUSurface(s);
++	}
++	if (slot < 0) {
++		s->release();
++		return false;
++	}
++	fGPUUsed[slot] = ++fGPUClock;
++	struct andr_present_src src;
++	bzero(&src, sizeof(src));
++	src.kva = kva;
++	src.len = s->memory->getLength();
++	src.offset = s->offset;
++	src.width = s->width;
++	src.height = s->height;
++	src.bytes_per_row = s->bytesPerRow;
++	src.console_quiet = sweet_console_muted != 0;
++	int rc = andromeda_gpu_present_frame((uint32_t)slot, &src);
++	s->release();
++	if (rc != 0) {
++		return gpuFallback(10);
++	}
++	return true;
++}
++
+ bool
+ IOMobileFramebufferUserClient::initWithTask(task_t owningTask, void *securityID, UInt32 type)
+ {

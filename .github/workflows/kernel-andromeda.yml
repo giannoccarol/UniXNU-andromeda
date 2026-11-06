@@ -69,6 +69,7 @@ jobs:
           cp cepheus/xnu/andromeda_power.c cepheus/xnu/andromeda_power.h dxb/patches/
           # Power P1 straight into dxb/patches: 0102-0104 change files that the 0083 generator rewrites.
           cp cepheus/xnu/0101-andromeda-idle-cache.patch cepheus/xnu/0102-andromeda-fb-vsync-park.patch cepheus/xnu/0103-andromeda-usb-idle-poll.patch cepheus/xnu/0104-andromeda-keys-idle-poll.patch dxb/patches/
+          cp cepheus/xnu/andromeda_gpu_present.c cepheus/xnu/andromeda_gpu_present.h cepheus/xnu/0120-andromeda-gpu-present.patch dxb/patches/
           for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
             cepheus_gpu_memory_state.h \
             cepheus_gmu_upload_mmio.h \
@@ -133,6 +134,8 @@ jobs:
           /tmp/governor-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_slider.c -o /tmp/slider-test
           /tmp/slider-test
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_gpu_present.c -o /tmp/present-test
+          /tmp/present-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_a640_pm4.c -o /tmp/pm4-test
           /tmp/pm4-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gmu_firmware.c -o /tmp/gmu-test
@@ -186,7 +189,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0135-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0120-|0135-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -280,6 +283,14 @@ jobs:
           # andromeda: dyld policy for apps with embedded frameworks (patch 0115, ios-flame 0114).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0115-andromeda-dyld-policy.patch'
           grep -F 'SWEET_AMFI_DYLD_POLICY_SELF' dxb/xnu/bsd/kern/sweet_amfi.c
+          # andromeda: F4 GPU present (patch 0120, andrgpupresent=1).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0120-andromeda-gpu-present.patch'
+          grep -E '^bsd/dev/andromeda_gpu_present.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
+          cmp cepheus/xnu/andromeda_gpu_present.c dxb/xnu/bsd/dev/andromeda_gpu_present.c
+          cmp cepheus/xnu/andromeda_gpu_present.h dxb/xnu/bsd/dev/andromeda_gpu_present.h
+          cmp cepheus/xnu/andromeda_gpu_present.h dxb/xnu/iokit/Kernel/arm/andromeda_gpu_present.h
+          grep -F 'andromeda_gpu_present_attach(&gpu, ag_pool_size);' dxb/xnu/bsd/dev/andromeda_gpu.c
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrgpupresent", b"present: GPU attached", b"present not used: %s; CPU copy"))'
           # andromeda: AMFI trust-query stand-in (patch 0096, port of ios-flame 0103).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0096-andromeda-amfi-trust.patch'
           cmp cepheus/xnu/SweetAMFI.cpp dxb/xnu/iokit/Kernel/arm/SweetAMFI.cpp

@@ -38,6 +38,8 @@ install -m 644 "$ROOT/xnu/0092-andromeda-bt.patch" "$ROOT/xnu/0092-stage-androme
 # 0092-andromeda-bt-rpmh.patch is copied by the workflow straight into dxb/patches (it needs the generated 0084).
 install -m 644 "$ROOT/xnu/0093-andromeda-backlight.patch" "$ROOT/xnu/0093-stage-andromeda-backlight.sh" "$ROOT/xnu/andromeda_backlight.c" "$ROOT/xnu/AndromedaBacklight.cpp" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0094-andromeda-display-fit.patch" "$DEST/xnu/patches/"
+install -m 644 "$ROOT/xnu/0120-stage-andromeda-gpu-present.sh" "$ROOT/xnu/andromeda_gpu_present.c" "$ROOT/xnu/andromeda_gpu_present.h" "$DEST/xnu/patches/"
+# 0120-andromeda-gpu-present.patch is copied by the workflow straight into dxb/patches (it changes SweetFramebuffer.cpp, which the 0083 generator rewrites).
 install -m 644 "$ROOT/xnu/0098-andromeda-cam.patch" "$ROOT/xnu/0098-stage-andromeda-cam.sh" "$ROOT/xnu/andromeda_cam.c" "$DEST/xnu/patches/"
 # 0098-andromeda-cam-rpmh.patch is copied by the workflow straight into dxb/patches (it needs 0084 and 0092-andromeda-bt-rpmh.patch).
 install -m 644 "$ROOT/xnu/0100-andromeda-power-stats.patch" "$ROOT/xnu/0100-stage-andromeda-power.sh" "$ROOT/xnu/andromeda_power.c" "$ROOT/xnu/andromeda_power.h" "$DEST/xnu/patches/"

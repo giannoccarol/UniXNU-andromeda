@@ -203,6 +203,14 @@ metal2vulkan, l'archivio del sorgente corrispondente completo.
 | `codesign` di Apple; `ldid` (Procursus) e `rcodesign` (Gregory Szorc) | solo il formato degli entitlement DER, nessun codice |
 | **Apple**, XNU `xnu-8796.141.3` (APSL 2.0): `ubc_subr.c`, `kern_proc.c`, `mach_loader.c`, `cs_blobs.h`; `mach-o/loader.h` | regole del kernel su firme e cifratura usate nei controlli |
 
+## GPU: copia a schermo con la GPU (fase F4, patch 0120)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **Nick Wylynko** (NWylynko), [`ios-flame`](https://github.com/NWylynko/ios-flame) (`745c4341`, MIT; file XNU sotto APSL 2.0): patch `0095-flame-gpu-present`, `0111-flame-gpu-display-mask`, `0119-flame-gpu-async-present`, `HANDOFF.md` | in `xnu/andromeda_gpu_present.c` e nella 0120: lo stream di registri del blit 2D, il percorso del present (superfici mappate per slot, pulizia della cache, IB + fence, ritorno alla copia CPU), la tabella a 4K e il flush del TLB dell'SMMU, l'immagine di appoggio nel pool |
+| **Sviluppatori Mesa** (freedreno, Turnip), Mesa `e6dd90e0` (MIT): `a6xx.xml`, `tu_clear_blit.cc` | campi e allineamenti dei registri A2D; l'idea di scrivere una destinazione non allineata dall'indirizzo allineato sottostante con uno scostamento in x; nessun codice copiato |
+| **dipa-studio**, `ios-sweet` (`45263bee`, MIT) | `SweetFramebuffer.cpp` e `SweetSurface` che la 0120 modifica |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |
