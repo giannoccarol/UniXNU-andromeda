@@ -175,13 +175,14 @@ kernel_args = [
   # (display on 116 s after fastboot boot), so 150 s.
   "sweetkeys=1",
   "sweetkeyspononly=1",
-  "sweethidtest=150",
-  "sweethidonce=1",
+  # 2026-11-08: the synthetic Home press is off: touch starts at 10 s now.
+  # "sweethidtest=150", "sweethidonce=1",
   # Debug build: keep drawing kernel text over the GUI so the screen shows
   # where it stops. Set to 1 for a clean GUI (the console still reaches the
   # persistent log and the USB live log).
   "sweetfb_noconsole=1",
-  "sweetfb_hz=30",
+  # 2026-11-08: 60 Hz with andrfbasync=1 (copies off the vsync timer).
+  "sweetfb_hz=60",
   # Show the whole iPhone X canvas (1125x2436) scaled by 0.96 onto the
   # 1080x2340 panel instead of the centered crop that cut the status bar
   # (patch 0094); touch follows the same mapping.
@@ -247,6 +248,10 @@ kernel_args = [
   # bl 1-2, pwr 0|1, idle NAME VALUE, slider 1, slidercam 0-2, fastboot. The
   # features below stay off at boot and are started from the PC one at a time.
   "andrctl=1",
+  # Register the apps of /Applications that LaunchServices does not know yet
+  # (iOS's own deletable apps, installed by phone/andromeda-apps/
+  # install-stock-apps.py, and the owner's apps) once per boot.
+  "andrapps=1",
   # Off in the main image; test image: ANDROMEDA_TAG=btbl
   # ANDROMEDA_ARGS="andrbt=1 andrbl=1" ./build-boot.sh
   # Bluetooth B1 (andromeda_bt.c, patch 0092): 150 s after start, WCN3990
@@ -308,8 +313,10 @@ kernel_args = [
   # from the PC): backboardd made 18 frames/s and 12 were shown, because the
   # CPU copy (53 ms with the fence wait) ran inside the vsync timer and held
   # back the vsync notifications that pace backboardd. andrfbasync=1 (patch
-  # 0202) copies on a thread call instead; in test.
-  # "andrfbasync=0",  (default; not passed, see the boot-args length note)
+  # 0202) copies on a thread call instead. Verified 2026-11-08 (same swipes,
+  # sweetfb_hz=60): 19 frames/s shown instead of 12, no vsync tick missed
+  # instead of 321-370 per 10 s, copy 31 ms instead of 53.
+  "andrfbasync=1",
   # GPU frequency: the governor (andrgpugov=1, default on) moves the GMU vote
   # between 257 and 585 MHz (the levels of Android's device tree) from the
   # GPU-busy counter, raises it to 499 MHz on touch and caps it when hot.
