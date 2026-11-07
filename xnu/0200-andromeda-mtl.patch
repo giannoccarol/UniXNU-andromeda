@@ -1,0 +1,48 @@
+andromeda: phases F5/F6 (andrmtl=N, off by default). Compiles
+bsd/dev/andromeda_gpu_mtl.c and iokit/Kernel/arm/SweetAccelerator.cpp (staged
+by 0200-stage-andromeda-mtl.sh) and gives SweetAccelerator an IOResources
+personality, whose probe() declines unless andrmtl is 1 or 2. Port of
+ios-flame's 0096-flame-metal-accelerator, 0097-flame-metal-userclient,
+0115-flame-gpu-v2-client-turnip and 0116-flame-sweetmetal2-plugin-switch
+(Nick Wylynko / NWylynko, commit 745c4341, MIT for the repository, the XNU
+changes under APSL 2.0; see CREDITS.md and licenses/ios-flame-MIT.txt).
+
+diff --git a/bsd/conf/files b/bsd/conf/files
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -116,6 +116,7 @@ bsd/dev/andromeda_bt.c			standard
+ bsd/dev/andromeda_gpu.c			standard
+ bsd/dev/andromeda_gpu_core.c		standard
+ bsd/dev/andromeda_gpu_present.c		standard
++bsd/dev/andromeda_gpu_mtl.c		standard
+ bsd/dev/andromeda_backlight.c		standard
+ bsd/dev/andromeda_cam.c			standard
+ bsd/dev/andromeda_wlan.c		standard
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -89,6 +89,13 @@ const char * gIOKernelConfigTables =
+     "     'IOProviderClass' = IOResources;"
+     "     'IOMatchCategory' = AppleMobileFileIntegrity;"
+     "   },"
++#endif
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    "   {"
++    "     'IOClass'         = SweetAccelerator;"
++    "     'IOProviderClass' = IOResources;"
++    "     'IOMatchCategory' = SweetAccelerator;"
++    "   },"
+ #endif
+     "   {"
+     "     'IOClass'         = IOPanicPlatform;"
+diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -19,6 +19,7 @@ iokit/Kernel/arm/cepheus_gpu_memory.cpp                          optional iokitc
+ iokit/Kernel/arm/SweetAMFI.cpp                                   optional iokitcpp
+ iokit/Kernel/arm/SweetBattery.cpp                                optional iokitcpp
+ iokit/Kernel/arm/AndromedaBacklight.cpp                          optional iokitcpp
++iokit/Kernel/arm/SweetAccelerator.cpp                            optional iokitcpp
+ iokit/Kernel/arm/hid/SweetHID.cpp                                optional iokitcpp
+ iokit/Kernel/arm/hid/IOHIDEvent.cpp                              optional iokitcpp
+ iokit/Kernel/arm/hid/IOHIDEventServiceQueue.cpp                  optional iokitcpp

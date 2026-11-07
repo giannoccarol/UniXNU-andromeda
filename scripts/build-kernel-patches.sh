@@ -49,6 +49,9 @@ install -m 644 "$ROOT/xnu/0135-andromeda-haptics.patch" "$ROOT/xnu/0135-stage-an
 install -m 644 "$ROOT/xnu/0140-andromeda-ctl.patch" "$ROOT/xnu/0140-stage-andromeda-ctl.sh" "$ROOT/xnu/andromeda_ctl.c" "$ROOT/xnu/andromeda_ctl.h" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0097-andromeda-slider.patch" "$ROOT/xnu/0097-stage-andromeda-slider.sh" "$ROOT/xnu/andromeda_slider.c" "$ROOT/xnu/andromeda_slider.h" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0096-andromeda-amfi-trust.patch" "$ROOT/xnu/0096-stage-andromeda-amfi.sh" "$ROOT/xnu/SweetAMFI.cpp" "$DEST/xnu/patches/"
+# F5/F6 (andrmtl=N, off by default): NativeAdreno user client + IOAcceleratorES (port of ios-flame 0096/0097/0115/0116).
+install -m 644 "$ROOT/xnu/0200-andromeda-mtl.patch" "$ROOT/xnu/0200-stage-andromeda-mtl.sh" "$ROOT/xnu/andromeda_gpu_mtl.c" \
+    "$ROOT/xnu/andromeda_gpu_mtl.h" "$ROOT/xnu/SweetAccelerator.cpp" "$ROOT/xnu/NativeAdrenoABI.h" "$DEST/xnu/patches/"
 for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
     cepheus_gpu_memory_state.h \
     cepheus_gmu_upload_mmio.h \
