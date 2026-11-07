@@ -157,7 +157,16 @@ void
 SweetAccelerator::publish(unsigned level)
 {
 	setProperty("model", "Adreno 640");
-	setProperty(kIOUserClientClassKey, "SweetAcceleratorUserClient");
+	/*
+	 * andrmtluc (default 1): hand out the user client as AGXDeviceUserClient,
+	 * the class name app sandbox profiles allow for the GPU (iokit-open by
+	 * iokit-user-client-class). 2026-11-07: Photos and WebKit's GPU process
+	 * got "device refused: Vulkan(-3)" and never reached our open, while the
+	 * unsandboxed SpringBoard and backboardd did. andrmtluc=0: the old name.
+	 */
+	uint32_t uc = 1;
+	(void)PE_parse_boot_argn("andrmtluc", &uc, sizeof(uc));
+	setProperty(kIOUserClientClassKey, uc ? "AGXDeviceUserClient" : "SweetAcceleratorUserClient");
 	setProperty("AndromedaMetalLevel", (unsigned long long)level, 32);
 	if (level >= ANDR_MTL_METAL) {
 		/* SweetMetal2.bundle: UniXNU's frontend + metal2vulkan + Turnip (phone/metal2, flame 0116 sweetmtl=2) */
@@ -316,6 +325,13 @@ public:
 };
 
 OSDefineMetaClassAndStructors(SweetAcceleratorUserClient, IOUserClient);
+
+/* The same user client under the name the app sandbox lets through (andrmtluc). */
+class AGXDeviceUserClient : public SweetAcceleratorUserClient {
+	OSDeclareDefaultStructors(AGXDeviceUserClient);
+};
+
+OSDefineMetaClassAndStructors(AGXDeviceUserClient, SweetAcceleratorUserClient);
 
 bool
 SweetAcceleratorUserClient::initWithTask(task_t owningTask, void *securityID, UInt32 type)
