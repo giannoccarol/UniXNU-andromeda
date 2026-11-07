@@ -62,6 +62,13 @@ int main(void)
 	for (unsigned i = 0; i < 256; ++i) { rx(&m, i); }
 	assert(!cepheus_bb_xfer(&b, 0x49, NULL, 0, data, 256));
 	for (unsigned i = 0; i < 256; ++i) { assert(data[i] == i); }
-	assert(cepheus_bb_xfer(&b, 0x49, id_cmd, 6, NULL, 0) == EINVAL);
-	puts("GPIO I2C combined read, repeated START, NACK, timeout, busy, arbitration, bounds: PASS");
+	/* 6-byte hardware register write (system reset: FA 20000024 80), ACKed. */
+	const uint8_t reset_cmd[] = {0xfa, 0x20, 0x00, 0x00, 0x24, 0x80};
+	memset(&m, 0, sizeof(m)); push(&m, 1); tx(&m, 0x92, 0);
+	for (unsigned i = 0; i < sizeof(reset_cmd); ++i) { tx(&m, reset_cmd[i], 0); }
+	assert(!cepheus_bb_xfer(&b, 0x49, reset_cmd, sizeof(reset_cmd), NULL, 0));
+	assert(m.pos == m.count && m.starts == 1 && m.stops == 1 && !m.low[0] && !m.low[1]);
+	const uint8_t long_cmd[9] = {0};
+	assert(cepheus_bb_xfer(&b, 0x49, long_cmd, 9, NULL, 0) == EINVAL);
+	puts("GPIO I2C combined read, repeated START, NACK, timeout, busy, arbitration, 6-byte write, bounds: PASS");
 }
