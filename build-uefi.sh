@@ -8,5 +8,6 @@ docker build -q -t unixnu-firmware -f build/Dockerfile.firmware build/ >/dev/nul
 exec docker run --rm --network host \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   ${VARIANTS:+-e VARIANTS="$VARIANTS"} \
+  ${RAM_MERGE:+-e RAM_MERGE="$RAM_MERGE"} \
   -v "$PWD:/work" -w /work \
   unixnu-firmware bash scripts/firmware-in-container.sh "$@"

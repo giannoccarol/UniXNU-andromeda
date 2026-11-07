@@ -15,7 +15,7 @@ Se manca qualcuno o qualcosa è attribuito male, è un errore da correggere.
 | **JohnLeeeeeee678**, [`UniXNU-raphael`](https://github.com/JohnLeeeeeee678/UniXNU-raphael) (Redmi K20 Pro) | il percorso SM8150 "chiavi in mano" da cui deriva il port del Mi 9; indicazione della finestra di memoria per i telefoni da 6 GB |
 | **wochgn**, [`UniXNU-guacamole`](https://github.com/wochgn/UniXNU-guacamole) (OnePlus 7 Pro) | il primo port SM8150 arrivato allo spazio utente di iOS; le patch per Aloha, UniXNU e DarwinBoot; la nota sulla finestra da 3 GiB |
 | **sxl47**, [`UniXNU-cepheus`](https://github.com/sxl47/UniXNU-cepheus) | note sulla memoria e sul framebuffer degli SM8150 (consultate) |
-| [UniXNU](https://github.com/UniXNU/UniXNU) (organizzazione UniXNU, licenza BSD-2-Clause-Patent) | gestore di avvio UEFI UniXNU, DarwinBoot, `ShengBootMemoryDxe`, script di build di firmware, payload e immagine di avvio |
+| [UniXNU](https://github.com/UniXNU/UniXNU) (organizzazione UniXNU, licenza BSD-2-Clause-Patent) | gestore di avvio UEFI UniXNU, DarwinBoot, `ShengBootMemoryDxe`, script di build di firmware, payload e immagine di avvio; DarwinBoot riempie la struttura `boot_args` di Darwin 23, e il nostro `scripts/patch-darwinboot-bootargs.py` la adatta anche a XNU 8796 (riga di comando da 608 byte) |
 
 ## Firmware UEFI
 
