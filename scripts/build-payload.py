@@ -39,6 +39,18 @@ if os.environ.get("ANDROMEDA_ARGS"):
     args = [item for item in board["payload"]["kernel_args"] if item.split("=", 1)[0] not in names]
     board["payload"]["kernel_args"] = args + extra
     print(f"payload: kernel args overridden: {' '.join(extra)}")
+# XNU 8796 (iOS 16) reads 608 bytes of boot-args (BOOT_LINE_LENGTH in
+# pexpert/pexpert/arm64/boot.h), DarwinBoot copies into a 1024-byte field
+# (Darwin 23 ABI): characters 608 and up are lost and 612-627 become
+# bootFlags and memSizeActual, i.e. hw.memsize. With 721 characters HFS sized
+# its journal buffer from that text and panicked at the first transaction.
+BOOT_LINE_MAX = 607
+_line = " ".join(board["payload"]["kernel_args"])
+if len(_line) > BOOT_LINE_MAX:
+    raise SystemExit(f"payload: kernel args are {len(_line)} characters, XNU 8796 takes at most "
+                     f"{BOOT_LINE_MAX} (the rest would overwrite bootFlags/memSizeActual); "
+                     "leave default =0 switches out")
+print(f"payload: kernel args {len(_line)}/{BOOT_LINE_MAX} characters")
 if os.environ.get("ANDROMEDA_OWNED"):
     board["payload"]["adt"]["owned_memory_size"] = os.environ["ANDROMEDA_OWNED"]
     print(f"payload: owned_memory_size overridden to {os.environ['ANDROMEDA_OWNED']}")

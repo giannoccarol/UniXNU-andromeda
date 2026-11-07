@@ -82,10 +82,20 @@ Se l'indirizzo arriva dopo il primo invio, l'inizio dell'avvio va perso (il kern
 `sudo scripts/watch-usb-log.sh` va lanciato prima di `fastboot boot`, così riassegna l'indirizzo appena compare
 l'interfaccia (MAC `02:00:5e:77:ee:01`).
 
-**Panic del 7 novembre: spazio per le mappature dei registri esaurito.** Il kernel `9416c8a`, con slider, sonda,
-batteria e GPU accesi, va in panic: prima `memmove` verso l'indirizzo 0 in `end_transaction` del journal HFS (il
-buffer da 3 MB della transazione non era stato allocato), poi, con il driver CPU spento,
-`kmem_alloc(…, 2097152, 0x100021): failed with 3` (`KERN_NO_SPACE`). La seconda è `io_map()` di XNU:
+**Panic del 7 novembre (1): riga degli argomenti troppo lunga.** Sei avvii su sette, con il kernel nuovo e con
+quello del 6 novembre, finiscono con `memmove` verso l'indirizzo 0 in `end_transaction` del journal HFS, alla prima
+transazione dopo il mount. Causa: XNU 8796 legge 608 byte di argomenti (`BOOT_LINE_LENGTH`,
+`pexpert/pexpert/arm64/boot.h`), DarwinBoot riempie un campo da 1024 (struttura di Darwin 23,
+`unixnu/drivers/DarwinBoot/DarwinBootPkg/Driver/BootArgs.h`). Con 721 caratteri il testo dal carattere 612 diventa
+`bootFlags` e `memSizeActual`, cioè `hw.memsize`; HFS calcola il buffer del journal come 128 KiB × (memsize / 256 MiB)
+in un `int`, che va in overflow: dimensione negativa, `IOMallocData` restituisce NULL. Il calcolo sulle righe delle
+sette immagini prevede esattamente gli esiti visti (l'unica che passava, `nocpu`, dava per caso un valore positivo;
+la riga del 6 novembre, 419 caratteri, lasciava il campo a zero). Inoltre i caratteri dal 608 in poi non arrivano al
+kernel: gli interruttori aggiunti in coda con `ANDROMEDA_ARGS` venivano ignorati. Correzione: argomenti sotto i 608
+caratteri (i valori predefiniti `=0` non si passano più) e `scripts/build-payload.py` rifiuta righe più lunghe.
+
+**Panic del 7 novembre (2): spazio per le mappature dei registri esaurito.** Con la GPU accesa
+`kmem_alloc(…, 2097152, 0x100021): failed with 3` (`KERN_NO_SPACE`). È `io_map()` di XNU:
 `ml_io_map()` prende gli indirizzi da `io_submap`, che su ARM è grande **8 MiB** (`osfmk/arm/io_map.c`), e ogni
 mappatura è permanente. Ogni driver rimappava gli stessi blocchi (GCC 384 KiB, TLMM nord e sud 512 KiB ciascuno,
 TLMM est), e la GPU chiede finestre da 2 MiB. Correzione: `andromeda_io_map()` (in `xnu/andromeda_probe.c`), usata

@@ -76,6 +76,14 @@ dram_size = "0x180000000"   # 6 GiB unit
 panic_screen = false
 timeout = 3
 kernel_args = [
+  # Boot-args length (andromeda, 2026-11-07): XNU 8796 reads 608 bytes
+  # (BOOT_LINE_LENGTH, pexpert/pexpert/arm64/boot.h) but DarwinBoot fills a
+  # 1024-byte field (Darwin 23 ABI): characters 608 and up never reach the
+  # kernel, and 612-627 become bootFlags and memSizeActual (hw.memsize).
+  # At 721 characters HFS sized its journal buffer from that text, got a
+  # negative size and panicked at the first transaction. Keep the line
+  # under 608 characters (scripts/build-payload.py refuses longer ones):
+  # leave defaults (=0) out and add test switches with ANDROMEDA_ARGS.
   "debug=0xc",
   "serial=3",
   # All eight cores reached bsd_init in the cpu-match-fixed image. Reducing
@@ -154,24 +162,24 @@ kernel_args = [
   # firmware check (GPUCC/SMMU/GMU read only when their clocks/power are on),
   # 2 = CX + GMU boot, 3 = GX + CP + ZAP, 4 = CP_MEM_WRITE test. One step per
   # boot, watching the log.
-  "andrgpu=1",
+  # "andrgpu=1",  (off until the kernel with andromeda_io_map(), commit 7dda8db: the 8 MiB io_submap overflows)
   # Phase F4 (patch 0120, xnu/andromeda_gpu_present.c): with andrgpu=4 passing,
   # andrgpupresent=1 lets the GPU do the fitted panel copy of sweetfb_fit=1; the
   # first 8 GPU frames are compared with the CPU result (CRC-32,
   # andrgpupresentcheck=N); a difference, fence timeout or thermal stop turns it
   # off for the boot (CPU copy). 0 until step 4 has been seen to pass.
-  "andrgpupresent=0",
+  # "andrgpupresent=0",  (default; not passed, see the boot-args length note)
   # Bring-up (andromeda_probe.c): 100 s after start, log Bluetooth UART pins,
   # clocks and SE13, Wi-Fi/BT regulators and the PM8150B charger/fuel gauge.
   # PMIC reads only; level 2 also sets the s3 clock vote briefly and restores
   # it. Remove once Bluetooth, Wi-Fi and charging have their own drivers.
-  "andrprobe=2",
+  # "andrprobe=2",  (off until the kernel with andromeda_io_map(), commit 7dda8db: the 8 MiB io_submap overflows)
   # Camera slider: log the two Hall sensors (GPIO 42/114) whenever they
   # change, read only (andromeda_probe.c).
-  "andrslider=1",
+  # "andrslider=1",  (off until the kernel with andromeda_io_map(), commit 7dda8db: the 8 MiB io_submap overflows)
   # Slider opens the Camera app (patch 0097 + phone/andromedad): 1 = open is
   # hall42=0 hall114=1, 2 = reversed. Needs the iOS root with andromedad.
-  "andrslidercam=0",
+  # "andrslidercam=0",  (default; not passed, see the boot-args length note)
   # CPU at full clock (andromeda_cpufreq.c, method of ios-flame for the same
   # SoC): Gold/Prime drop to <= 1.4 GHz above 80 C and return below 70 C; an
   # unreadable temperature counts as hot.
@@ -193,49 +201,49 @@ kernel_args = [
   # inputs/andromeda/btfw), operating speed andrbtbaud (default 3000000, SE
   # clock 48 MHz), HCI_Reset + Read_Local_Version, then off again. Test image:
   # ANDROMEDA_TAG=bt2 ANDROMEDA_ARGS="andrbt=2" ./build-boot.sh
-  "andrbt=0",
+  # "andrbt=0",  (default; not passed, see the boot-args length note)
   # Brightness (andromeda_backlight.c, patch 0093): 1 = DCS 0x51 test 1023 ->
   # 256 -> 1023 from 30 s; 2 = also an AppleARMBacklight service for iOS.
-  "andrbl=0",
+  # "andrbl=0",  (default; not passed, see the boot-args length note)
   # Rear camera step C1 (andromeda_cam.c, patch 0098): 120 s after start,
   # power only the IMX363 (sequence of its vendor module file), read chip ID
   # 0x0016 over GPIO I2C on the CCI0 pins, then power it down. Test image:
   # ANDROMEDA_TAG=cam ANDROMEDA_ARGS="andrcam=1" ./build-boot.sh
-  "andrcam=0",
+  # "andrcam=0",  (default; not passed, see the boot-args length note)
   # Audio A0 (phone/andromeda-audio): AndromedaAudio.driver needs no boot-arg.
   # 1 = experiment: the Codec device also gets an output with mute and volume
   # on element 3, of which VirtualAudio should make the receiver port.
-  "andraudiorcv=0",
+  # "andraudiorcv=0",  (default; not passed, see the boot-args length note)
   # Wi-Fi/modem first steps (andromeda_wlan.c, patch 0110, port of ios-flame's
   # wland): 1 = W0 (read-only checks), 2 = W1 (boot the modem through PAS and
   # wait for the SMP2P ready bit). W1 reads the firmware from the iOS root
   # under andrwlanfw (default /fw/modem), copied there by the root build from
   # inputs/andromeda/modemfw (scripts/pull-modem-fw.sh). Never together with
   # andrgpu=3 (both use the AOP QMP mailbox). Also andrwlandelay, andrwlanwait.
-  "andrwlan=0",
+  # "andrwlan=0",  (default; not passed, see the boot-args length note)
   # Vibration test V1 (andromeda_haptics.c, patch 0135): andrhapdelay s after
   # start (default 60), the PM8150B haptics block is set up for the phone's
   # LRA (sequence of qti-haptics.c), two 200 ms pulses 2 s apart at <= 2552 mV
   # (andrhapmv can only go lower), then off and every changed register written
   # back. Test image, with the user holding the phone:
   # ANDROMEDA_TAG=hap ANDROMEDA_ARGS="andrhap=1" ./build-boot.sh
-  "andrhap=0",
+  # "andrhap=0",  (default; not passed, see the boot-args length note)
   # Power P0 (andromeda_power.c, patch 0100): every andrpwrsecs s (default 10)
   # one ANDROMEDA PWR line: per-CPU idle %, IRQ/IPI/WFI rates, share of idle
   # time in periods >= 4 ms, cost of the idle cache flush, FB/USB/keys/touch
   # polling rates, battery. Read only.
-  "andrpwr=0",
+  # "andrpwr=0",  (default; not passed, see the boot-args length note)
   # Power P1, one change at a time (patches 0101-0105, all off): andridle=1 no
   # set/way L1 flush at each idle entry; andrfbpark=1 vsync timer stopped while
   # the display is off; andrusbidle=20 USB event polling every 20 ms after 1 s
   # without events; andrkeysidle=50 and andrtouchidle=100 slower key and touch
   # polling while the display is off. Test image, e.g.:
   # ANDROMEDA_TAG=pwr ANDROMEDA_ARGS="andrpwr=1 andrfbpark=1" ./build-boot.sh
-  "andridle=0",
-  "andrfbpark=0",
-  "andrusbidle=0",
-  "andrkeysidle=0",
-  "andrtouchidle=0",
+  # "andridle=0",  (default; not passed, see the boot-args length note)
+  # "andrfbpark=0",  (default; not passed, see the boot-args length note)
+  # "andrusbidle=0",  (default; not passed, see the boot-args length note)
+  # "andrkeysidle=0",  (default; not passed, see the boot-args length note)
+  # "andrtouchidle=0",  (default; not passed, see the boot-args length note)
 ]
 
 [payload.adt]
