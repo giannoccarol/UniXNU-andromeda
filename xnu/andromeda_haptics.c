@@ -260,9 +260,14 @@ ah_motor_off(char *line, size_t size, int *n)
 /*
  * One constant vibration: EN_CTL1 = 0x80, PLAY = 0x80, AH_PULSE_MS with
  * STATUS1 read every AH_POLL_MS, then the motor off. Returns 0; 1 on SC_DET;
- * -7 if the motor could not be confirmed off; another negative value if an
- * access failed (the motor is switched off in every case).
+ * -7 if the motor could not be confirmed off; -8 if PLAY was written but
+ * STATUS1 never showed BUSY in the first AH_BUSY_SAMPLES reads; another
+ * negative value if an access failed (the motor is switched off in every
+ * case). PLAY is a trigger: on this PM8150B it reads back 0 right after
+ * 0x80 is written (2026-11-07), so its read-back mismatch is accepted and
+ * STATUS1 BUSY (HAP_BUSY_BIT of qti-haptics.c) confirms the playback.
  */
+#define AH_BUSY_SAMPLES 3u
 static int
 ah_pulse(unsigned number)
 {
@@ -270,13 +275,17 @@ ah_pulse(unsigned number)
 	int n = snprintf(line, sizeof(line), AH_TAG " pulse %u:", number);
 	unsigned samples = 0, busy = 0;
 	uint8_t st_or = 0, st_and = 0xff, rb = 0;
-	bool short_circuit = false;
+	bool short_circuit = false, play_by_status = false;
 	ah_pulsed = true;
 	int err = andromeda_spmi_hap_write(AH_EN_CTL1, AH_ON, &rb);
 	ah_note(line, sizeof(line), &n, AH_EN_CTL1, ah_before[AH_EN_CTL1], AH_ON, err, rb);
 	if (!err) {
 		err = andromeda_spmi_hap_write(AH_PLAY, AH_ON, &rb);
 		ah_note(line, sizeof(line), &n, AH_PLAY, ah_before[AH_PLAY], AH_ON, err, rb);
+		if (err == -5) {
+			err = 0;               /* written; STATUS1 BUSY must confirm it */
+			play_by_status = true;
+		}
 	}
 	uint64_t start = ah_now_ms(), end = start;
 	while (!err && ah_now_ms() - start < AH_PULSE_MS) {
@@ -292,6 +301,10 @@ ah_pulse(unsigned number)
 		busy += (status & AH_BUSY) != 0;
 		if (status & AH_SC_DET) {
 			short_circuit = true;
+			break;
+		}
+		if (play_by_status && !busy && samples >= AH_BUSY_SAMPLES) {
+			err = -8;              /* PLAY did not start the playback */
 			break;
 		}
 	}
