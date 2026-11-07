@@ -112,6 +112,20 @@ static unsigned touch_pin_vddio = 84u;
  * parser recognises nothing (andromeda bring-up). 0 (default) = silent. */
 static unsigned touch_raw_log;
 static unsigned touch_raw_logged;
+/* sweettouchtrace=N: log the first N reports handed to SweetHID and the
+ * FIFO batch each came from, with a millisecond clock, to see the cadence
+ * iOS receives (2026-11-07: taps work, drags and pinches do not). */
+static unsigned touch_trace_max;
+static unsigned touch_trace_n;
+static unsigned touch_trace_batch;
+
+static unsigned long long
+touch_ms(void)
+{
+	uint64_t ns = 0;
+	absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
+	return (unsigned long long)(ns / 1000000ull);
+}
 static unsigned touch_raw_polls;
 static unsigned touch_raw_nonempty;
 /* sweettouchscan=N: settings byte of the ST-FTS "scan mode active" command
@@ -575,6 +589,11 @@ touch_report(uint32_t mask, const int *x, const int *y)
 				 */
 				int hx = x[id] >= 1080 ? 1079 : x[id];
 				int hy = y[id] >= 2340 ? 2399 : (int)((int64_t)y[id] * 2399 / 2339);
+				if (touch_trace_n < touch_trace_max) {
+					touch_trace_n++;
+					printf("SWEET TOUCH TRACE: %llu ms id %u %s %d,%d batch %u\n", touch_ms(), id,
+					    (st.active & bit) ? "move" : "down", hx, hy, touch_trace_batch);
+				}
 				sweet_hid_touch((int)id, 1, hx, hy);
 			}
 			st.x[id] = x[id];
@@ -582,6 +601,11 @@ touch_report(uint32_t mask, const int *x, const int *y)
 		} else if (st.active & bit) {
 			int hx = st.x[id] >= 1080 ? 1079 : st.x[id];
 			int hy = st.y[id] >= 2340 ? 2399 : (int)((int64_t)st.y[id] * 2399 / 2339);
+			if (touch_trace_n < touch_trace_max) {
+				touch_trace_n++;
+				printf("SWEET TOUCH TRACE: %llu ms id %u up %d,%d batch %u\n", touch_ms(), id, hx, hy,
+				    touch_trace_batch);
+			}
 			sweet_hid_touch((int)id, 0, hx, hy);
 		}
 	}
@@ -681,6 +705,7 @@ touch_fts(void)
 		if (err) { return err; }
 	}
 	bool rescan = false;
+	touch_trace_batch = remaining + 1;
 	for (unsigned i = 0; i <= remaining; ++i) {
 		const uint8_t *e = buf + i * FTS_FIFO_EVENT_SIZE;
 		if (e[0] == 0) { break; }
@@ -1298,6 +1323,7 @@ sweet_touch_init(void)
 	(void)PE_parse_boot_argn("sweettouchrst", &pin_reset, sizeof(pin_reset));
 	(void)PE_parse_boot_argn("sweettouchvddio", &pin_vddio, sizeof(pin_vddio));
 	(void)PE_parse_boot_argn("sweettouchraw", &touch_raw_log, sizeof(touch_raw_log));
+	(void)PE_parse_boot_argn("sweettouchtrace", &touch_trace_max, sizeof(touch_trace_max));
 	(void)PE_parse_boot_argn("sweettouchscan", &touch_scan_settings, sizeof(touch_scan_settings));
 	touch_scan_settings &= 0xffu;
 	(void)PE_parse_boot_argn("sweettouchexp", &touch_exp, sizeof(touch_exp));

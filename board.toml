@@ -160,6 +160,10 @@ kernel_args = [
   # 45 raw + strength frame summaries, one every 2 s, while the user touches.
   # Off since touch works (2026-11-07).
   # "sweettouchdiag=0",  (default; not passed, see the boot-args length note)
+  # 2026-11-07: taps reach iOS, drags and pinches do nothing although the
+  # positions change. Trace the first 400 reports to SweetHID (ms clock and
+  # FIFO batch size) to see the cadence iOS gets. Remove when fixed.
+  "sweettouchtrace=400",
   # Keys and Home as verified on the Mi 9 (patch 0083): power key via PON only,
   # one synthetic Home press after start so the lock screen opens even without
   # touch. andromeda: at 90 s it arrived 14 s before the lock screen was drawn
