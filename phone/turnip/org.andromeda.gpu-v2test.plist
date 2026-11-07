@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  GPU smoke test for phase F5 (v2test of Turnip), installed only with
+  TURNIP_SMOKE=1 (install-root.sh). The iOS root has no shell, so launchd
+  runs it directly: at load and again every 60 s while it exits non-zero
+  (for example before the kernel publishes IOAcceleratorES, which happens
+  after andrgpu's step 4 with andrmtl=1|2), and never again once it passes.
+  Its output goes to /dev/console, which reaches the kernel log and the USB
+  live log. Remove the job (rebuild without TURNIP_SMOKE) once F5 passes.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.andromeda.gpu-v2test</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/private/var/local/bin/v2test</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>60</integer>
+	<key>UserName</key>
+	<string>root</string>
+	<key>StandardOutPath</key>
+	<string>/dev/console</string>
+	<key>StandardErrorPath</key>
+	<string>/dev/console</string>
+</dict>
+</plist>
