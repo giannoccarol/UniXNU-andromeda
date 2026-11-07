@@ -72,7 +72,7 @@ nella sezione "Fonti").
 | Progetto / autore | Cosa ci insegna |
 |---|---|
 | **Nick Wylynko** ([NWylynko](https://github.com/NWylynko)), [`ios-flame`](https://github.com/NWylynko/ios-flame) (Pixel 4, SM8150 + Adreno 640, base `ios-sweet`; MIT, patch XNU APSL 2.0) | accensione della stessa GPU sotto XNU, composizione Metal di backboardd/SpringBoard via UniXNU + metal2vulkan + Turnip, CPU a frequenza piena |
-| **YangQi0408**, [`UniXNU-cepheus`](https://github.com/YangQi0408/UniXNU-cepheus) ramo `feat/adreno640` | moduli GMU/HFI/CP/SMMU/QMP/PDC per l'A640 e le salvaguardie del Mi 9 |
+| **YangQi0408**, [`UniXNU-cepheus`](https://github.com/YangQi0408/UniXNU-cepheus) ramo `feat/adreno640` | moduli GMU/HFI/CP/SMMU/QMP/PDC per l'A640 e le salvaguardie del Mi 9; la conversione degli offset dei registri GMU (parole dalla base della GPU, `words * 4 - 0x6a000` in `cepheus_gmu_start.h`) con cui il 7 novembre abbiamo trovato e corretto la base sbagliata di `ANDR_GMU_REG` |
 | **UniXNU** (bluseliu50, rponeawa, HuJK e collaboratori): Adreno740, AdrenoMetal, AdrenoFirmware, XnuPrelink, AdrenoPM4, ArmSmmu4K | interfaccia `IOAcceleratorES`, plugin Metal, gestione memoria GPU |
 | **steelbrain**, [`metal2vulkan`](https://github.com/steelbrain/metal2vulkan) (GPL-2.0-or-later OR LGPL-3.0-or-later) | traduzione Metal → Vulkan |
 | **Mesa** (freedreno, Turnip, ir3; MIT) | driver Vulkan per Adreno a6xx |

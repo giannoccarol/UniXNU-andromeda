@@ -54,7 +54,15 @@
 #define ANDR_CMDDB_LOCATOR	0x0c3f000cull	/* qcom,cmd-db@c3f000c */
 
 #define ANDR_GREG(o)		(ANDR_GPU_BASE + 4ull * (o))
-#define ANDR_GMU_REG(o)		(ANDR_GMU_BASE + 4ull * (o))
+/* GMU register numbers (GMU_ITCM 0x1b400, GMU_SYSRESET 0x1f800, ...) are
+ * kgsl word offsets from the GPU base, not from the GMU block: kgsl subtracts
+ * gmu2gpu_offset = (0x2c6a000 - 0x2c00000) >> 2, and the Mi 9 code converts
+ * them with words * 4 - 0x6a000 (cepheus_gmu_start.h). Before 2026-11-07
+ * this added them to the GMU base, 0x6a000 too high and outside the block:
+ * GPU step 2 hung the CPU at the first GMU register. */
+#define ANDR_GMU_REG(o)		(ANDR_GPU_BASE + 4ull * (o))
+_Static_assert(ANDR_GMU_REG(0x1b400) == ANDR_GMU_BASE + 0x3000ull, "GMU ITCM at GMU base + 0x3000");
+_Static_assert(ANDR_GMU_REG(0x23b11) < ANDR_GMU_BASE + 0x30000ull, "GMU fence inside the 0x30000 block");
 #define ANDR_SMMU_CB(n)		(ANDR_SMMU + 0x8000 + 0x1000ull * (n))
 
 /* SMMU stream ids and masks: live-fdt.dts iommus. gfx3d_user <0x1b8 0 0x401>,
