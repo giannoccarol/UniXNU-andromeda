@@ -138,6 +138,8 @@ kernel_args = [
   # not sensing). Drive fp_vdd_vreg (GPIO92, regulator-always-on in the live
   # DT, no consumer) high as Linux does; its state is logged first.
   "sweettouchfpvdd=1",
+  # Not set by default: andrboost=1 enables PM8150B GPIO5 (vdd_boost_vreg,
+  # regulator-always-on in Linux) from andromeda_probe.c, if it reads off.
   # Bring-up: dump the first 60 non-empty FIFO events raw (the parser
   # recognised no contact so far). Remove once touch works.
   "sweettouchraw=200",

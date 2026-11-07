@@ -21,8 +21,9 @@
  *
  * The probe itself writes nothing to the PMIC. The only PMIC writes in this
  * file are further down and run only on request: the PON spare register
- * (andrfastboot=N) and the PM8150B haptics registers for the vibration test
- * in andromeda_haptics.c (andrhap=1).
+ * (andrfastboot=N), the PM8150B haptics registers for the vibration test
+ * in andromeda_haptics.c (andrhap=1) and three registers of PM8150B GPIO5,
+ * the vdd_boost_vreg enable (andrboost=1).
  */
 #if defined(ARM64_BOARD_CONFIG_SWEET)
 #include <sys/param.h>
@@ -583,6 +584,7 @@ ap_gcc_se13(int level)
 /* ---- thread ------------------------------------------------------------- */
 
 static int ap_level;
+static void ap_boost(void);
 
 static void
 ap_thread(void *arg, wait_result_t result)
@@ -597,6 +599,7 @@ ap_thread(void *arg, wait_result_t result)
 	ap_tlmm();
 	ap_gcc_se13(ap_level);
 	ap_pmic();
+	ap_boost();
 	printf(AP_TAG " done\n");
 	(void)thread_terminate(current_thread());
 	thread_block(THREAD_CONTINUE_NULL);
@@ -914,6 +917,95 @@ andromeda_spmi_hap_quiesce(void)
 	}
 	(void)sp_hap_cmd(ch, AP_HAP_PLAY, 0);
 	(void)sp_hap_cmd(ch, AP_HAP_EN_CTL1, 0);
+}
+
+/* ---- vdd_boost_vreg on PM8150B GPIO5 (andrboost=1) ----------------------
+ *
+ * Touch investigation, 2026-11-07: in TWRP the sensor works and this fixed
+ * regulator is on; the live DT gives it no consumer (vdd_boost_vreg,
+ * regulator-fixed, gpio = <&pm8150b_gpios 5 0>, enable-active-high,
+ * regulator-always-on), so Linux turns it on at boot and never off. Linux
+ * does it through pinctrl-spmi-gpio.c direction_output (used as documentation
+ * only): MODE_CTL = digital output (1), DIG_OUT_SOURCE_CTL = output high
+ * (invert bit 7, source 0 = constant), EN_CTL = master enable (bit 7); the
+ * other registers keep what the bootloader set.
+ *
+ * Off unless andrboost=1. Only these three registers of this one GPIO, only
+ * if TYPE/SUBTYPE say PMIC GPIO LV/MV and the GPIO is not already an enabled
+ * high output, only on a channel our EE owns; each write is read back. PMIC
+ * register state is volatile (lost at reset): nothing reaches a partition.
+ */
+#define AP_BOOST_SID    2u
+#define AP_BOOST_PERIPH 0xc4u
+#define AP_BOOST_PPID   ((AP_BOOST_SID << 8) | AP_BOOST_PERIPH)
+
+static void
+ap_boost(void)
+{
+	int on = 0;
+	(void)PE_parse_boot_argn("andrboost", &on, sizeof(on));
+	if (!on) {
+		return;
+	}
+	if (!sp_ready || !sp_lock) {
+		printf(AP_TAG " boost: SPMI not ready\n");
+		return;
+	}
+	static const uint8_t regs[] = {0x04, 0x05, 0x08, 0x40, 0x44, 0x45, 0x46};
+	uint8_t v[sizeof(regs)] = {0};
+	for (unsigned i = 0; i < sizeof(regs); ++i) {
+		if (sp_read(AP_BOOST_SID, (AP_BOOST_PERIPH << 8) | regs[i], &v[i])) {
+			printf(AP_TAG " boost: read of %#x failed; not writing\n", regs[i]);
+			return;
+		}
+	}
+	printf(AP_TAG " boost GPIO5 before: type=%#x subtype=%#x status1=%#x mode=%#x out_src=%#x out_ctl=%#x en=%#x\n",
+	    v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
+	if (v[0] != 0x10 || v[1] < 0x10 || v[1] > 0x13) {
+		printf(AP_TAG " boost: not a PMIC GPIO LV/MV; not writing\n");
+		return;
+	}
+	if ((v[6] & 0x80) && (v[3] & 0x3) == 1 && (v[4] & 0x80)) {
+		printf(AP_TAG " boost: already an enabled high output\n");
+		return;
+	}
+	static const struct { uint8_t reg, value; } seq[] = {
+		{0x40, 0x01}, /* MODE_CTL: digital output */
+		{0x44, 0x80}, /* DIG_OUT_SOURCE_CTL: high, constant source */
+		{0x46, 0x80}, /* EN_CTL: enable */
+	};
+	IOLockLock(sp_lock);
+	uint16_t apid = sp_find_apid(AP_BOOST_PPID);
+	unsigned owner = apid < 512 ? (ap_rd(sp_cfg, 0x700u + 4u * apid) & 7u) : 7u;
+	vm_offset_t ch = (apid < 512 && owner == 0 && !sp_poisoned[apid]) ?
+	    andromeda_io_map(AP_CHNLS_PA + 0x10000u * apid, 0x1000) : 0;
+	if (!ch) {
+		IOLockUnlock(sp_lock);
+		printf(AP_TAG " boost: channel APID %u owner %u not ours; not writing\n", apid, owner);
+		return;
+	}
+	for (unsigned i = 0; i < AP_N(seq); ++i) {
+		int err = -4;
+		for (unsigned attempt = 0; attempt < 3 && err == -4; ++attempt) {
+			err = sp_hap_cmd(ch, seq[i].reg, seq[i].value);
+		}
+		uint8_t check = 0;
+		if (!err) {
+			err = sp_read_locked(AP_BOOST_SID, (AP_BOOST_PERIPH << 8) | seq[i].reg, &check) ? -6 :
+			    (check == seq[i].value ? 0 : -5);
+		}
+		printf(AP_TAG " boost write %#x=%#x: err=%d readback=%#x\n", seq[i].reg, seq[i].value, err, check);
+		if (err) {
+			if (err == -3) {
+				sp_poisoned[apid] = true;
+			}
+			break;
+		}
+	}
+	uint8_t st = 0;
+	int serr = sp_read_locked(AP_BOOST_SID, (AP_BOOST_PERIPH << 8) | 0x08, &st);
+	IOLockUnlock(sp_lock);
+	printf(AP_TAG " boost GPIO5 after: status1=%#x (err %d)\n", st, serr);
 }
 
 /* ---- camera slider (andrslider=1) ---------------------------------------
