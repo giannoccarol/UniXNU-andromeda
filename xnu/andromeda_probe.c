@@ -592,6 +592,7 @@ ap_gcc_se13(int level)
 
 static int ap_level;
 static void ap_boost(void);
+void andromeda_boost_rail(void);
 /* andromeda_ctl.c: the hardware turn shared with the gpu, bt, cam, hap, wlan runs. */
 extern void andromeda_ctl_turn(const char *who);
 extern void andromeda_ctl_turn_end(void);
@@ -1023,6 +1024,25 @@ ap_boost(void)
 	int serr = sp_read_locked(AP_BOOST_SID, (AP_BOOST_PERIPH << 8) | 0x08, &st);
 	IOLockUnlock(sp_lock);
 	printf(AP_TAG " boost GPIO5 after: status1=%#x (err %d)\n", st, serr);
+}
+
+/*
+ * Touch (cepheus_touch.c) enables vdd_boost_vreg itself before powering the
+ * controller, at its own start instead of the probe's (andrprobedelay).
+ * Once per boot; the probe then finds an enabled high output.
+ */
+void
+andromeda_boost_rail(void)
+{
+	static uint32_t done;
+	if (__atomic_exchange_n(&done, 1u, __ATOMIC_ACQ_REL)) {
+		return;
+	}
+	if (!sp_init()) {
+		printf(AP_TAG " boost: SPMI not ready\n");
+		return;
+	}
+	ap_boost();
 }
 
 /* ---- camera slider (andrslider=1) ---------------------------------------

@@ -56,7 +56,7 @@ jobs:
           cp cepheus/xnu/cepheus_arc.h cepheus/xnu/cepheus_arc_probe.h dxb/patches/
           cp cepheus/xnu/cepheus_bcm.h dxb/patches/
           cp cepheus/xnu/andromeda_probe.c cepheus/xnu/andromeda_cpufreq.c cepheus/xnu/andromeda_cpu_governor.h dxb/patches/
-          cp cepheus/xnu/andromeda_gpu.c cepheus/xnu/andromeda_gpu_core.c cepheus/xnu/andromeda_gpu.h dxb/patches/
+          cp cepheus/xnu/andromeda_gpu.c cepheus/xnu/andromeda_gpu_core.c cepheus/xnu/andromeda_gpu.h cepheus/xnu/andromeda_gpu_governor.h dxb/patches/
           cp cepheus/xnu/SweetAMFI.cpp dxb/patches/
           cp cepheus/xnu/andromeda_slider.c cepheus/xnu/andromeda_slider.h dxb/patches/
           cp cepheus/xnu/andromeda_bt.c cepheus/xnu/andromeda_backlight.c cepheus/xnu/AndromedaBacklight.cpp dxb/patches/
@@ -75,6 +75,9 @@ jobs:
           cp cepheus/xnu/andromeda_power.c cepheus/xnu/andromeda_power.h dxb/patches/
           # Power P1 straight into dxb/patches: 0102-0104 change files that the 0083 generator rewrites.
           cp cepheus/xnu/0101-andromeda-idle-cache.patch cepheus/xnu/0102-andromeda-fb-vsync-park.patch cepheus/xnu/0103-andromeda-usb-idle-poll.patch cepheus/xnu/0104-andromeda-keys-idle-poll.patch dxb/patches/
+          # Frame copies on a thread call (0202, andrfbasync) straight into dxb/patches: it changes
+          # SweetFramebuffer.cpp after 0094/0102/0120/0201, which the 0083 generator does not see.
+          cp cepheus/xnu/0202-andromeda-fb-async.patch dxb/patches/
           cp cepheus/xnu/andromeda_gpu_present.c cepheus/xnu/andromeda_gpu_present.h cepheus/xnu/0120-andromeda-gpu-present.patch dxb/patches/
           # F5/F6 (patch 0200, andrmtl=N): user client + IOAcceleratorES; patch and stage script come with build-kernel-patches.sh.
           cp cepheus/xnu/andromeda_gpu_mtl.c cepheus/xnu/andromeda_gpu_mtl.h cepheus/xnu/SweetAccelerator.cpp cepheus/xnu/NativeAdrenoABI.h dxb/patches/
@@ -141,6 +144,8 @@ jobs:
           /tmp/policy-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_cpu_governor.c -o /tmp/governor-test
           /tmp/governor-test
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined -Icepheus/xnu cepheus/xnu/test_andromeda_gpu_governor.c -o /tmp/gpu-governor-test
+          /tmp/gpu-governor-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_slider.c -o /tmp/slider-test
           /tmp/slider-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_ctl.c -o /tmp/ctl-test
@@ -243,6 +248,7 @@ jobs:
           grep -E '^bsd/dev/andromeda_gpu_core.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
           cmp cepheus/xnu/andromeda_gpu.c dxb/xnu/bsd/dev/andromeda_gpu.c
           cmp cepheus/xnu/andromeda_gpu_core.c dxb/xnu/bsd/dev/andromeda_gpu_core.c
+          cmp cepheus/xnu/andromeda_gpu_governor.h dxb/xnu/bsd/dev/andromeda_gpu_governor.h
           cmp cepheus/xnu/andromeda_gpu.h dxb/xnu/bsd/dev/andromeda_gpu.h
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA GPU:" in d and b"andrgpu" in d'
           # andromeda: whole iPhone X canvas scaled onto the panel (sweetfb_fit=1).
@@ -341,7 +347,7 @@ jobs:
           # andromeda: frame copies on a thread call (patch 0202, andrfbasync).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0202-andromeda-fb-async.patch'
           grep -F 'thread_call_enter(fb->fPresentCall);' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
-          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrfbasync", b"andrgpulevel", b"perf vote %u MHz (level %u)"))'
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrfbasync", b"andrgpulevel", b"perf vote %u MHz (level %u)", b"andrgpugov", b"gov 60s: util"))'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrfbsync", b"fbsync: the CPU copy waits", b"ANDROMEDA SHOT begin"))'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA MTL:", b"andrmtl", b"andrmtlpool", b"IOAcceleratorES", b"SweetAcceleratorUserClient", b"SweetMTL2Device", b"present: not attached (%s)"))'
           # FEAT_SHA3/SM4 instructions (EOR3, BCAX, RAX1, XAR, SM3*, SM4*) are undefined on the A76/A55; ios-flame

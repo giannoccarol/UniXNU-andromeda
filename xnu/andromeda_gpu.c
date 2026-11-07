@@ -78,6 +78,7 @@ void SHA256_Final(void *, SHA256_CTX *);
 int vprintf(const char *, va_list);
 #endif
 #include "andromeda_gpu.h"
+#include "andromeda_gpu_governor.h"
 #include "andromeda_gpu_present.h"
 #include "andromeda_gpu_mtl.h"
 
@@ -400,6 +401,137 @@ andr_gpu_temperature(int *max_mc)
 static struct andr_gpu gpu;
 static unsigned ag_step, ag_hot_c = 80;
 static unsigned ag_level = 1;	/* andrgpulevel: GMU perf vote, 1 (257 MHz) .. 5 (585 MHz) */
+
+/*
+ * GPU governor (andrgpugov=1, default on; 0 = the fixed andrgpulevel vote).
+ * Runs once Metal has the GPU: every andrgpugovms (25 ms) it reads the GMU's
+ * GPU-busy counter, decides with andromeda_gpu_governor.h and votes a new
+ * level through the HFI only when it changes. Touch (andromeda_gpu_boost(),
+ * from cepheus_touch.c) keeps at least level 4 (499 MHz) for andrgpuboostms
+ * (300 ms). Above andrgpuhot - 10 C at most level 3, above andrgpuhot the
+ * lowest. Every 60 s one line: utilisation, votes, time per level.
+ */
+static unsigned ag_gov = 1, ag_gov_ms = 25, ag_boost_ms = 300;
+static unsigned ag_gov_chan;
+static bool ag_gov_running;
+static uint64_t ag_boost_stamp;		/* last touch, Mach time; 0 = never */
+static uint64_t ag_boost_abs;
+
+void andromeda_gpu_boost(void);
+void
+andromeda_gpu_boost(void)
+{
+	uint64_t now = mach_absolute_time();
+	uint64_t prev = __atomic_exchange_n(&ag_boost_stamp, now, __ATOMIC_RELAXED);
+	if (__atomic_load_n(&ag_gov_running, __ATOMIC_ACQUIRE) && ag_boost_abs &&
+	    (!prev || now - prev >= ag_boost_abs)) {
+		thread_wakeup(&ag_gov_chan);	/* a new boost: apply it now */
+	}
+}
+
+static void
+ag_gov_wait(unsigned ms)
+{
+	uint64_t deadline;
+	clock_interval_to_deadline(ms, NSEC_PER_MSEC, &deadline);
+	(void)assert_wait_deadline(&ag_gov_chan, THREAD_UNINT, deadline);
+	thread_block(THREAD_CONTINUE_NULL);
+}
+
+static void
+ag_gov_thread(void *arg, wait_result_t wr)
+{
+	(void)arg;
+	(void)wr;
+	struct agpu_gov_cfg cfg = {
+		.min = 1, .max = 5, .up_pct = 90, .target_pct = 70, .idle_pct = 3,
+		.hold_ms = 60, .idle_ms = 100, .boost_level = 4, .warm_cap = 3,
+	};
+	for (unsigned l = 0; l < AGPU_GOV_LEVELS; l++) {
+		cfg.khz[l] = andr_gpu_level_khz(l);
+	}
+	struct agpu_gov_state st = { .level = gpu.perf_level ? gpu.perf_level : 1 };
+	uint64_t ns_level[AGPU_GOV_LEVELS] = { 0 }, st_busy_ns = 0, st_ns = 0;
+	unsigned votes = 0, fails = 0, boosted = 0, heat_tick = 0;
+	enum agpu_gov_heat heat = AGPU_GOV_COOL;
+
+	if (andr_gpu_busy_enable(&gpu)) {
+		printf(AG_TAG " gov: GPU-busy counter not enabled; staying at level %u\n", st.level);
+		goto out;
+	}
+	clock_interval_to_absolutetime_interval(ag_boost_ms, NSEC_PER_MSEC, &ag_boost_abs);
+	__atomic_store_n(&ag_gov_running, true, __ATOMIC_RELEASE);
+	printf(AG_TAG " gov: every %u ms, touch floor %u MHz for %u ms, start at %u MHz\n",
+	    ag_gov_ms, cfg.khz[cfg.boost_level] / 1000, ag_boost_ms, cfg.khz[st.level] / 1000);
+	uint64_t t_prev = mach_absolute_time(), b_prev = andr_gpu_busy_xo();
+	for (;;) {
+		ag_gov_wait(ag_gov_ms);
+		uint64_t t = mach_absolute_time(), b = andr_gpu_busy_xo(), dt_ns;
+		absolutetime_to_nanoseconds(t - t_prev, &dt_ns);
+		uint64_t busy = b >= b_prev ? b - b_prev : 0;
+		t_prev = t;
+		b_prev = b;
+		unsigned util = agpu_gov_util(busy, dt_ns);
+		if (++heat_tick * ag_gov_ms >= 500) {
+			int mc = 0;
+			heat_tick = 0;
+			if (!andr_gpu_temperature(&mc) || mc >= (int)ag_hot_c * 1000) {
+				heat = AGPU_GOV_HOT;
+			} else if (mc >= ((int)ag_hot_c - 10) * 1000) {
+				heat = AGPU_GOV_WARM;
+			} else {
+				heat = AGPU_GOV_COOL;
+			}
+		}
+		uint64_t stamp = __atomic_load_n(&ag_boost_stamp, __ATOMIC_RELAXED);
+		bool boost = stamp && (stamp >= t || t - stamp < ag_boost_abs);
+		unsigned before = st.level;
+		unsigned next = agpu_gov_next(&cfg, &st, util, (unsigned)(dt_ns / 1000000), boost, heat);
+		ns_level[before] += dt_ns;
+		st_ns += dt_ns;
+		st_busy_ns += dt_ns * util / 100;
+		boosted += boost;
+		if (next != before) {
+			if (andr_gpu_vote(&gpu, next) == 0) {
+				votes++;
+			} else {
+				fails++;
+				st.level = before;	/* the GMU still runs the old level */
+			}
+		}
+		if (st_ns >= 60ull * NSEC_PER_SEC) {
+			printf(AG_TAG " gov 60s: util %llu%% votes %u failed %u touch %u%% heat %d | 257:%llu 345:%llu 427:%llu 499:%llu 585:%llu %%\n",
+			    (unsigned long long)(st_busy_ns * 100 / st_ns), votes, fails,
+			    boosted * ag_gov_ms * 100 / 60000, (int)heat,
+			    (unsigned long long)(ns_level[1] * 100 / st_ns), (unsigned long long)(ns_level[2] * 100 / st_ns),
+			    (unsigned long long)(ns_level[3] * 100 / st_ns), (unsigned long long)(ns_level[4] * 100 / st_ns),
+			    (unsigned long long)(ns_level[5] * 100 / st_ns));
+			for (unsigned l = 0; l < AGPU_GOV_LEVELS; l++) {
+				ns_level[l] = 0;
+			}
+			st_ns = st_busy_ns = 0;
+			votes = fails = boosted = 0;
+		}
+	}
+out:
+	(void)thread_terminate(current_thread());
+	thread_block(THREAD_CONTINUE_NULL);
+}
+
+static void
+ag_gov_start(void)
+{
+	thread_t thread;
+	if (!ag_gov) {
+		printf(AG_TAG " gov: off (andrgpugov=0), fixed level %u\n", gpu.perf_level);
+		return;
+	}
+	if (kernel_thread_start(ag_gov_thread, NULL, &thread) == KERN_SUCCESS) {
+		thread_deallocate(thread);
+	} else {
+		printf(AG_TAG " gov: kernel_thread_start failed\n");
+	}
+}
 static uint64_t ag_pool_arg = AG_POOL_DEFAULT, ag_pool_size = ANDR_POOL_SIZE;
 static unsigned ag_delay_s = 90;
 
@@ -579,6 +711,7 @@ ag_thread(void *arg, wait_result_t wr)
 		 */
 		if (andromeda_mtl_level() != 0 && andromeda_gpu_mtl_attach(&gpu, ag_pool_size)) {
 			andromeda_gpu_present_decline("Metal (andrmtl) has the GPU ring");
+			ag_gov_start();
 		} else {
 			andromeda_gpu_present_attach(&gpu, ag_pool_size);
 		}
@@ -624,6 +757,15 @@ andromeda_gpu_init(void)
 	(void)PE_parse_boot_argn("andrgpudelay", &ag_delay_s, sizeof(ag_delay_s));
 	(void)PE_parse_boot_argn("andrgpuhot", &ag_hot_c, sizeof(ag_hot_c));
 	(void)PE_parse_boot_argn("andrgpulevel", &ag_level, sizeof(ag_level));
+	(void)PE_parse_boot_argn("andrgpugov", &ag_gov, sizeof(ag_gov));
+	(void)PE_parse_boot_argn("andrgpugovms", &ag_gov_ms, sizeof(ag_gov_ms));
+	(void)PE_parse_boot_argn("andrgpuboostms", &ag_boost_ms, sizeof(ag_boost_ms));
+	if (ag_gov_ms < 10 || ag_gov_ms > 1000) {
+		ag_gov_ms = 25;
+	}
+	if (ag_boost_ms > 2000) {
+		ag_boost_ms = 300;
+	}
 	if (ag_level < 1 || ag_level > 5) {
 		printf(AG_TAG " andrgpulevel %u out of 1..5: using 1 (257 MHz)\n", ag_level);
 		ag_level = 1;

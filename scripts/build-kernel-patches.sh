@@ -32,7 +32,7 @@ install -m 644 "$ROOT/xnu/cepheus_bcm.h" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0087-cepheus-gpu-memory.patch" "$ROOT/xnu/0087-stage-cepheus-gpu-memory.sh" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0088-cepheus-pmap-cache-pa.patch" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0089-andromeda-probe.patch" "$ROOT/xnu/0089-stage-andromeda-probe.sh" "$ROOT/xnu/andromeda_probe.c" "$ROOT/xnu/andromeda_cpufreq.c" "$ROOT/xnu/andromeda_cpu_governor.h" "$DEST/xnu/patches/"
-install -m 644 "$ROOT/xnu/0090-andromeda-gpu.patch" "$ROOT/xnu/0090-stage-andromeda-gpu.sh" "$ROOT/xnu/andromeda_gpu.c" "$ROOT/xnu/andromeda_gpu_core.c" "$ROOT/xnu/andromeda_gpu.h" "$DEST/xnu/patches/"
+install -m 644 "$ROOT/xnu/0090-andromeda-gpu.patch" "$ROOT/xnu/0090-stage-andromeda-gpu.sh" "$ROOT/xnu/andromeda_gpu.c" "$ROOT/xnu/andromeda_gpu_core.c" "$ROOT/xnu/andromeda_gpu.h" "$ROOT/xnu/andromeda_gpu_governor.h" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0091-andromeda-battery.patch" "$DEST/xnu/patches/"
 install -m 644 "$ROOT/xnu/0092-andromeda-bt.patch" "$ROOT/xnu/0092-stage-andromeda-bt.sh" "$ROOT/xnu/andromeda_bt.c" "$DEST/xnu/patches/"
 # 0092-andromeda-bt-rpmh.patch is copied by the workflow straight into dxb/patches (it needs the generated 0084).
@@ -54,8 +54,6 @@ install -m 644 "$ROOT/xnu/0200-andromeda-mtl.patch" "$ROOT/xnu/0200-stage-androm
     "$ROOT/xnu/andromeda_gpu_mtl.h" "$ROOT/xnu/SweetAccelerator.cpp" "$ROOT/xnu/NativeAdrenoABI.h" "$DEST/xnu/patches/"
 # Frame sync for the framebuffer's CPU copy of Metal frames (andrfbsync, default on with andrmtl).
 install -m 644 "$ROOT/xnu/0201-andromeda-fbsync.patch" "$DEST/xnu/patches/"
-# Frame copies on a thread call, vsync stays periodic (andrfbasync).
-install -m 644 "$ROOT/xnu/0202-andromeda-fb-async.patch" "$DEST/xnu/patches/"
 for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
     cepheus_gpu_memory_state.h \
     cepheus_gmu_upload_mmio.h \

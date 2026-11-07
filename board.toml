@@ -124,7 +124,10 @@ kernel_args = [
   # Linux/TWRP use it; touch firmware 0x50 answers only 0xFF over GPIO I2C.
   "sweettouchgpio=0",
   "sweettouchpower=1",
-  "sweettouchdelay=120",
+  # 2026-11-08: 10 s instead of 120 (touch is verified on GENI I2C; the
+  # driver enables vdd_boost_vreg itself instead of waiting for the probe at
+  # 100 s; after the GPU bring-up at 5 s).
+  "sweettouchdelay=10",
   "sweettouchrst=54",
   "sweettouchvddio=37",
   # andromeda: the touch controller is unpowered until the driver raises its
@@ -307,9 +310,11 @@ kernel_args = [
   # back the vsync notifications that pace backboardd. andrfbasync=1 (patch
   # 0202) copies on a thread call instead; in test.
   # "andrfbasync=0",  (default; not passed, see the boot-args length note)
-  # GPU frequency voted to the GMU: 1 = 257 MHz (default) .. 5 = 585 MHz, the
-  # levels of Android's device tree. For measurements only; no load-based
-  # scaling yet.
+  # GPU frequency: the governor (andrgpugov=1, default on) moves the GMU vote
+  # between 257 and 585 MHz (the levels of Android's device tree) from the
+  # GPU-busy counter, raises it to 499 MHz on touch and caps it when hot.
+  # andrgpugov=0 keeps the fixed andrgpulevel (1 = 257 MHz .. 5 = 585 MHz).
+  # "andrgpugov=1",  (default; not passed, see the boot-args length note)
   # "andrgpulevel=1",  (default; not passed, see the boot-args length note)
 ]
 

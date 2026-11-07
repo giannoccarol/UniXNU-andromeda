@@ -69,6 +69,8 @@ extern void andromeda_probe_init(void); /* andromeda_probe.c, andrprobe=1 */
 extern void andromeda_cpufreq_init(void); /* andromeda_cpufreq.c, andrcpu=1 */
 extern int andromeda_rpmh_touch_vdd(bool on); /* sweet_rpmh.c, patch 0136 */
 extern void andromeda_cpufreq_boost(void); /* andromeda_cpufreq.c, andrgov=1 touch floor */
+extern void andromeda_gpu_boost(void);     /* andromeda_gpu.c, andrgpugov=1 touch floor */
+extern void andromeda_boost_rail(void);    /* andromeda_probe.c, andrboost=1: vdd_boost_vreg */
 extern void andromeda_gpu_init(void); /* andromeda_gpu.c, andrgpu=N */
 extern void andromeda_bt_init(void); /* andromeda_bt.c, andrbt=1 */
 extern void andromeda_cam_init(void); /* andromeda_cam.c, andrcam=1 */
@@ -579,6 +581,7 @@ touch_report(uint32_t mask, const int *x, const int *y)
 			if (!(st.active & bit) || x[id] != st.x[id] || y[id] != st.y[id]) {
 				cepheus_cpu_activity();
 				andromeda_cpufreq_boost();
+				andromeda_gpu_boost();
 				/* Bound diagnostics so finger motion cannot flood the log. */
 				static unsigned logged;
 				if (logged++ < 40) {
@@ -1079,6 +1082,9 @@ touch_thread(void *arg, wait_result_t result)
 	/*
 	 * Start late (boot-arg sweettouchdelay, seconds): if the bus access
 	 * below hangs the SoC, the persistent log and the GUI got there first.
+	 * andromeda: 10 s since 2026-11-08 (the bus is verified; vdd_boost_vreg
+	 * is enabled here, not by the probe at 100 s), after the GPU bring-up
+	 * at 5 s so the RPMh votes do not overlap.
 	 */
 	(void)PE_parse_boot_argn("sweettouchdelay", &delay_s, sizeof(delay_s));
 	printf("SWEET TOUCH (cepheus): starting in %u s\n", delay_s);
@@ -1122,6 +1128,10 @@ touch_thread(void *arg, wait_result_t result)
 	(void)PE_parse_boot_argn("sweettouchpower", &power, sizeof(power));
 	if (power) {
 		if (touch_pin_reset == 54u) {
+			/* andromeda: the controller senses only with vdd_boost_vreg on;
+			 * enable it here (andrboost=1) instead of waiting for the probe
+			 * (andrprobedelay, 100 s), so touch can start early. */
+			andromeda_boost_rail();
 			/* andromeda: Linux order (fts.c fts_enable_reg): first the fts@49
 			 * "avdd" supply, the GPIO37 regulator (startup 4 ms; never driven
 			 * low, it is named disp_vddio_vreg), then the bus supply L1C, which

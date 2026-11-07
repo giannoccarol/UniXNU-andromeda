@@ -196,5 +196,10 @@ int andr_gmu_boot(struct andr_gpu *g);		/* step 2b: expect 0xBABEFACE */
 int andr_gmu_hfi(struct andr_gpu *g);		/* step 3a: HFI tables + GX via OOB */
 int andr_gpu_cp(struct andr_gpu *g);		/* step 3b: SMMU + hw_init + SQE + CP + ZAP */
 int andr_cp_memtest(struct andr_gpu *g);	/* step 4: CP_MEM_WRITE 0xcafef00d */
+/* governor (andrgpugov): GPU-busy XO counter and the GMU perf vote at run time */
+int andr_gpu_busy_enable(struct andr_gpu *g);
+uint64_t andr_gpu_busy_xo(void);
+uint32_t andr_gpu_level_khz(uint32_t lvl);	/* 0 if no such level */
+int andr_gpu_vote(struct andr_gpu *g, uint32_t lvl);
 
 #endif /* ANDROMEDA_GPU_H */

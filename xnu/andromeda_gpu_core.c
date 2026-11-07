@@ -694,6 +694,62 @@ int andr_gmu_hfi(struct andr_gpu *g)
 	return 0;
 }
 
+/* ---- governor support (andrgpugov, andromeda_gpu.c) ----
+ *
+ * GMU power counter 0 counts GPU-busy XO (19.2 MHz) cycles once enabled as
+ * kgsl's a6xx_start / drm-msm's a6xx_gmu_fw_start do: GMU_AO_GPU_CX_BUSY_MASK
+ * 0xff000000, SELECT_0 low byte 0x20 (busy), ENABLE 1; drm-msm
+ * a6xx_gpu_busy() reads XOCLK_0_L/H (offsets from its a6xx_gmu.xml, same
+ * GPU-relative words as ANDR_GMU_REG). The level is voted as at start-up:
+ * HFI message 30 (GX/BW perf vote, ack), frequency index, bandwidth index 0. */
+#define GMU_AO_GPU_CX_BUSY_MASK	0x23b0e
+#define GMU_PWR_CNT_ENABLE	0x1f840
+#define GMU_PWR_CNT_SELECT_0	0x1f841
+#define GMU_PWR_CNT_XOCLK_0_L	0x1f844
+#define GMU_PWR_CNT_XOCLK_0_H	0x1f845
+
+int andr_gpu_busy_enable(struct andr_gpu *g)
+{
+	(void)g;
+	if (!andr_gx_up())
+		return -1;
+	wr32(GMU_REG(GMU_AO_GPU_CX_BUSY_MASK), 0xff000000u);
+	uint32_t sel = rd32(GMU_REG(GMU_PWR_CNT_SELECT_0));
+	wr32(GMU_REG(GMU_PWR_CNT_SELECT_0), (sel & ~0xffu) | 0x20u);
+	wr32(GMU_REG(GMU_PWR_CNT_ENABLE), 1);
+	return rd32(GMU_REG(GMU_PWR_CNT_ENABLE)) == 1 ? 0 : -1;
+}
+
+uint64_t andr_gpu_busy_xo(void)
+{
+	uint32_t hi, lo, again;
+	do {
+		hi = rd32(GMU_REG(GMU_PWR_CNT_XOCLK_0_H));
+		lo = rd32(GMU_REG(GMU_PWR_CNT_XOCLK_0_L));
+		again = rd32(GMU_REG(GMU_PWR_CNT_XOCLK_0_H));
+	} while (hi != again);
+	return ((uint64_t)hi << 32) | lo;
+}
+
+uint32_t andr_gpu_level_khz(uint32_t lvl)
+{
+	return lvl < sizeof(gpu_khz) / sizeof(gpu_khz[0]) ? gpu_khz[lvl] : 0;
+}
+
+int andr_gpu_vote(struct andr_gpu *g, uint32_t lvl)
+{
+	uint32_t msg[4] = { 0 };
+	if (lvl < 1 || lvl >= sizeof(gpu_khz) / sizeof(gpu_khz[0]))
+		return -1;
+	msg[1] = 1;
+	msg[2] = lvl;
+	msg[3] = 0;
+	int rc = hfi_send(g, 30, msg, 4);
+	if (rc == 0)
+		g->perf_level = lvl;
+	return rc;
+}
+
 /* ---- ZAP shader through TrustZone PAS ----
  *
  * SMCCC SIP calls (flame): the PIL service is a yielding SMC64 call that can be

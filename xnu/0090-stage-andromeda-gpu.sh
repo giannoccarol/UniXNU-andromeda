@@ -6,4 +6,4 @@
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 test -f bsd/conf/files
-install -m 0644 "$here/andromeda_gpu.c" "$here/andromeda_gpu_core.c" "$here/andromeda_gpu.h" bsd/dev/
+install -m 0644 "$here/andromeda_gpu.c" "$here/andromeda_gpu_core.c" "$here/andromeda_gpu.h" "$here/andromeda_gpu_governor.h" bsd/dev/

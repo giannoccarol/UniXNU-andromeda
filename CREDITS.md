@@ -233,6 +233,15 @@ metal2vulkan, l'archivio del sorgente corrispondente completo.
 | **Nick Wylynko** (NWylynko), [`ios-flame`](https://github.com/NWylynko/ios-flame) (`745c4341`, MIT) | `phone/metal2/SweetMetal2.mm`, a cui la nostra `phone/metal2/patches/0001-andromeda-device-limits.patch` aggiunge il riempimento della tabella dei limiti di `_MTLDevice` (dimensioni delle texture) con le risposte del device |
 | **Apple**, `Metal.framework` e `PhotosUICore.framework` di iOS 16.7.16 (stessa cache locale) | solo fatti: `-[_MTLDevice limits]` = ivar `_limits` all'offset 8, i getter `maxTextureWidth2D`/`Height2D`/`Depth3D`/`DimensionCube`/`Layers` leggono gli offset 0x84/0x88/0x94/0x98/0x9c; `PXGMetalCompatibleImageByRedrawingCGImage` prende da lì la dimensione massima (stack dell'assert simbolizzato con gli export e i metadati Objective-C della cache) |
 
+## Fluidità: copia dei fotogrammi e frequenza della GPU (patch 0202, `andrfbasync`, `andrgpugov`)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **dipa-studio**, [`ios-sweet`](https://github.com/dipa-studio/ios-sweet) (`45263bee`, MIT; file XNU APSL 2.0) | `SweetFramebuffer.cpp` (patch 0046 e seguenti: timer del vsync, copia, statistiche `sweetfb_stats`), a cui la 0202 sposta la copia su una `thread_call` |
+| **Kernel Linux** drm/msm (GPL-2.0, solo documentazione): `a6xx_gpu.c` (`a6xx_gpu_busy`), `a6xx_gmu.c` (accensione del contatore di potenza), `registers/adreno/a6xx_gmu.xml` (offset `GMU_CX_GMU_POWER_COUNTER_*`, `GMU_AO_GPU_CX_BUSY_MASK`); **Qualcomm** kgsl (`adreno_a6xx.c`, `adreno_a6xx_hfi.c`: messaggio HFI 30 di voto della frequenza), già trascritto in `cepheus_gx_perfcounter.h` | come misurare il carico della GPU (cicli occupati a 19,2 MHz) e come votare un livello a runtime; nessun codice copiato |
+| Linux `schedutil` e `simple_ondemand` (GPL-2.0), il "touch boost" di Android (PowerHAL) | idee del governor della GPU: livello scelto per tenere il carico sotto il 70 %, salto al massimo sopra il 90 %, minimo garantito dopo un tocco (lo stesso schema del nostro governor della CPU) |
+| **Scion-Project**, [`scion-kernel`](https://github.com/Scion-Project/scion-kernel) (Galaxy S9, iOS 16.5; consultato) | l'idea per i 60 fps: il controller del display legge direttamente i buffer di iOS (`fb_flip=1`) e lo scaler del display adatta l'immagine, invece di copiarla con la CPU; due fotogrammi in coda (`fb_queue`). Ancora da fare da noi |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |
