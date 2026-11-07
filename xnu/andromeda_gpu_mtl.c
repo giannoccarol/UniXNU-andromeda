@@ -1349,7 +1349,7 @@ andr_mtl_external(struct andr_mtl_client *c, uint32_t selector, const void *in, 
  * on the GPU ring after the frame (its 0119). andrfbsync=0 at boot or
  * "andctl.py fbsync 0" switches it off, "fbsync 1" on again.
  */
-#define MT_FBSYNC_MS	50u
+#define MT_FBSYNC_MS	150u	/* 50 ms timed out on 37 of 149 frames (2026-11-07) */
 #if defined(KERNEL)
 extern void flush_dcache64(addr64_t addr, unsigned count, int phys);
 #endif

@@ -169,6 +169,21 @@ test_parse_ok(void)
 	assert(parse("fbsync 0", &c) == ANDR_P_OK && c.verb == ANDR_V_FBSYNC && c.value == 0u);
 	assert(parse("fbsync 1", &c) == ANDR_P_OK && c.value == 1u);
 	assert(parse("fbsync 2", &c) == ANDR_P_RANGE);
+	assert(parse("key 0", &c) == ANDR_P_OK && c.verb == ANDR_V_KEY && c.value == 0u);
+	assert(parse("key 3", &c) == ANDR_P_OK && c.value == 3u);
+	assert(parse("key 4", &c) == ANDR_P_RANGE);
+	assert(parse("touch 540 1200", &c) == ANDR_P_OK && c.verb == ANDR_V_TOUCH && c.nargs == 2u &&
+	    c.args[0] == 540u && c.args[1] == 1200u);
+	assert(parse("touch 540", &c) == ANDR_P_ARGS);
+	assert(parse("touch 540 1200 3", &c) == ANDR_P_ARGS);
+	assert(parse("touch 540 2400", &c) == ANDR_P_RANGE);
+	assert(parse("touch 540 x", &c) == ANDR_P_NUMBER);
+	assert(parse("swipe 540 2380 540 1200", &c) == ANDR_P_OK && c.verb == ANDR_V_SWIPE && c.nargs == 4u &&
+	    c.args[3] == 1200u);
+	assert(parse("swipe 540 2380 540 1200 400", &c) == ANDR_P_OK && c.nargs == 5u && c.args[4] == 400u);
+	assert(parse("swipe 540 2380 540", &c) == ANDR_P_ARGS);
+	assert(parse("swipe 1 2 3 4 5 6", &c) == ANDR_P_ARGS);
+	assert(parse("swipe", &c) == ANDR_P_ARGS);
 	assert(parse("idle", &c) == ANDR_P_OK && c.verb == ANDR_V_IDLE && c.idle == ANDR_IDLE_COUNT);
 	assert(parse("idle cpu 1", &c) == ANDR_P_OK && c.idle == ANDR_IDLE_CPU && c.value == 1u);
 	assert(parse("idle fb 0", &c) == ANDR_P_OK && c.idle == ANDR_IDLE_FB && c.value == 0u);

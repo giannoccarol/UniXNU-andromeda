@@ -242,6 +242,9 @@ enum andr_verb {
 	ANDR_V_FASTBOOT,
 	ANDR_V_SHOT,
 	ANDR_V_FBSYNC,
+	ANDR_V_KEY,
+	ANDR_V_TOUCH,
+	ANDR_V_SWIPE,
 	ANDR_V_COUNT
 };
 
@@ -260,6 +263,7 @@ struct andr_range {
 	unsigned min, max;
 	bool zero;              /* 0 is also accepted */
 	bool arg;               /* takes a value (verbs) */
+	unsigned min_args, max_args;  /* several values (touch, swipe), each in min..max */
 };
 
 static const struct andr_range andr_verbs[ANDR_V_COUNT] __attribute__((unused)) = {
@@ -278,6 +282,9 @@ static const struct andr_range andr_verbs[ANDR_V_COUNT] __attribute__((unused)) 
 	[ANDR_V_FASTBOOT]  = { "fastboot",  0, 0, false, false },
 	[ANDR_V_SHOT]      = { "shot",      4, 60, false, true },  /* block size, pixels */
 	[ANDR_V_FBSYNC]    = { "fbsync",    1, 1, true, true },
+	[ANDR_V_KEY]       = { "key",       1, 3, true, true },   /* 0 power, 1 vol+, 2 vol-, 3 home */
+	[ANDR_V_TOUCH]     = { "touch",     1, 2399, true, true, 2, 2 },  /* X Y, HID canvas 1080x2400 */
+	[ANDR_V_SWIPE]     = { "swipe",     1, 2399, true, true, 4, 5 },  /* X1 Y1 X2 Y2 [MS] */
 };
 
 /* The clamps of the boot-args of patches 0101-0105, as accepted ranges. */
@@ -329,8 +336,10 @@ andr_perr_name(enum andr_perr e)
 struct andr_cmd {
 	enum andr_verb verb;
 	enum andr_idle idle;    /* ANDR_V_IDLE */
-	unsigned value;         /* level or value */
+	unsigned value;         /* level or value (the first of args) */
 	bool has_value;
+	unsigned args[5];       /* touch, swipe */
+	unsigned nargs;
 };
 
 /* Word [*pos, end) after blanks; false at the end. */
@@ -401,6 +410,7 @@ andr_ctl_parse(const char *buf, size_t len, struct andr_cmd *cmd)
 	cmd->idle = ANDR_IDLE_COUNT;
 	cmd->value = 0;
 	cmd->has_value = false;
+	cmd->nargs = 0;
 	if (len > 0u && buf[len - 1u] == '\n') {
 		--len;
 		if (len > 0u && buf[len - 1u] == '\r') {
@@ -446,6 +456,34 @@ andr_ctl_parse(const char *buf, size_t len, struct andr_cmd *cmd)
 			return ANDR_P_ARGS;
 		}
 		has_v = true;
+	}
+	if (range->max_args) {
+		/* Several numbers, each in min..max (or 0). */
+		unsigned n = 0;
+		if (has_v) {
+			for (;;) {
+				if (n == range->max_args) {
+					return ANDR_P_ARGS;
+				}
+				if (!andr_number(buf + v, vl, &cmd->args[n])) {
+					return ANDR_P_NUMBER;
+				}
+				if (!andr_in_range(range, cmd->args[n])) {
+					return ANDR_P_RANGE;
+				}
+				++n;
+				if (!andr_word(buf, len, &pos, &v, &vl)) {
+					break;
+				}
+			}
+		}
+		if (n < range->min_args) {
+			return ANDR_P_ARGS;
+		}
+		cmd->nargs = n;
+		cmd->value = cmd->args[0];
+		cmd->has_value = true;
+		return ANDR_P_OK;
 	}
 	if (has_v != range->arg) {
 		return ANDR_P_ARGS;

@@ -411,6 +411,10 @@ ctl_help(void)
 		if (v == ANDR_V_IDLE) {
 			n += snprintf(ctl_why + n, sizeof(ctl_why) - (size_t)n, " idle [cpu 0-1|fb 0-1|"
 			    "usb 0,2-20|keys 0,20-200|touch 0,20-1000],");
+		} else if (v == ANDR_V_TOUCH) {
+			n += snprintf(ctl_why + n, sizeof(ctl_why) - (size_t)n, " touch X Y,");
+		} else if (v == ANDR_V_SWIPE) {
+			n += snprintf(ctl_why + n, sizeof(ctl_why) - (size_t)n, " swipe X1 Y1 X2 Y2 [MS],");
 		} else if (!r->arg) {
 			n += snprintf(ctl_why + n, sizeof(ctl_why) - (size_t)n, " %s,", r->name);
 		} else if (r->min == r->max) {
@@ -494,6 +498,58 @@ ctl_shot(unsigned block)
 	return true;
 }
 
+/*
+ * "key N", "touch X Y", "swipe X1 Y1 X2 Y2 [MS]": input from the PC, so the
+ * phone can be woken, unlocked and moved without a hand on it (2026-11-07).
+ * They go through SweetHID exactly as the PMIC keys and the touch driver do
+ * (sweet_hid_key, sweet_hid_touch). Coordinates are SweetHID's touch canvas,
+ * 1080 x 2400 (the touch driver scales panel rows 0..2339 to it); the finger
+ * is index 9, so it never mixes with a real finger's slot. A swipe is down at
+ * the start, a move every 16 ms along the line, up at the end; "touch" is a
+ * swipe of length 0 held 80 ms.
+ */
+extern void sweet_hid_key(int key, int down);
+extern void sweet_hid_touch(int finger, int down, int x, int y);
+#define CTL_FINGER 9
+
+static bool
+ctl_key(unsigned key)
+{
+	static const char *const names[] = {"power", "volume up", "volume down", "home"};
+	sweet_hid_key((int)key, 1);
+	ctl_sleep_ms(100);
+	sweet_hid_key((int)key, 0);
+	snprintf(ctl_why, sizeof(ctl_why), "%s pressed and released", names[key & 3u]);
+	return true;
+}
+
+static bool
+ctl_swipe(unsigned x1, unsigned y1, unsigned x2, unsigned y2, unsigned ms)
+{
+	if (x1 > 1079u || x2 > 1079u || y1 > 2399u || y2 > 2399u) {
+		snprintf(ctl_why, sizeof(ctl_why), "outside the 1080x2400 touch canvas");
+		return false;
+	}
+	if (ms < 16u) {
+		ms = 16u;
+	}
+	unsigned steps = ms / 16u;
+	sweet_hid_touch(CTL_FINGER, 1, (int)x1, (int)y1);
+	for (unsigned i = 1; i <= steps; ++i) {
+		ctl_sleep_ms(16);
+		int x = (int)x1 + ((int)x2 - (int)x1) * (int)i / (int)steps;
+		int y = (int)y1 + ((int)y2 - (int)y1) * (int)i / (int)steps;
+		sweet_hid_touch(CTL_FINGER, 1, x, y);
+	}
+	sweet_hid_touch(CTL_FINGER, 0, (int)x2, (int)y2);
+	if (x1 == x2 && y1 == y2) {
+		snprintf(ctl_why, sizeof(ctl_why), "tap at %u,%u (%u ms)", x1, y1, ms);
+	} else {
+		snprintf(ctl_why, sizeof(ctl_why), "swipe %u,%u -> %u,%u in %u ms", x1, y1, x2, y2, ms);
+	}
+	return true;
+}
+
 /* Run one parsed command; ctl_why gets the explanation. */
 static bool
 ctl_execute(const struct andr_cmd *c)
@@ -536,6 +592,12 @@ ctl_execute(const struct andr_cmd *c)
 		return ctl_shot(c->value);
 	case ANDR_V_FBSYNC:
 		return andromeda_fbsync_ctl(c->value, ctl_why, sizeof(ctl_why)) == 0;
+	case ANDR_V_KEY:
+		return ctl_key(c->value);
+	case ANDR_V_TOUCH:
+		return ctl_swipe(c->args[0], c->args[1], c->args[0], c->args[1], 80);
+	case ANDR_V_SWIPE:
+		return ctl_swipe(c->args[0], c->args[1], c->args[2], c->args[3], c->nargs > 4 ? c->args[4] : 300);
 	default:
 		snprintf(ctl_why, sizeof(ctl_why), "unknown command");
 		return false;
