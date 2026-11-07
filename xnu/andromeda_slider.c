@@ -13,6 +13,12 @@
  *   andrslidercam=2   the same with the other polarity: (1, 0) is "open".
  *   absent or 0       off: both sysctls answer ENOENT, as if absent.
  *
+ * Runtime control (andromeda_ctl.c, andrctl=1): "slidercam N" sets the same
+ * mode while iOS runs, so that the polarity can be tried without a reboot.
+ * The last reading is decoded again with the new polarity and published
+ * with a new generation (andromeda_slider_repolarize): no opening is
+ * counted by the switch itself. The reader is "slider 1" (andrslider=1).
+ *
  * Sysctls (64-bit value, layout in andromeda_slider.h):
  *   andromeda.slider       read only, never blocks.
  *   andromeda.slider_wait  root only. Write the value last read (only its
@@ -40,6 +46,8 @@
 #include "andromeda_slider.h"
 
 void andromeda_slider_publish(unsigned h42, unsigned h114);
+int andromeda_slider_mode_ctl(unsigned mode, char *out, size_t len);
+unsigned andromeda_slider_mode(void);
 
 #define AS_TAG     "ANDROMEDA SLIDERCAM:"
 #define AS_WAIT_S  60u
@@ -52,6 +60,7 @@ static int as_mode = -1;                        /* -1: boot-arg not read yet */
 static uint64_t as_value = ANDROMEDA_SLIDER_INIT; /* written under as_lock */
 static unsigned as_stable = ANDROMEDA_SLIDER_NONE; /* under as_lock */
 static unsigned as_logged;                      /* under as_lock */
+static unsigned as_raw = 0xffu;                 /* last reading, even while off; 0xff none */
 
 /* 0 off, otherwise the polarity (1 or 2). */
 static unsigned
@@ -71,6 +80,7 @@ as_polarity(void)
 void
 andromeda_slider_publish(unsigned h42, unsigned h114)
 {
+	__atomic_store_n(&as_raw, ((h42 & 1u) << 1) | (h114 & 1u), __ATOMIC_RELEASE);
 	unsigned polarity = as_polarity();
 	if (polarity == 0u) {
 		return;
@@ -97,6 +107,47 @@ andromeda_slider_publish(unsigned h42, unsigned h114)
 		    andromeda_slider_name(andromeda_slider_state(v)),
 		    andromeda_slider_generation(v), andromeda_slider_opens(v));
 	}
+}
+
+unsigned
+andromeda_slider_mode(void)
+{
+	return as_polarity();
+}
+
+int
+andromeda_slider_mode_ctl(unsigned mode, char *out, size_t len)
+{
+	if (mode != 0u && mode != ANDROMEDA_SLIDER_POLARITY_KEYHANDLER &&
+	    mode != ANDROMEDA_SLIDER_POLARITY_INVERTED) {
+		snprintf(out, len, "mode must be 0, 1 or 2");
+		return EINVAL;
+	}
+	(void)as_polarity();    /* the boot-arg is read first, so it never overrides this later */
+	lck_mtx_lock(&as_lock);
+	unsigned old = (unsigned)__atomic_load_n(&as_mode, __ATOMIC_ACQUIRE);
+	uint64_t v = as_value;
+	if (mode != 0u) {
+		v = andromeda_slider_repolarize(as_value, &as_stable, mode,
+		    __atomic_load_n(&as_raw, __ATOMIC_ACQUIRE));
+		__atomic_store_n(&as_value, v, __ATOMIC_RELEASE);
+	}
+	__atomic_store_n(&as_mode, (int)mode, __ATOMIC_RELEASE);
+	wakeup(&as_value);
+	lck_mtx_unlock(&as_lock);
+	if (mode == 0u) {
+		printf(AS_TAG " off (andrctl; was andrslidercam=%u)\n", old);
+		snprintf(out, len, "andromeda.slider off (the sysctls answer ENOENT)");
+	} else {
+		unsigned open_raw = andromeda_slider_open_raw(mode);
+		printf(AS_TAG " andrslidercam=%u (andrctl, was %u): open = hall42=%u hall114=%u; now %s\n",
+		    mode, old, open_raw >> 1, open_raw & 1u,
+		    andromeda_slider_name(andromeda_slider_state(v)));
+		snprintf(out, len, "open = hall42=%u hall114=%u; slider now %s (generation %u)",
+		    open_raw >> 1, open_raw & 1u, andromeda_slider_name(andromeda_slider_state(v)),
+		    andromeda_slider_generation(v));
+	}
+	return 0;
 }
 
 static int

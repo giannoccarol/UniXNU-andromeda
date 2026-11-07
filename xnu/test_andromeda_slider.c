@@ -118,6 +118,45 @@ test_names(void)
 	assert(andromeda_slider_name(ANDROMEDA_SLIDER_NONE)[0] == 'n');
 }
 
+/* "slidercam N" at run time: the last reading decoded again, no opening counted. */
+static void
+test_repolarize(void)
+{
+	struct sim s;
+	sim_init(&s, KH);
+	/* No reading yet: value unchanged, stable unknown. */
+	uint64_t v = andromeda_slider_repolarize(s.v, &s.stable, INV, 0xffu);
+	assert(v == s.v && s.stable == ANDROMEDA_SLIDER_NONE);
+	/* Closed under KH (1, 0); the same Halls are "open" under INV: no opening. */
+	assert(step(&s, 1, 0) == ANDROMEDA_SLIDER_CLOSED);
+	uint32_t gen = andromeda_slider_generation(s.v);
+	s.v = andromeda_slider_repolarize(s.v, &s.stable, INV, 2u);
+	s.polarity = INV;
+	assert(andromeda_slider_state(s.v) == ANDROMEDA_SLIDER_OPEN);
+	assert(andromeda_slider_raw(s.v) == 2u);
+	assert(andromeda_slider_opens(s.v) == 0u);
+	assert(andromeda_slider_generation(s.v) == gen + 1u);
+	assert(s.stable == ANDROMEDA_SLIDER_OPEN);
+	/* Then a real close and open under INV counts once. */
+	assert(step(&s, 0, 1) == ANDROMEDA_SLIDER_CLOSED);
+	assert(step(&s, 1, 0) == ANDROMEDA_SLIDER_OPEN);
+	assert(andromeda_slider_opens(s.v) == 1u);
+	/* Back to KH while "open" under INV = closed under KH: opens kept. */
+	s.v = andromeda_slider_repolarize(s.v, &s.stable, KH, 2u);
+	s.polarity = KH;
+	assert(andromeda_slider_state(s.v) == ANDROMEDA_SLIDER_CLOSED && s.stable == ANDROMEDA_SLIDER_CLOSED);
+	assert(andromeda_slider_opens(s.v) == 1u);
+	assert(step(&s, 0, 1) == ANDROMEDA_SLIDER_OPEN && andromeda_slider_opens(s.v) == 2u);
+	/* Moving: stable unknown, the next stable reading opens nothing. */
+	s.v = andromeda_slider_repolarize(s.v, &s.stable, KH, 3u);
+	assert(andromeda_slider_state(s.v) == ANDROMEDA_SLIDER_MOVING && s.stable == ANDROMEDA_SLIDER_NONE);
+	assert(step(&s, 0, 1) == ANDROMEDA_SLIDER_OPEN && andromeda_slider_opens(s.v) == 2u);
+	/* The generation skips 0 when it wraps. */
+	uint64_t top = ((uint64_t)0xffffffffu << 32) | (1u << 8) | ANDROMEDA_SLIDER_OPEN;
+	unsigned st = ANDROMEDA_SLIDER_OPEN;
+	assert(andromeda_slider_generation(andromeda_slider_repolarize(top, &st, KH, 1u)) == 1u);
+}
+
 int
 main(void)
 {
@@ -127,6 +166,7 @@ main(void)
 	test_open_at_boot();
 	test_wrap();
 	test_names();
+	test_repolarize();
 	printf("andromeda_slider: all tests passed\n");
 	return 0;
 }

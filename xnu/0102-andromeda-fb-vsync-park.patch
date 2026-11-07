@@ -1,7 +1,7 @@
 diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -51,6 +51,13 @@ extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
+@@ -51,6 +51,15 @@ extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
  #include <kern/clock.h>
  #include <sys/proc.h>
  
@@ -11,11 +11,13 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 + */
 +extern "C" void andromeda_display_set(int off);
 +extern "C" uint64_t andromeda_pwr_fb_vsync, andromeda_pwr_fb_notify;
++/* andrfbpark, also set at run time by "idle fb 0|1" (andromeda_ctl.c, andrctl=1). */
++extern "C" unsigned andromeda_idle_fb_park;
 +
  enum {
  	kSweetFBGetLayerDefaultSurface  = 3,
  	kSweetFBSwapBegin               = 4,
-@@ -135,6 +142,16 @@ public:
+@@ -135,6 +144,16 @@ public:
  	uint64_t      fCopiedBytes, fMissed;
  	uint32_t      fFixedTimer, fPerfStats;
  	void finishTick(IOTimerEventSource *sender);
@@ -24,26 +26,28 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 +	 * display is off and its black frame is written, the vsync timer is not
 +	 * re-armed: no 60 Hz kernel wakeups and no vsync notifications to
 +	 * backboardd until RequestPowerChange(on) restarts it, as the display
-+	 * pipe of a real iPhone stops while the display is off.
++	 * pipe of a real iPhone stops while the display is off. The switch is
++	 * andromeda_idle_fb_park (bsd/dev/andromeda_power.c), read every tick.
 +	 */
-+	uint32_t      fPark;
 +	bool          fVsyncParked;   /* timer not armed; fLock */
 +	void vsyncResume(void);
  
  	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
  	void addClient(IOMobileFramebufferUserClient *client);
-@@ -238,6 +255,10 @@ AppleCLCD::start(IOService *provider)
+@@ -238,6 +257,12 @@ AppleCLCD::start(IOService *provider)
  
  	PE_parse_boot_argn("sweetfb_fixedtimer", &fFixedTimer, sizeof(fFixedTimer));
  	PE_parse_boot_argn("sweetfb_stats", &fPerfStats, sizeof(fPerfStats));
-+	PE_parse_boot_argn("andrfbpark", &fPark, sizeof(fPark));
-+	if (fPark) {
-+		IOLog("SWEET FB: vsync timer stops while the display is off (andrfbpark=%u)\n", fPark);
++	uint32_t park = 0;
++	PE_parse_boot_argn("andrfbpark", &park, sizeof(park));
++	if (park) {
++		__atomic_store_n(&andromeda_idle_fb_park, 1u, __ATOMIC_RELAXED);
++		IOLog("SWEET FB: vsync timer stops while the display is off (andrfbpark=%u)\n", park);
 +	}
  	clock_interval_to_absolutetime_interval(SWEET_FB_VSYNC_US, NSEC_PER_USEC, &fPeriod);
  	clock_interval_to_absolutetime_interval(10, NSEC_PER_SEC, &fStatsPeriod);
  	fStatsAt = mach_absolute_time();
-@@ -265,6 +286,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+@@ -265,6 +290,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  		0, 0,
  	};
  
@@ -51,15 +55,15 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  	IOLockLock(fb->fLock);
  	for (unsigned int i = 0; i < fb->fClients->getCount(); i++) {
  		IOMobileFramebufferUserClient *client =
-@@ -273,6 +295,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+@@ -273,6 +299,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  	}
  	if (fb->fPowerOff) {
  		bool blank = !fb->fBlanked;
-+		bool park = fb->fPark != 0;
++		bool park = __atomic_load_n(&andromeda_idle_fb_park, __ATOMIC_RELAXED) != 0;
  		uint64_t begin = 0;
  		if (blank) {
  			begin = mach_absolute_time();
-@@ -282,6 +305,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+@@ -282,6 +309,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  			bzero((void *)fb->fPixels, (size_t)fb->fRowBytes * fb->fHeight);
  			fb->fBlanked = true;
  		}
@@ -67,7 +71,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  		IOLockUnlock(fb->fLock);
  		if (blank) {
  			uint64_t ns;
-@@ -289,6 +313,10 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+@@ -289,6 +317,10 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  			IOLog("SWEET BLANK: clear_us=%llu bytes=%llu\n", ns / 1000,
  			    (uint64_t)fb->fRowBytes * fb->fHeight);
  		}
@@ -78,7 +82,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  		fb->finishTick(sender);
  		return;
  	}
-@@ -346,6 +374,24 @@ AppleCLCD::finishTick(IOTimerEventSource *sender)
+@@ -346,6 +378,24 @@ AppleCLCD::finishTick(IOTimerEventSource *sender)
  	sender->wakeAtTime(fDeadline);
  }
  
@@ -103,7 +107,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  void
  AppleCLCD::addClient(IOMobileFramebufferUserClient *client)
  {
-@@ -616,6 +662,9 @@ IOMobileFramebufferUserClient::notify(uint32_t type, const uint64_t *values, uin
+@@ -616,6 +666,9 @@ IOMobileFramebufferUserClient::notify(uint32_t type, const uint64_t *values, uin
  	setAsyncReference64(ref, fPort, (mach_vm_address_t)fFunc[type], fRefcon[type], fTask);
  	sendAsyncResult64WithOptions(ref, kIOReturnSuccess, (io_user_reference_t *)values, count,
  	    kIOUserNotifyOptionCanDrop);
@@ -113,7 +117,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  }
  
  static uint64_t sweet_fb_logged;        /* selectors already logged (< 64) */
-@@ -684,13 +733,21 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+@@ -684,13 +737,21 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
  	case kSweetFBRequestPowerChange:
  		if (args->scalarInputCount >= 1) {
  			bool off = args->scalarInput[0] == 0;

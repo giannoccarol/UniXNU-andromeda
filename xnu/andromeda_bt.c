@@ -48,6 +48,13 @@
  *   andrbtflow=0    HCI phase without RTS/CTS flow control (diagnostic; B1
  *                   only, refused with andrbt=2).
  *
+ * Runtime control (andromeda_ctl.c, andrctl=1, command "bt N"): the same run,
+ * started from the PC, once per boot (B1 or B2, not both: a second power-up
+ * would start from the flags the first one left). A boot-arg run still in
+ * its delay starts at once. Refused while andrprobe=2 has not finished, as
+ * both vote the same SE13 clock. The run takes its turn with the other
+ * hardware runs (andromeda_ctl_begin).
+ *
  * Hardware numbers: live DT of the phone (qupv3_se13_4uart @0xc8c000,
  * pinctrl qupv3_se13_{ctsrx,rts,tx}, bt_wcn3990 supplies) and the
  * andromeda_probe.c log (SE13 firmware proto 2, RCG XO/1 without DFS, wrapper
@@ -95,6 +102,18 @@ void SHA256_Update(SHA256_CTX *, const void *, size_t);
 void SHA256_Final(void *, SHA256_CTX *);
 #endif
 #include "cepheus_clock_status.h"
+#include "andromeda_ctl.h"
+
+/* andromeda_ctl.c: runtime control and request state (andromeda_ctl.h). */
+extern void andromeda_ctl_delay(uint32_t *st, unsigned seconds);
+extern bool andromeda_ctl_is_boot(uint32_t *st);
+extern uint32_t andromeda_ctl_begin(uint32_t *st, const char *who);
+extern void andromeda_ctl_end(uint32_t *st, unsigned reached, bool failed, const char *who);
+extern bool andromeda_ctl_spawn(thread_continue_t fn);
+extern bool andromeda_probe_s3_pending(void);   /* andromeda_probe.c: andrprobe=2 not done yet */
+uint32_t andromeda_bt_req;
+const char *andromeda_bt_check(unsigned level);
+bool andromeda_bt_spawn(void);
 
 extern vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t); /* andromeda_probe.c: shared, outside io_submap */
 /* Mach MIG declaration is not included by BSD's exported thread.h. */
@@ -1659,14 +1678,26 @@ bt_thread(void *arg, wait_result_t result)
 {
 	(void)arg;
 	(void)result;
-	printf(BT_TAG " B%d starting in %u s (andrbt=%d, %s, flow control %s", bt_level, bt_delay_s,
-	    bt_level, bt.xo_mnd ? "115200 from XO M/N" : "115200 from GPLL0_EVEN M/N", bt.flow ? "on" : "off");
-	if (bt_level >= 2) {
-		printf(", operating speed %u requested)\n", bt_baud_req);
-	} else {
-		printf(")\n");
+	bool boot = andromeda_ctl_is_boot(&andromeda_bt_req);
+	if (boot) {
+		bt_level = (int)andr_st_level(__atomic_load_n(&andromeda_bt_req, __ATOMIC_ACQUIRE));
+		printf(BT_TAG " B%d starting in %u s (andrbt=%d, %s, flow control %s", bt_level,
+		    bt_delay_s, bt_level, bt.xo_mnd ? "115200 from XO M/N" : "115200 from GPLL0_EVEN M/N",
+		    bt.flow ? "on" : "off");
+		if (bt_level >= 2) {
+			printf(", operating speed %u requested)\n", bt_baud_req);
+		} else {
+			printf(")\n");
+		}
+		andromeda_ctl_delay(&andromeda_bt_req, bt_delay_s);
 	}
-	bt_wait(bt_delay_s * 1000u);
+	uint32_t run = andromeda_ctl_begin(&andromeda_bt_req, "bt");
+	bt_level = (int)andr_st_level(run);
+	if (!boot) {
+		printf(BT_TAG " B%d starting now (andrctl; %s, flow control %s, operating speed %u)\n",
+		    bt_level, bt.xo_mnd ? "115200 from XO M/N" : "115200 from GPLL0_EVEN M/N",
+		    bt.flow ? "on" : "off", bt_baud_req);
+	}
 	printf(BT_TAG " begin\n");
 	const char *failed = bt_sequence();
 	if (failed) {
@@ -1679,8 +1710,31 @@ bt_thread(void *arg, wait_result_t result)
 	}
 	bt_power_down();
 	printf(BT_TAG " done\n");
+	andromeda_ctl_end(&andromeda_bt_req, failed ? 0u : (unsigned)bt_level, failed != NULL, "bt");
 	(void)thread_terminate(current_thread());
 	thread_block(THREAD_CONTINUE_NULL);
+}
+
+/* Preconditions shared by andrbt=N and "bt N"; NULL if fine. */
+const char *
+andromeda_bt_check(unsigned level)
+{
+	if (level == 2 && !bt.flow) {
+		return "andrbt=2 downloads firmware and needs flow control (andrbtflow=0 set)";
+	}
+	if (level == 2 && !bt_baud_known(bt_baud_req)) {
+		return "andrbtbaud must be 3000000, 2000000, 1000000, 921600 or 115200";
+	}
+	if (andromeda_probe_s3_pending()) {
+		return "andrprobe=2 has not finished and votes the same SE13 clock; wait for its \"done\"";
+	}
+	return NULL;
+}
+
+bool
+andromeda_bt_spawn(void)
+{
+	return andromeda_ctl_spawn(bt_thread);
 }
 
 void
@@ -1689,19 +1743,11 @@ andromeda_bt_init(void)
 	static bool started;
 	int level = 0;
 	unsigned value;
-	thread_t thread;
 	if (started) {
 		return;
 	}
 	started = true;
 	(void)PE_parse_boot_argn("andrbt", &level, sizeof(level));
-	if (level != 1 && level != 2) {
-		if (level) {
-			printf(BT_TAG " andrbt=%d not supported (1 = B1, 2 = B1 + B2)\n", level);
-		}
-		return;
-	}
-	bt_level = level;
 	(void)PE_parse_boot_argn("andrbtdelay", &bt_delay_s, sizeof(bt_delay_s));
 	value = 0;
 	(void)PE_parse_boot_argn("andrbtxo", &value, sizeof(value));
@@ -1710,6 +1756,12 @@ andromeda_bt_init(void)
 	(void)PE_parse_boot_argn("andrbtflow", &value, sizeof(value));
 	bt.flow = value != 0;
 	(void)PE_parse_boot_argn("andrbtbaud", &bt_baud_req, sizeof(bt_baud_req));
+	if (level != 1 && level != 2) {
+		if (level) {
+			printf(BT_TAG " andrbt=%d not supported (1 = B1, 2 = B1 + B2)\n", level);
+		}
+		return;
+	}
 	if (level == 2 && !bt.flow) {
 		printf(BT_TAG " refusing: andrbt=2 downloads firmware and needs flow control (andrbtflow=0)\n");
 		return;
@@ -1729,9 +1781,9 @@ andromeda_bt_init(void)
 		    probe_delay, probe_delay + 30u);
 		return;
 	}
-	if (kernel_thread_start(bt_thread, NULL, &thread) == KERN_SUCCESS) {
-		thread_deallocate(thread);
-	} else {
+	__atomic_store_n(&andromeda_bt_req, andr_st(ANDR_PH_WAIT, (unsigned)level, 0), __ATOMIC_RELEASE);
+	if (!andromeda_bt_spawn()) {
+		__atomic_store_n(&andromeda_bt_req, 0u, __ATOMIC_RELEASE);
 		printf(BT_TAG " kernel_thread_start failed\n");
 	}
 }

@@ -64,6 +64,8 @@ jobs:
           cp cepheus/xnu/andromeda_cam.c cepheus/xnu/0098-andromeda-cam-rpmh.patch dxb/patches/
           cp cepheus/xnu/andromeda_wlan.c dxb/patches/
           cp cepheus/xnu/andromeda_haptics.c dxb/patches/
+          # Runtime control from the PC (patch 0140, andrctl=1); its header is shared by the drivers.
+          cp cepheus/xnu/andromeda_ctl.c cepheus/xnu/andromeda_ctl.h dxb/patches/
           # dyld @rpath policy (port of ios-flame 0114), straight into dxb/patches.
           cp cepheus/xnu/0115-andromeda-dyld-policy.patch dxb/patches/
           cp cepheus/xnu/andromeda_power.c cepheus/xnu/andromeda_power.h dxb/patches/
@@ -105,6 +107,7 @@ jobs:
           python3 cepheus/scripts/test-pmap-cache-pa.py
           python3 cepheus/scripts/test-pmap-cache-verifier.py
           python3 cepheus/scripts/test-tree.py
+          python3 cepheus/scripts/test-andctl.py
           python3 cepheus/scripts/test-gpu-fdt.py
           python3 cepheus/scripts/test-gpu-diagnostic-log.py
           python3 cepheus/scripts/test-zap-layout.py
@@ -134,6 +137,8 @@ jobs:
           /tmp/governor-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_slider.c -o /tmp/slider-test
           /tmp/slider-test
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_ctl.c -o /tmp/ctl-test
+          /tmp/ctl-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_gpu_present.c -o /tmp/present-test
           /tmp/present-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_a640_pm4.c -o /tmp/pm4-test
@@ -189,7 +194,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0120-|0135-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0120-|0135-|0140-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -280,6 +285,17 @@ jobs:
           cmp cepheus/xnu/andromeda_haptics.c dxb/xnu/bsd/dev/andromeda_haptics.c
           grep -F 'andromeda_haptics_init();' dxb/xnu/bsd/dev/cepheus_touch.c
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"ANDROMEDA HAP:" in d and b"andrhapdelay" in d and b"andrhapmv" in d'
+          # andromeda: runtime control from the PC (patch 0140, andrctl=1, scripts/andctl.py).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0140-andromeda-ctl.patch'
+          grep -E '^bsd/dev/andromeda_ctl.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
+          cmp cepheus/xnu/andromeda_ctl.c dxb/xnu/bsd/dev/andromeda_ctl.c
+          cmp cepheus/xnu/andromeda_ctl.h dxb/xnu/bsd/dev/andromeda_ctl.h
+          grep -F 'andromeda_ctl_init();' dxb/xnu/bsd/dev/cepheus_touch.c
+          grep -F 'TUNABLE_WRITEABLE(unsigned int, andromeda_idle, "andridle", 0);' dxb/xnu/osfmk/arm64/cpu.c
+          grep -F 'andromeda_idle_usb_ms' dxb/xnu/bsd/dev/sweet_usb.c
+          grep -F 'andromeda_idle_keys_ms' dxb/xnu/bsd/dev/sweet_keys.c
+          grep -F 'andromeda_idle_fb_park' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA CTL:", b"andrctl", b"listening on udp/%u", b"one hardware run at a time", b"TrustZone PAS is taken by"))'
           # andromeda: dyld policy for apps with embedded frameworks (patch 0115, ios-flame 0114).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0115-andromeda-dyld-policy.patch'
           grep -F 'SWEET_AMFI_DYLD_POLICY_SELF' dxb/xnu/bsd/kern/sweet_amfi.c

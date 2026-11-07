@@ -35,6 +35,12 @@
  *   andrbllevel2=N   second test level (default 256)
  *   andrblhs=1       send in high-speed mode (default: the LP/HS choice the
  *                    UEFI left in CMD_DMA_CTRL)
+ *
+ * Runtime control (andromeda_ctl.c, andrctl=1, command "bl N"): the same
+ * modes, started from the PC. A boot-arg run still in its delay starts at
+ * once; "bl 2" may follow a finished "bl 1" test; the service runs until an
+ * error and is never started twice. Not one of the turn-taking hardware
+ * runs: it only sends DCS packets on DSI0.
  */
 #if defined(ARM64_BOARD_CONFIG_SWEET)
 #include <sys/param.h>
@@ -52,6 +58,18 @@ extern kern_return_t thread_terminate(thread_t);
 extern int andromeda_backlight_publish(unsigned level, unsigned max_level, unsigned max_nits);
 void andromeda_backlight_init(void);
 int andromeda_backlight_request(unsigned level);
+#include "andromeda_ctl.h"
+/* andromeda_ctl.c: runtime control and request state (andromeda_ctl.h). */
+extern void andromeda_ctl_delay(uint32_t *st, unsigned seconds);
+extern bool andromeda_ctl_is_boot(uint32_t *st);
+extern uint32_t andromeda_ctl_begin(uint32_t *st, const char *who);
+extern void andromeda_ctl_end(uint32_t *st, unsigned reached, bool failed, const char *who);
+extern bool andromeda_ctl_spawn(thread_continue_t fn);
+uint32_t andromeda_bl_req;	/* levels = andrbl modes: 1 test, 2 service */
+const char *andromeda_bl_check(unsigned level);
+bool andromeda_bl_spawn(void);
+static bool bl_levels_ok = true;
+static unsigned bl_delay_s = 30;
 
 #define BL_TAG "ANDROMEDA BL:"
 
@@ -284,11 +302,21 @@ bl_thread(void *arg, wait_result_t result)
 {
 	(void)arg;
 	(void)result;
-	unsigned delay_s = 30;
-	(void)PE_parse_boot_argn("andrbldelay", &delay_s, sizeof(delay_s));
-	printf(BL_TAG " andrbl=%d, starting in %u s (levels %u/%u, %s)\n", bl_mode, delay_s,
-	    bl_level1, bl_level2, bl_hs ? "HS" : "inherited LP/HS");
-	bl_wait(delay_s * 1000u);
+	bool boot = andromeda_ctl_is_boot(&andromeda_bl_req);
+	if (boot) {
+		printf(BL_TAG " andrbl=%u, starting in %u s (levels %u/%u, %s)\n",
+		    andr_st_level(__atomic_load_n(&andromeda_bl_req, __ATOMIC_ACQUIRE)), bl_delay_s,
+		    bl_level1, bl_level2, bl_hs ? "HS" : "inherited LP/HS");
+		andromeda_ctl_delay(&andromeda_bl_req, bl_delay_s);
+	}
+	uint32_t run = andromeda_ctl_begin(&andromeda_bl_req, NULL);
+	bl_mode = (int)andr_st_level(run);
+	unsigned reached = andr_st_from(run) - 1u;
+	bool failed = true;
+	if (!boot) {
+		printf(BL_TAG " andrbl=%d, starting now (andrctl; levels %u/%u, %s)\n", bl_mode, bl_level1,
+		    bl_level2, bl_hs ? "HS" : "inherited LP/HS");
+	}
 	if (!bl_probe()) {
 		printf(BL_TAG " not available\n");
 		goto out;
@@ -305,6 +333,8 @@ bl_thread(void *arg, wait_result_t result)
 		bl_state("test done");
 		printf(BL_TAG " test done: %u DCS, %u failed (look for %u -> %u -> %u on the panel)\n",
 		    bl_sends, bl_fails, bl_level1, bl_level2, bl_level1);
+		reached = 1u;
+		failed = false;
 		goto out;
 	}
 	bl_ready = true;
@@ -326,38 +356,54 @@ bl_thread(void *arg, wait_result_t result)
 	bl_ready = false;
 	printf(BL_TAG " sender stopped after an error\n");
 out:
+	andromeda_ctl_end(&andromeda_bl_req, reached, failed, NULL);
 	(void)thread_terminate(current_thread());
 	thread_block(THREAD_CONTINUE_NULL);
+}
+
+const char *
+andromeda_bl_check(unsigned level)
+{
+	(void)level;
+	return bl_levels_ok ? NULL : "andrbllevel/andrbllevel2 outside 2..2047: refusing";
+}
+
+bool
+andromeda_bl_spawn(void)
+{
+	return andromeda_ctl_spawn(bl_thread);
 }
 
 void
 andromeda_backlight_init(void)
 {
 	static bool started;
-	thread_t thread;
+	unsigned hs = 0;
 	if (started) {
 		return;
 	}
 	started = true;
 	(void)PE_parse_boot_argn("andrbl", &bl_mode, sizeof(bl_mode));
+	(void)PE_parse_boot_argn("andrbllevel", &bl_level1, sizeof(bl_level1));
+	(void)PE_parse_boot_argn("andrbllevel2", &bl_level2, sizeof(bl_level2));
+	(void)PE_parse_boot_argn("andrblhs", &hs, sizeof(hs));
+	(void)PE_parse_boot_argn("andrbldelay", &bl_delay_s, sizeof(bl_delay_s));
+	bl_hs = hs != 0;
+	bl_levels_ok = bl_level1 >= BL_MIN && bl_level1 <= BL_MAX && bl_level2 >= BL_MIN &&
+	    bl_level2 <= BL_MAX;
 	if (bl_mode != 1 && bl_mode != 2) {
 		if (bl_mode) {
 			printf(BL_TAG " andrbl=%d not supported (1 test, 2 service)\n", bl_mode);
 		}
 		return;
 	}
-	unsigned hs = 0;
-	(void)PE_parse_boot_argn("andrbllevel", &bl_level1, sizeof(bl_level1));
-	(void)PE_parse_boot_argn("andrbllevel2", &bl_level2, sizeof(bl_level2));
-	(void)PE_parse_boot_argn("andrblhs", &hs, sizeof(hs));
-	bl_hs = hs != 0;
-	if (bl_level1 < BL_MIN || bl_level1 > BL_MAX || bl_level2 < BL_MIN || bl_level2 > BL_MAX) {
+	if (!bl_levels_ok) {
 		printf(BL_TAG " levels must be %u..%u; refusing\n", BL_MIN, BL_MAX);
 		return;
 	}
-	if (kernel_thread_start(bl_thread, NULL, &thread) == KERN_SUCCESS) {
-		thread_deallocate(thread);
-	} else {
+	__atomic_store_n(&andromeda_bl_req, andr_st(ANDR_PH_WAIT, (unsigned)bl_mode, 0), __ATOMIC_RELEASE);
+	if (!andromeda_bl_spawn()) {
+		__atomic_store_n(&andromeda_bl_req, 0u, __ATOMIC_RELEASE);
 		printf(BL_TAG " kernel_thread_start failed\n");
 	}
 }

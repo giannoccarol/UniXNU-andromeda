@@ -55,6 +55,13 @@
  *   andrwlanfw=PATH   directory on the iOS root holding modem.mdt and
  *                     modem.b* (default /fw/modem). W1 only.
  *   andrwlanwait=MS   bounded wait for the modem "ready" bit (default 30000).
+ *
+ * Runtime control (andromeda_ctl.c, andrctl=1, command "wlan N"): the same
+ * steps, started from the PC. A boot-arg run still in its delay starts at
+ * once; after W0 has run, "wlan 2" runs W1 only (W0's SMEM table is kept);
+ * after W1 (passed or failed) nothing runs again this boot. W1 goes through
+ * TrustZone PAS, as the GPU ZAP of andrgpu>=3: the first of the two to ask
+ * owns PAS for the boot (andromeda_pas_claim) and the other is refused.
  */
 #if defined(ARM64_BOARD_CONFIG_SWEET)
 #include <sys/param.h>
@@ -1085,62 +1092,101 @@ aw_w1(unsigned wait_ms)
 
 /* ---- gated bring-up thread ---- */
 
-static unsigned aw_step, aw_delay_s = 150, aw_wait_ms = 30000;
-static unsigned aw_sleep_chan;
+#include "andromeda_ctl.h"
+/* andromeda_ctl.c: runtime control and request state (andromeda_ctl.h). */
+extern void andromeda_ctl_delay(uint32_t *st, unsigned seconds);
+extern bool andromeda_ctl_is_boot(uint32_t *st);
+extern uint32_t andromeda_ctl_begin(uint32_t *st, const char *who);
+extern void andromeda_ctl_end(uint32_t *st, unsigned reached, bool failed, const char *who);
+extern bool andromeda_ctl_spawn(thread_continue_t fn);
+extern bool andromeda_pas_claim(unsigned who);
+#define AW_PAS_OWNER 2u		/* andromeda_ctl.c ANDR_PAS_WLAN */
+uint32_t andromeda_wlan_req;	/* levels: 1 = W0, 2 = W1 */
+const char *andromeda_wlan_check(unsigned level);
+bool andromeda_wlan_spawn(void);
 
-static void
-aw_wait_s(unsigned s)
-{
-	for (unsigned i = 0; i < s; i++) {
-		uint64_t deadline;
-		clock_interval_to_deadline(1000, NSEC_PER_MSEC, &deadline);
-		(void)assert_wait_deadline(&aw_sleep_chan, THREAD_UNINT, deadline);
-		thread_block(THREAD_CONTINUE_NULL);
-	}
-}
+static unsigned aw_step, aw_delay_s = 150, aw_wait_ms = 30000;
 
 static void
 aw_thread(void *arg, wait_result_t wr)
 {
 	(void)arg;
 	(void)wr;
-	if (aw_delay_s) {
-		aw_wait_s(aw_delay_s);
+	if (andromeda_ctl_is_boot(&andromeda_wlan_req) && aw_delay_s) {
+		andromeda_ctl_delay(&andromeda_wlan_req, aw_delay_s);
 	}
-	printf(AW_TAG " andrwlan=%u: starting (fw dir %s)\n", aw_step, aw_fwdir);
+	uint32_t run = andromeda_ctl_begin(&andromeda_wlan_req, "wlan");
+	unsigned from = andr_st_from(run), to = andr_st_level(run), reached = from - 1u;
+	bool failed = false;
+	printf(AW_TAG " andrwlan=%u: starting (fw dir %s)%s\n", to, aw_fwdir,
+	    from > 1u ? ", W1 only: W0 ran earlier" : "");
 	if (aw_map_fixed()) {
+		failed = true;
 		goto done;
 	}
-	aw_w0();
-	if (aw_step >= 2) {
-		(void)aw_w1(aw_wait_ms);
+	if (from <= 1u) {
+		aw_w0();
+		reached = 1u;
+	}
+	if (to >= 2u) {
+		if (aw_w1(aw_wait_ms) == 0) {
+			reached = 2u;
+		} else {
+			failed = true;
+		}
 	}
 done:
 	printf(AW_TAG " bring-up thread finished\n");
+	andromeda_ctl_end(&andromeda_wlan_req, reached, failed, "wlan");
 	(void)thread_terminate(current_thread());
 	thread_block(THREAD_CONTINUE_NULL);
+}
+
+const char *
+andromeda_wlan_check(unsigned level)
+{
+	(void)level;
+	return NULL;    /* PAS is claimed by andromeda_ctl.c for level 2 */
+}
+
+bool
+andromeda_wlan_spawn(void)
+{
+	return andromeda_ctl_spawn(aw_thread);
 }
 
 void
 andromeda_wlan_init(void)
 {
 	static bool started;
-	thread_t thread;
+	if (started) {
+		return;
+	}
+	started = true;
 	(void)PE_parse_boot_argn("andrwlan", &aw_step, sizeof(aw_step));
 	(void)PE_parse_boot_argn("andrwlandelay", &aw_delay_s, sizeof(aw_delay_s));
 	(void)PE_parse_boot_argn("andrwlanwait", &aw_wait_ms, sizeof(aw_wait_ms));
 	(void)PE_parse_boot_argn("andrwlanfw", aw_fwdir, sizeof(aw_fwdir));
-	if (!aw_step || started) {
-		return;
-	}
 	if (aw_wait_ms < 1000u || aw_wait_ms > 120000u) {
 		aw_wait_ms = 30000u;
 	}
-	started = true;
+	if (!aw_step) {
+		return;
+	}
+	if (aw_step > 2u) {
+		aw_step = 2u;   /* as before: any N >= 2 runs W0 + W1 */
+	}
+	if (aw_step >= 2u && !andromeda_pas_claim(AW_PAS_OWNER)) {
+		printf(AW_TAG " andrwlan=2: TrustZone PAS is taken by the GPU ZAP (andrgpu>=3) this boot;"
+		    " not starting (andrwlan=1 or another boot)\n");
+		return;
+	}
 	printf(AW_TAG " andrwlan=%u delay=%us wait=%ums: starting bring-up thread\n",
 	    aw_step, aw_delay_s, aw_wait_ms);
-	if (kernel_thread_start(aw_thread, NULL, &thread) == KERN_SUCCESS) {
-		thread_deallocate(thread);
+	__atomic_store_n(&andromeda_wlan_req, andr_st(ANDR_PH_WAIT, aw_step, 0), __ATOMIC_RELEASE);
+	if (!andromeda_wlan_spawn()) {
+		__atomic_store_n(&andromeda_wlan_req, 0u, __ATOMIC_RELEASE);
+		printf(AW_TAG " kernel_thread_start failed\n");
 	}
 }
 #endif /* ARM64_BOARD_CONFIG_SWEET */

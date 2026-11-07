@@ -74,6 +74,7 @@ extern void andromeda_cam_init(void); /* andromeda_cam.c, andrcam=1 */
 extern void andromeda_wlan_init(void); /* andromeda_wlan.c, andrwlan=N */
 extern void andromeda_haptics_init(void); /* andromeda_haptics.c, andrhap=1 */
 extern void andromeda_backlight_init(void); /* andromeda_backlight.c, andrbl=1/2 */
+extern void andromeda_ctl_init(void); /* andromeda_ctl.c, andrctl=1 runtime control */
 extern void cepheus_cpu_activity(void);
 void sweet_touch_init(void);
 
@@ -126,8 +127,9 @@ static unsigned touch_exp_enters;
  * instead of every 10 ms (each read is a bit-banged I2C transfer that keeps
  * the CPU busy for a few ms). The controller keeps scanning and queues up to
  * 32 events, so a touch is delayed, not lost; a finger down, or the display
- * coming on (which wakes the wait), brings the 10 ms period back at once. */
-static unsigned touch_idle_ms;
+ * coming on (which wakes the wait), brings the 10 ms period back at once.
+ * The value lives in andromeda_idle_touch_ms (andromeda_power.c), so that the
+ * runtime control ("idle touch N", andrctl=1) can change it while iOS runs. */
 #define FTS_EVT_CONTROLLER_READY 0x03u
 #define TOUCH_I2C_ADDR   0x49u
 #define TOUCH_X_MAX      1080
@@ -985,6 +987,7 @@ touch_thread(void *arg, wait_result_t result)
 			}
 			__atomic_fetch_add(&andromeda_pwr_touch_polls, 1, __ATOMIC_RELAXED);
 		}
+		unsigned touch_idle_ms = __atomic_load_n(&andromeda_idle_touch_ms, __ATOMIC_RELAXED);
 		if (touch_idle_ms && !st.active &&
 		    __atomic_load_n(&andromeda_display_off, __ATOMIC_RELAXED)) {
 			andromeda_display_wait(touch_idle_ms);
@@ -1011,6 +1014,7 @@ sweet_touch_init(void)
 	andromeda_backlight_init(); /* opt-in DSI0 DCS 0x51 brightness (andrbl=1/2) */
 	andromeda_wlan_init(); /* opt-in WCN3990/modem W0-W1 (andrwlan=N, off by default) */
 	andromeda_haptics_init(); /* opt-in PM8150B vibration test V1 (andrhap=1, off by default) */
+	andromeda_ctl_init(); /* opt-in runtime control from the PC over udp/5141 (andrctl=1) */
 	int enabled = 1;
 	thread_t thread;
 	if (st.started) {
@@ -1031,9 +1035,11 @@ sweet_touch_init(void)
 	(void)PE_parse_boot_argn("sweettouchscan", &touch_scan_settings, sizeof(touch_scan_settings));
 	touch_scan_settings &= 0xffu;
 	(void)PE_parse_boot_argn("sweettouchexp", &touch_exp, sizeof(touch_exp));
+	unsigned touch_idle_ms = 0;
 	(void)PE_parse_boot_argn("andrtouchidle", &touch_idle_ms, sizeof(touch_idle_ms));
 	if (touch_idle_ms) {
 		touch_idle_ms = touch_idle_ms < 20 ? 20 : (touch_idle_ms > 1000 ? 1000 : touch_idle_ms);
+		__atomic_store_n(&andromeda_idle_touch_ms, touch_idle_ms, __ATOMIC_RELAXED);
 		printf("SWEET TOUCH (cepheus): %u ms polling while the display is off (andrtouchidle)\n",
 		    touch_idle_ms);
 	}

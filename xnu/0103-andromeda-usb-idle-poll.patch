@@ -9,7 +9,7 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  void sweet_usb_probe(void);
-@@ -238,6 +239,26 @@ static struct {
+@@ -238,6 +239,28 @@ static struct {
  	uint64_t    rx_frames, tx_frames;
  } ud;
  
@@ -27,8 +27,10 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
 + * control request without data stage well inside the 50 ms of USB 2.0
 + * 9.2.6.4. After a cable re-plug the bus-reset event too is seen up to N ms
 + * late, so the host may need a second enumeration attempt.
++ * N lives in andromeda_idle_usb_ms (bsd/dev/andromeda_power.c), so that the
++ * runtime control ("idle usb N", andromeda_ctl.c, andrctl=1) can change it;
++ * it is read afresh at every poll.
 + */
-+static unsigned ud_idle_ms;
 +static uint64_t ud_idle_window_abs;
 +static int ud_poll_chan;
 +static bool ud_slow;            /* event thread in a slow wait; ud.lock */
@@ -36,7 +38,7 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
  static inline void
  dwc_wr(uint32_t off, uint32_t v)
  {
-@@ -560,6 +581,9 @@ ud_tx_kick_locked(void)
+@@ -560,6 +583,9 @@ ud_tx_kick_locked(void)
  		ud.tx_busy = true;
  		ud.tx_frames++;
  		ud_start_trb(EP_TX, UD_TRB_TX, UD_TX, (uint32_t)len, TRBCTL_NORMAL);
@@ -46,11 +48,11 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
  	}
  }
  
-@@ -780,10 +804,45 @@ ud_event(uint32_t ev)
+@@ -780,10 +806,45 @@ ud_event(uint32_t ev)
  	}
  }
  
-+/* andrusbidle: nothing has happened for the window (see ud_idle_ms). */
++/* andrusbidle: nothing has happened for the window (see ud_idle_window_abs). */
 +static bool
 +ud_quiet(bool events, uint64_t *since)
 +{
@@ -64,15 +66,15 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
 +
 +/* Slow wait, unless a TX frame is queued or in flight: false then. */
 +static bool
-+ud_idle_wait(void)
++ud_idle_wait(unsigned idle_ms)
 +{
 +	uint64_t deadline;
 +	bool slept = false;
 +	if (ud.lock == NULL) {
-+		ud_sleep_ms(ud_idle_ms);
++		ud_sleep_ms(idle_ms);
 +		return true;
 +	}
-+	clock_interval_to_deadline(ud_idle_ms, NSEC_PER_MSEC, &deadline);
++	clock_interval_to_deadline(idle_ms, NSEC_PER_MSEC, &deadline);
 +	lck_mtx_lock(ud.lock);
 +	if (!ud.tx_busy && ud.txq_count == 0) {
 +		ud_slow = true;
@@ -92,13 +94,14 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
  	for (;;) {
  		uint32_t count = dwc_rd(GEVNTCOUNT) & 0xffff;
  		if (count) {
-@@ -801,7 +860,12 @@ ud_thread(void *arg __unused, wait_result_t wr __unused)
+@@ -801,7 +862,13 @@ ud_thread(void *arg __unused, wait_result_t wr __unused)
  		if ((++ticks % 30000) == 0) {
  			printf("SWEET USB: ue0 rx %llu tx %llu frames\n", ud.rx_frames, ud.tx_frames);
  		}
 -		ud_sleep_ms(1);
 +		__atomic_fetch_add(&andromeda_pwr_usb_polls, 1, __ATOMIC_RELAXED);
-+		if (ud_idle_ms && ud_quiet(count != 0, &quiet_since) && ud_idle_wait()) {
++		unsigned idle_ms = __atomic_load_n(&andromeda_idle_usb_ms, __ATOMIC_RELAXED);
++		if (idle_ms && ud_quiet(count != 0, &quiet_since) && ud_idle_wait(idle_ms)) {
 +			__atomic_fetch_add(&andromeda_pwr_usb_slow, 1, __ATOMIC_RELAXED);
 +		} else {
 +			ud_sleep_ms(1);
@@ -106,19 +109,21 @@ diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
  	}
  }
  
-@@ -924,6 +988,16 @@ sweet_usb_gadget_start(vm_offset_t dwc)
+@@ -924,6 +991,18 @@ sweet_usb_gadget_start(vm_offset_t dwc)
  		delay(1000);
  	}
  	printf("SWEET USB: running (DSTS 0x%08x after %d ms), DMA at 0x%llx\n", dwc_rd(DSTS), i, ud.dma_pa);
-+	unsigned idle_win = 1000;
-+	PE_parse_boot_argn("andrusbidle", &ud_idle_ms, sizeof(ud_idle_ms));
++	unsigned idle_ms = 0, idle_win = 1000;
++	PE_parse_boot_argn("andrusbidle", &idle_ms, sizeof(idle_ms));
 +	PE_parse_boot_argn("andrusbidlewin", &idle_win, sizeof(idle_win));
-+	if (ud_idle_ms) {
-+		ud_idle_ms = ud_idle_ms < 2 ? 2 : (ud_idle_ms > 20 ? 20 : ud_idle_ms);
-+		idle_win = idle_win < 100 ? 100 : (idle_win > 10000 ? 10000 : idle_win);
-+		nanoseconds_to_absolutetime((uint64_t)idle_win * NSEC_PER_MSEC, &ud_idle_window_abs);
++	idle_win = idle_win < 100 ? 100 : (idle_win > 10000 ? 10000 : idle_win);
++	/* Also without andrusbidle: "idle usb N" may switch it on later. */
++	nanoseconds_to_absolutetime((uint64_t)idle_win * NSEC_PER_MSEC, &ud_idle_window_abs);
++	if (idle_ms) {
++		idle_ms = idle_ms < 2 ? 2 : (idle_ms > 20 ? 20 : idle_ms);
++		__atomic_store_n(&andromeda_idle_usb_ms, idle_ms, __ATOMIC_RELAXED);
 +		printf("SWEET USB: event polling every %u ms after %u ms without events (andrusbidle)\n",
-+		    ud_idle_ms, idle_win);
++		    idle_ms, idle_win);
 +	}
  	if (kernel_thread_start(ud_thread, NULL, &thread) == KERN_SUCCESS) {
  		thread_deallocate(thread);
