@@ -138,6 +138,10 @@ enum uio_rw { UIO_READ, UIO_WRITE };
 #ifndef PAGE_MASK
 #define PAGE_MASK (PAGE_SIZE - 1)
 #endif
+#ifndef trunc_page
+#define trunc_page(x) ((vm_offset_t)(x) & ~(vm_offset_t)PAGE_MASK)
+#define round_page(x) trunc_page((vm_offset_t)(x) + PAGE_MASK)
+#endif
 #define ptoa_64(x) ((uint64_t)(x) << 14)
 #define atop_64(x) ((uint64_t)(x) >> 14)
 extern vm_map_t kernel_map;
@@ -286,6 +290,22 @@ aw_map_fixed(void)
 	return 0;
 }
 
+/*
+ * ml_io_map_unmappable() maps whole kernel pages (16 KiB) and returns the
+ * address plus the offset inside the first page; ml_io_unmap() hands its
+ * range straight to pmap_remove(), which panics on an unaligned range
+ * ("pmap_remove_options() pmap ... start ... end ...", pmap.c:4296, seen
+ * 2026-11-07 when "wlan 1" unmapped the 4 KiB cmd-db locator). Unmap the
+ * same page-rounded range io_map() allocated.
+ */
+static void
+aw_io_unmap(vm_offset_t va, vm_size_t size)
+{
+	vm_offset_t start = trunc_page(va);
+	vm_offset_t end = round_page(va + size);
+	ml_io_unmap(start, end - start);
+}
+
 /* cmd-db: the locator at 0x0c3f000c holds the reserved RAM address+size. */
 static int
 aw_map_cmddb(void)
@@ -299,7 +319,7 @@ aw_map_cmddb(void)
 	}
 	uint32_t pa = dv_rd(loc + (vm_offset_t)(AW_CMDDB_LOCATOR & 0xfff));
 	uint32_t size = dv_rd(loc + (vm_offset_t)((AW_CMDDB_LOCATOR & 0xfff) + 4));
-	ml_io_unmap(loc, 0x1000);
+	aw_io_unmap(loc, 0x1000);
 	/* Firmware supplies the reserved address; never scan physical RAM. */
 	if (pa < 0x80000000u || (pa & 3u) || (size & 3u) || size < 0x100u ||
 	    size > 0x100000u || (uint64_t)pa + size > 0x100000000ull) {
@@ -313,7 +333,7 @@ aw_map_cmddb(void)
 	aw_cmddb_size = size;
 	if (dv_rd(aw_cmddb_va + 4) != 0x0c0330dbu) {
 		printf(AW_TAG " cmd-db magic %#x at %#x: not a command DB\n", dv_rd(aw_cmddb_va + 4), pa);
-		ml_io_unmap(aw_cmddb_va, size);
+		aw_io_unmap(aw_cmddb_va, size);
 		aw_cmddb_va = 0;
 		aw_cmddb_size = 0;
 		return EINVAL;
@@ -934,7 +954,7 @@ aw_pas_load_modem(void)
 		}
 	}
 	__asm__ volatile("dsb osh" ::: "memory");
-	ml_io_unmap(region, (vm_size_t)AW_MPSS_SIZE);
+	aw_io_unmap(region, (vm_size_t)AW_MPSS_SIZE);
 	printf(AW_TAG " %llu bytes of modem segments loaded\n", (unsigned long long)total);
 #else
 	(void)hash;

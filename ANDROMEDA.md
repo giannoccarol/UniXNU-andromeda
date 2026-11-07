@@ -124,6 +124,10 @@ modo (write-combining). Ogni nuova mappatura lascia una riga `ANDROMEDA PROBE: i
   bit 1 su questo PMIC non resta: ora il registro non viene toccato e resta il valore del bootloader (`0x01`).
 - **Fotocamera posteriore** (`cam 1`, C1): ferma alle precondizioni, `GCC_CAMERA_XO_CLK` spento, nulla scritto. Serve
   accendere il clock XO della camera (e l'MCLK) prima del sensore: da fare.
+- **Wi-Fi/modem** (`wlan 1`, W0): **panic** `pmap_remove_options() ... @pmap.c:4296`. Il driver smappava la pagina da
+  4 KiB del locator del cmd-db con `ml_io_unmap(loc, 0x1000)`, ma `io_map` lavora a pagine da 16 KiB e restituisce
+  l'indirizzo più l'offset: `pmap_remove` riceve un intervallo non allineato e il kernel di debug si ferma. Ora si smappa
+  l'intervallo arrotondato alle pagine (`aw_io_unmap`), anche per il cmd-db e la regione del modem.
 
 **Touch, 7 novembre (4): funziona.** Con `andrboost=1` la sonda accende il pin 5 del PM8150B come fa Linux (`MODE_CTL` 01, `DIG_OUT_SOURCE_CTL` 80, `EN_CTL` 80, tutte rilette uguali) 20 s prima che il driver alimenti il controller. Il frame grezzo diventa quello di TWRP (da -275 a 207, media circa 43), il rumore della forza scende a ±7 e sotto il dito sale fino a 966; il controller manda gli eventi di contatto (`13`/`23`/`33`) e iOS riceve i tocchi: 13 tocchi completi e 40 posizioni nel primo minuto, l'utente conferma che funziona. Il regolatore `vdd_boost_vreg` (device tree: `regulator-fixed` su `pm8150b_gpios 5`, `regulator-always-on`, senza utilizzatori dichiarati) è quindi l'alimentazione della parte analogica del sensore. Restano da verificare: se `sweettouchfpvdd=1` serve ancora, il multitouch, e togliere `sweettouchraw`/`sweettouchdiag` dagli argomenti.
 
