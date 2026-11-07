@@ -24,7 +24,7 @@ Chi ha fatto il lavoro su cui costruiamo è elencato in [CREDITS.md](CREDITS.md)
 | 4 | Avvio senza PC (partizione `boot`) | pronto, da fare con conferma dell'utente | bassa |
 | 5 | Memoria: da 1,5 a 2,5-3 GiB | da fare | media |
 | 6 | **Batteria e ricarica** | la ricarica **funziona in hardware**; valori veri per iOS **pronti** (`sweetbattery=2`) | media |
-| 7 | **GPU** (Adreno 640) | **accesa** (7 novembre): gradini 1-4 superati sul telefono (GMU `0xBABEFACE`, ZAP autenticato, `CP_MEM_WRITE` riletto); prossimi: copia a schermo (F4), user client e `SweetAccelerator` per Metal (F5/F6) | alta |
+| 7 | **GPU** (Adreno 640) | **accesa** (7 novembre): gradini 1-4 superati sul telefono (GMU `0xBABEFACE`, ZAP autenticato, `CP_MEM_WRITE` riletto); copia a schermo via GPU (F4) verificata (5 fotogrammi identici alla CPU, 0 diversi); prossimi: user client e `SweetAccelerator` per Metal (F5/F6) | alta |
 | 8 | Frequenze CPU e temperatura | piena velocità + protezione termica **pronte**; governatore a carico **in scrittura** | media |
 | 9 | Luminosità | da fare (comandi DCS al pannello) | media |
 | 10 | Audio | da fare | alta |

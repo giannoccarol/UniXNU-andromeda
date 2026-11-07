@@ -768,3 +768,16 @@ copie 2D non scalate per fotogramma riproducono esattamente le tabelle della 009
 con la copia CPU (CRC-32 e pixel per pixel). Sul telefono va provato dopo che il gradino 4 è passato. F5: le librerie
 userland (Turnip, `SweetMetal2.bundle`) sono state compilate dal workflow `gpu-userland-andromeda`; manca lo user client
 del kernel.
+
+## Aggiornamento (7 novembre 2026, sera): F3 e F4 sul telefono
+
+- **F3 superata.** Il blocco del gradino 2 era la base dei registri GMU (`ANDR_GMU_REG` sommava gli offset kgsl alla base
+  del GMU invece che a quella della GPU: 0x6a000 byte fuori dal blocco). Corretta, i gradini 1-4 passano: GMU
+  `0xBABEFACE`, GX acceso (`RBBM_STATUS 1`), ZAP autenticato da TrustZone, CP in esecuzione, `CP_MEM_WRITE` riletto.
+  All'avvio (`andrgpu=4`) in 361 ms.
+- **F4 superata.** Con `andrgpupresent=1` la GPU copia l'immagine adattata sul pannello: dei primi 8 fotogrammi 5 identici
+  alla copia della CPU, 3 inconclusivi (superficie in movimento), 0 diversi. Fotogramma: GPU 4,4 ms, totale 5,1 ms. I
+  fotogrammi con più livelli restano alla CPU.
+- **Prossimo: F5/F6.** Lo user client NativeAdreno e `SweetAccelerator` (port di ios-flame 0096/0097/0115/0116) sono in
+  integrazione dietro `andrmtl`; poi il root con `SweetMetal2.bundle` (scrittura su `userdata`, con l'OK dell'utente).
+
