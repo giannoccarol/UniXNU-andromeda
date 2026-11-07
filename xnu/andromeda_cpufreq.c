@@ -59,7 +59,7 @@
 #include <pexpert/pexpert.h>
 #include "andromeda_cpu_governor.h"
 
-extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+extern vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t); /* andromeda_probe.c: shared, outside io_submap */
 extern kern_return_t thread_terminate(thread_t);
 /* osfmk/kern/processor.c and osfmk/arm/cpu_common.c: the MIG server routine
  * and its processor lookup, not declared in the headers BSD sees. */
@@ -157,7 +157,7 @@ ac_set(struct ac_cluster *c, unsigned index)
 static bool
 ac_scan(struct ac_cluster *c)
 {
-	c->va = ml_io_map(c->pa, 0x1400);
+	c->va = andromeda_io_map(c->pa, 0x1400);
 	if (!c->va) {
 		printf(AC_TAG " %s: map failed\n", c->name);
 		return false;
@@ -250,7 +250,7 @@ ac_temperature(int *max_mc)
 	int max = -40000;
 	for (unsigned t = 0; t < 2; ++t) {
 		if (!tm[t]) {
-			tm[t] = ml_io_map(pa[t], 0x1000);
+			tm[t] = andromeda_io_map(pa[t], 0x1000);
 		}
 		if (!tm[t] || !(ac_rd(tm[t], 0xe4) & 8u)) {
 			continue;

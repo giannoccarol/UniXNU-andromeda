@@ -96,7 +96,7 @@ void SHA256_Final(void *, SHA256_CTX *);
 #endif
 #include "cepheus_clock_status.h"
 
-extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+extern vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t); /* andromeda_probe.c: shared, outside io_submap */
 /* Mach MIG declaration is not included by BSD's exported thread.h. */
 extern kern_return_t thread_terminate(thread_t);
 /* bsd/dev/sweet_rpmh.c, patch 0092: ldoa7/ldoc2/ldoc11 at their DT voltages. */
@@ -1446,10 +1446,10 @@ bt_b2(void)
 static bool
 bt_prepare(void)
 {
-	bt.gcc = ml_io_map(BT_GCC_PA, BT_GCC_SZ);
-	bt.tlmm = ml_io_map(BT_TLMM_EAST_PA, BT_TLMM_EAST_SZ);
-	bt.se = ml_io_map(BT_SE13_PA, BT_SE13_SZ);
-	bt.qup = ml_io_map(BT_QUP2_PA, 0x1000);
+	bt.gcc = andromeda_io_map(BT_GCC_PA, BT_GCC_SZ);
+	bt.tlmm = andromeda_io_map(BT_TLMM_EAST_PA, BT_TLMM_EAST_SZ);
+	bt.se = andromeda_io_map(BT_SE13_PA, BT_SE13_SZ);
+	bt.qup = andromeda_io_map(BT_QUP2_PA, 0x1000);
 	if (!bt.gcc || !bt.tlmm || !bt.se || !bt.qup) {
 		printf(BT_TAG " MMIO mapping failed\n");
 		return false;

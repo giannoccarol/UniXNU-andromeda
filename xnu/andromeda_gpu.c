@@ -49,7 +49,9 @@
 #include <libkern/libkern.h>
 #include <libkern/crypto/sha2.h>
 #include <mach/mach_time.h>
+#include <vm/pmap.h>		/* VM_WIMG_WCOMB */
 #else	/* host syntax check: stubinc plus the kernel-only declarations */
+#define VM_WIMG_WCOMB 6
 typedef unsigned int boolean_t;
 typedef const void *DTEntry;
 #define kSuccess 0
@@ -66,8 +68,8 @@ int vprintf(const char *, va_list);
 
 #define AG_TAG "ANDROMEDA GPU:"
 
-extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-extern vm_offset_t ml_io_map_wcomb(vm_offset_t, vm_size_t);
+extern vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t); /* andromeda_probe.c: shared, outside io_submap */
+extern vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, unsigned int);
 extern void ml_io_unmap(vm_offset_t, vm_size_t);
 extern kern_return_t thread_terminate(thread_t);
 extern boolean_t pmap_valid_address(uint64_t);
@@ -174,7 +176,7 @@ gpu_io(uint64_t pa)
 			return (volatile uint32_t *)(gpu_map[i].va + (pa - win));
 		}
 		if (!gpu_map[i].va) {
-			gpu_map[i].va = ml_io_map((vm_offset_t)win, GPU_WIN);
+			gpu_map[i].va = andromeda_io_map((vm_offset_t)win, GPU_WIN);
 			gpu_map[i].win = win;
 			return gpu_map[i].va ? (volatile uint32_t *)(gpu_map[i].va + (pa - win)) : NULL;
 		}
@@ -337,7 +339,7 @@ andr_gpu_temperature(int *max_mc)
 	int max = -40000;
 	for (unsigned t = 0; t < 2; t++) {
 		if (!tm[t]) {
-			tm[t] = ml_io_map((vm_offset_t)pa[t], 0x1000);
+			tm[t] = andromeda_io_map((vm_offset_t)pa[t], 0x1000);
 		}
 		if (!tm[t]) {
 			continue;
@@ -436,7 +438,7 @@ ag_pool_map(void)
 		printf(AG_TAG " pool 0x%llx: top page is XNU-managed, refusing\n", (unsigned long long)base);
 		return -1;
 	}
-	vm_offset_t va = ml_io_map_wcomb((vm_offset_t)base, (vm_size_t)size);
+	vm_offset_t va = ml_io_map_unmappable((vm_offset_t)base, (vm_size_t)size, VM_WIMG_WCOMB);
 	if (!va) {
 		printf(AG_TAG " pool 0x%llx: write-combining map failed\n", (unsigned long long)base);
 		return -1;

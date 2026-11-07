@@ -64,7 +64,7 @@
 #include "cepheus_clock_status.h"
 #include "cepheus_i2c_bitbang.h"
 
-extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+extern vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t); /* andromeda_probe.c: shared, outside io_submap */
 /* Mach MIG declaration is not included by BSD's exported thread.h. */
 extern kern_return_t thread_terminate(thread_t);
 /* bsd/dev/sweet_rpmh.c, patch 0098-andromeda-cam-rpmh: ldoa17/smpc8 only. */
@@ -488,10 +488,10 @@ cam_rail(unsigned i, bool on)
 static bool
 cam_prepare(void)
 {
-	cam.north = ml_io_map(CAM_TLMM_NORTH_PA, CAM_TLMM_SZ);
-	cam.east = ml_io_map(CAM_TLMM_EAST_PA, CAM_TLMM_SZ);
-	cam.gcc = ml_io_map(CAM_GCC_PA, CAM_GCC_SZ);
-	cam.cc = ml_io_map(CAM_CC_PA, CAM_CC_SZ);
+	cam.north = andromeda_io_map(CAM_TLMM_NORTH_PA, CAM_TLMM_SZ);
+	cam.east = andromeda_io_map(CAM_TLMM_EAST_PA, CAM_TLMM_SZ);
+	cam.gcc = andromeda_io_map(CAM_GCC_PA, CAM_GCC_SZ);
+	cam.cc = andromeda_io_map(CAM_CC_PA, CAM_CC_SZ);
 	if (!cam.north || !cam.east || !cam.gcc || !cam.cc) {
 		printf(CAM_TAG " MMIO mapping failed\n");
 		cam.cc_dead = true;

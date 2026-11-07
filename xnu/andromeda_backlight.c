@@ -46,7 +46,7 @@
 #include <machine/machine_routines.h>
 #include <pexpert/pexpert.h>
 
-extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+extern vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t); /* andromeda_probe.c: shared, outside io_submap */
 extern kern_return_t thread_terminate(thread_t);
 /* iokit/Kernel/arm/AndromedaBacklight.cpp (patch 0093) */
 extern int andromeda_backlight_publish(unsigned level, unsigned max_level, unsigned max_nits);
@@ -136,8 +136,8 @@ bl_state(const char *when)
 static bool
 bl_probe(void)
 {
-	bl_dsi = ml_io_map(BL_DSI0_PA, 0x1000);
-	bl_buf = ml_io_map(BL_BUF_PA, 0x1000);
+	bl_dsi = andromeda_io_map(BL_DSI0_PA, 0x1000);
+	bl_buf = andromeda_io_map(BL_BUF_PA, 0x1000);
 	if (!bl_dsi || !bl_buf) {
 		printf(BL_TAG " MMIO mapping failed\n");
 		return false;

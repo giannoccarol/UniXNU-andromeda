@@ -36,13 +36,72 @@
 #include <libkern/OSAtomic.h>
 #include "cepheus_clock_status.h"
 
-extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+#include <kern/locks.h>
+#include <vm/pmap.h>
+
+extern vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, unsigned int);
 /* Mach MIG declaration is not included by BSD's exported thread.h. */
 extern kern_return_t thread_terminate(thread_t);
 void andromeda_probe_init(void);
 void andromeda_slider_publish(unsigned h42, unsigned h114); /* andromeda_slider.c, 0097 */
+vm_offset_t andromeda_io_map(vm_offset_t pa, vm_size_t size);
 
 #define AP_TAG "ANDROMEDA PROBE:"
+
+/* ---- shared device mappings (all andromeda drivers) ------------------------
+ * ml_io_map() takes its VA from XNU's io_submap: 8 MiB on arm
+ * (osfmk/arm/io_map.c, IO_MAP_SIZE), and every mapping is permanent. With
+ * each driver mapping the same GCC and TLMM tiles again it filled up:
+ * "kmem_alloc(io_submap, 2097152, 0x100021): failed with 3" (KERN_NO_SPACE)
+ * when andrgpu=1 asked for its first 2 MiB window. As ios-flame's
+ * sweet_gpu.c, map with ml_io_map_unmappable() (kernel_map's data range,
+ * gigabytes) and hand out a mapping that already covers the range. Device
+ * memory either way (VM_WIMG_IO). Never call ml_io_unmap() on these: they
+ * are shared and kept.
+ */
+#define AIO_SLOTS 64
+static struct {
+	uint64_t    pa;
+	uint64_t    size;
+	vm_offset_t va;
+} aio_map[AIO_SLOTS];
+static unsigned aio_count;
+static uint64_t aio_bytes;
+static LCK_GRP_DECLARE(aio_grp, "andromeda_io_map");
+static LCK_MTX_DECLARE(aio_lock, &aio_grp);
+
+vm_offset_t
+andromeda_io_map(vm_offset_t pa, vm_size_t size)
+{
+	if (!size || (uint64_t)pa + size < (uint64_t)pa) {
+		return 0;
+	}
+	lck_mtx_lock(&aio_lock);
+	vm_offset_t va = 0;
+	for (unsigned i = 0; i < aio_count; ++i) {
+		if (pa >= aio_map[i].pa && (uint64_t)pa + size <= aio_map[i].pa + aio_map[i].size) {
+			va = aio_map[i].va + (pa - aio_map[i].pa);
+			break;
+		}
+	}
+	if (!va) {
+		va = ml_io_map_unmappable(pa, size, VM_WIMG_IO);
+		if (va && aio_count < AIO_SLOTS) {
+			aio_map[aio_count].pa = pa;
+			aio_map[aio_count].size = size;
+			aio_map[aio_count].va = va;
+			++aio_count;
+		}
+		if (va) {
+			aio_bytes += size;
+		}
+		printf(AP_TAG " io map 0x%llx+0x%llx -> %s (%u ranges, %llu KiB)\n",
+		    (unsigned long long)pa, (unsigned long long)size, va ? "ok" : "FAILED",
+		    aio_count, (unsigned long long)(aio_bytes >> 10));
+	}
+	lck_mtx_unlock(&aio_lock);
+	return va;
+}
 
 /* TLMM EAST tile (pinctrl-sm8150.c): BT UART qup13 on GPIO 43-46. */
 #define AP_TLMM_EAST_PA 0x03500000u
@@ -184,9 +243,9 @@ sp_init_hw(void)
 		printf(AP_TAG " SPMI lock allocation failed\n");
 		return false;
 	}
-	sp_core = ml_io_map(AP_SPMI_CORE_PA, 0x2000);
-	sp_cfg = ml_io_map(AP_SPMI_CFG_PA, 0x1000);
-	sp_obs = ml_io_map(AP_SPMI_OBS_PA, 0x10000); /* EE 0, 512 * 0x80 */
+	sp_core = andromeda_io_map(AP_SPMI_CORE_PA, 0x2000);
+	sp_cfg = andromeda_io_map(AP_SPMI_CFG_PA, 0x1000);
+	sp_obs = andromeda_io_map(AP_SPMI_OBS_PA, 0x10000); /* EE 0, 512 * 0x80 */
 	if (!sp_core || !sp_cfg || !sp_obs) {
 		printf(AP_TAG " SPMI mapping failed\n");
 		return false;
@@ -428,7 +487,7 @@ andromeda_battery_sample(unsigned *percent, unsigned *mv, int *ma,
 static void
 ap_tlmm(void)
 {
-	vm_offset_t east = ml_io_map(AP_TLMM_EAST_PA, AP_TLMM_EAST_SZ);
+	vm_offset_t east = andromeda_io_map(AP_TLMM_EAST_PA, AP_TLMM_EAST_SZ);
 	if (!east) {
 		printf(AP_TAG " TLMM EAST mapping failed\n");
 		return;
@@ -466,8 +525,8 @@ ap_s3_on(vm_offset_t gcc)
 static void
 ap_gcc_se13(int level)
 {
-	vm_offset_t gcc = ml_io_map(AP_GCC_PA, AP_GCC_SZ);
-	vm_offset_t se = ml_io_map(AP_SE13_PA, AP_SE13_SZ);
+	vm_offset_t gcc = andromeda_io_map(AP_GCC_PA, AP_GCC_SZ);
+	vm_offset_t se = andromeda_io_map(AP_SE13_PA, AP_SE13_SZ);
 	if (!gcc || !se) {
 		printf(AP_TAG " GCC/SE13 mapping failed\n");
 		return;
@@ -596,7 +655,7 @@ sp_write_pon_spare(uint8_t value)
 	uint16_t apid = sp_find_apid(0x008u);
 	unsigned owner = apid < 512 ? (ap_rd(sp_cfg, 0x700u + 4u * apid) & 7u) : 7u;
 	vm_offset_t ch = (apid < 512 && owner == 0) ?
-	    ml_io_map(AP_CHNLS_PA + 0x10000u * apid, 0x1000) : 0;
+	    andromeda_io_map(AP_CHNLS_PA + 0x10000u * apid, 0x1000) : 0;
 	if (!ch) {
 		printf(AP_TAG " PON APID %u owner %u: not ours, no write\n", apid, owner);
 	} else {
@@ -649,7 +708,7 @@ ap_reboot_bootloader(const char *why)
 		printf(AP_TAG " REBOOT aborted: the reason did not stick\n");
 		return;
 	}
-	vm_offset_t imem = ml_io_map(AP_IMEM_PA, 0x1000);
+	vm_offset_t imem = andromeda_io_map(AP_IMEM_PA, 0x1000);
 	if (imem) {
 		*(volatile uint32_t *)(imem + AP_IMEM_RESTART) = 0x77665500u;
 		__asm__ volatile("dsb sy" ::: "memory");
@@ -738,7 +797,7 @@ sp_hap_channel_locked(unsigned *apid_out, unsigned *owner_out)
 	if (sp_hap_ch) {
 		return sp_hap_apid == apid ? sp_hap_ch : 0; /* the map changed: refuse */
 	}
-	vm_offset_t ch = ml_io_map(AP_CHNLS_PA + 0x10000u * apid, 0x1000);
+	vm_offset_t ch = andromeda_io_map(AP_CHNLS_PA + 0x10000u * apid, 0x1000);
 	if (ch) {
 		sp_hap_apid = apid;
 		__asm__ volatile("dmb ish" ::: "memory");
@@ -876,8 +935,8 @@ ap_slider_thread(void *arg, wait_result_t result)
 {
 	(void)arg;
 	(void)result;
-	vm_offset_t north = ml_io_map(AP_TLMM_NORTH_PA, 0x30000);
-	vm_offset_t south = ml_io_map(AP_TLMM_SOUTH_PA, 0x80000);
+	vm_offset_t north = andromeda_io_map(AP_TLMM_NORTH_PA, 0x30000);
+	vm_offset_t south = andromeda_io_map(AP_TLMM_SOUTH_PA, 0x80000);
 	if (!north || !south) {
 		printf("ANDROMEDA SLIDER: TLMM mapping failed\n");
 		goto out;

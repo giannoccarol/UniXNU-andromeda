@@ -59,7 +59,7 @@
 #include "cepheus_i2c_bitbang.h"
 #include "andromeda_power.h"
 
-extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+extern vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t); /* andromeda_probe.c: shared, outside io_submap */
 /* Mach MIG declaration is not included by BSD's exported thread.h. */
 extern kern_return_t thread_terminate(thread_t);
 extern void sweet_hid_touch(int finger, int down, int x, int y);
@@ -650,7 +650,7 @@ touch_smmu_probe(void)
 	/* Only GR0 identification and matching descriptors, never a reset, map
 	 * update, TLB invalidation, or address-translation command. */
 	printf("SWEET GPI: reading apps SMMU GR0 for stream %#x\n", CEPHEUS_GPI_SID);
-	vm_offset_t smmu = ml_io_map(CEPHEUS_SMMU_PA, 0x1000);
+	vm_offset_t smmu = andromeda_io_map(CEPHEUS_SMMU_PA, 0x1000);
 	if (!smmu) { return false; }
 	uint32_t cr0 = touch_rd(smmu, 0), id0 = touch_rd(smmu, 0x20);
 	uint32_t id1 = touch_rd(smmu, 0x24), id2 = touch_rd(smmu, 0x28);
@@ -681,7 +681,7 @@ touch_gpi_probe(void)
 	 * address domain before any allocation/doorbell. Observe only contexts
 	 * assigned to Linux by the live FDT mask. No GPI MMIO stores are issued.
 	 */
-	vm_offset_t gpi = ml_io_map(CEPHEUS_GPI2_PA, CEPHEUS_GPI2_SIZE);
+	vm_offset_t gpi = andromeda_io_map(CEPHEUS_GPI2_PA, CEPHEUS_GPI2_SIZE);
 	if (!gpi) {
 		printf("SWEET GPI: read-only GPI2 mapping failed\n");
 		return false;
@@ -879,10 +879,10 @@ touch_thread(void *arg, wait_result_t result)
 	printf("SWEET TOUCH (cepheus): starting in %u s\n", delay_s);
 	touch_wait(delay_s * 1000u);
 	printf("SWEET TOUCH (cepheus): mapping GCC/TLMM/SE17\n");
-	st.gcc = ml_io_map(TOUCH_GCC_PA, 0x60000);
-	st.gpio = ml_io_map(TOUCH_NORTH_PA, 0x80000);
-	st.south = ml_io_map(TOUCH_SOUTH_PA, 0x80000);
-	st.se = ml_io_map(TOUCH_SE_PA, 0x4000);
+	st.gcc = andromeda_io_map(TOUCH_GCC_PA, 0x60000);
+	st.gpio = andromeda_io_map(TOUCH_NORTH_PA, 0x80000);
+	st.south = andromeda_io_map(TOUCH_SOUTH_PA, 0x80000);
+	st.se = andromeda_io_map(TOUCH_SE_PA, 0x4000);
 	if (!st.gcc || !st.gpio || !st.south || !st.se) {
 		printf("SWEET TOUCH (cepheus): MMIO mapping failed\n");
 		goto out;

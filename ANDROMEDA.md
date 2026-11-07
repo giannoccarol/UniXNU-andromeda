@@ -82,6 +82,17 @@ Se l'indirizzo arriva dopo il primo invio, l'inizio dell'avvio va perso (il kern
 `sudo scripts/watch-usb-log.sh` va lanciato prima di `fastboot boot`, così riassegna l'indirizzo appena compare
 l'interfaccia (MAC `02:00:5e:77:ee:01`).
 
+**Panic del 7 novembre: spazio per le mappature dei registri esaurito.** Il kernel `9416c8a`, con slider, sonda,
+batteria e GPU accesi, va in panic: prima `memmove` verso l'indirizzo 0 in `end_transaction` del journal HFS (il
+buffer da 3 MB della transazione non era stato allocato), poi, con il driver CPU spento,
+`kmem_alloc(…, 2097152, 0x100021): failed with 3` (`KERN_NO_SPACE`). La seconda è `io_map()` di XNU:
+`ml_io_map()` prende gli indirizzi da `io_submap`, che su ARM è grande **8 MiB** (`osfmk/arm/io_map.c`), e ogni
+mappatura è permanente. Ogni driver rimappava gli stessi blocchi (GCC 384 KiB, TLMM nord e sud 512 KiB ciascuno,
+TLMM est), e la GPU chiede finestre da 2 MiB. Correzione: `andromeda_io_map()` (in `xnu/andromeda_probe.c`), usata
+da tutti i driver andromeda, mappa con `ml_io_map_unmappable()` nello spazio dati di `kernel_map` (gigabyte) come fa
+il driver GPU di ios-flame, e riusa una mappatura che copre già l'intervallo; il pool della GPU è mappato allo stesso
+modo (write-combining). Ogni nuova mappatura lascia una riga `ANDROMEDA PROBE: io map …` con il totale.
+
 **Perché si bloccava.** Se il ramdisk non è un FAT `GUACESP`, `ShengBootMemoryDxe` cerca il payload leggendo pagina per
 pagina tutta la memoria della mappa UEFI, comprese le zone `EfiReservedMemoryType`. Sul Mix 3 5G tra queste c'è
 "Hypervisor" (`0x85700000`), che non è leggibile: il firmware si ferma prima di disegnare qualsiasi cosa. Sul Mi 9 non

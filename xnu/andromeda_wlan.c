@@ -78,7 +78,7 @@
 #include <kern/kalloc.h>
 #include <libkern/libkern.h>
 
-extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+extern vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t); /* andromeda_probe.c: shared, outside io_submap */
 extern vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, unsigned int);
 extern void ml_io_unmap(vm_offset_t, vm_size_t);
 extern boolean_t pmap_valid_address(uint64_t);
@@ -135,7 +135,7 @@ enum uio_rw { UIO_READ, UIO_WRITE };
 #define atop_64(x) ((uint64_t)(x) >> 14)
 extern vm_map_t kernel_map;
 extern pmap_t kernel_pmap;
-vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t);
 vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, unsigned int);
 void ml_io_unmap(vm_offset_t, vm_size_t);
 boolean_t pmap_valid_address(uint64_t);
@@ -261,16 +261,16 @@ static int
 aw_map_fixed(void)
 {
 	if (!aw_smem_va) {
-		aw_smem_va = ml_io_map((vm_offset_t)AW_SMEM_BASE, (vm_size_t)AW_SMEM_SIZE);
+		aw_smem_va = andromeda_io_map((vm_offset_t)AW_SMEM_BASE, (vm_size_t)AW_SMEM_SIZE);
 	}
 	if (!aw_apcs_va) {
-		aw_apcs_va = ml_io_map((vm_offset_t)(AW_APCS_IPC & ~0xfffull), 0x1000);
+		aw_apcs_va = andromeda_io_map((vm_offset_t)(AW_APCS_IPC & ~0xfffull), 0x1000);
 	}
 	if (!aw_qmp_va) {
-		aw_qmp_va = ml_io_map((vm_offset_t)AW_QMP_RAM, 0x1000);
+		aw_qmp_va = andromeda_io_map((vm_offset_t)AW_QMP_RAM, 0x1000);
 	}
 	if (!aw_tcsr_va) {
-		aw_tcsr_va = ml_io_map((vm_offset_t)(AW_TCSR_MUTEX + AW_TCSR_STRIDE * AW_SMEM_HWLOCK), 0x1000);
+		aw_tcsr_va = andromeda_io_map((vm_offset_t)(AW_TCSR_MUTEX + AW_TCSR_STRIDE * AW_SMEM_HWLOCK), 0x1000);
 	}
 	if (!aw_smem_va || !aw_apcs_va || !aw_qmp_va || !aw_tcsr_va) {
 		printf(AW_TAG " device mapping failed (smem/apcs/qmp/tcsr)\n");
@@ -286,7 +286,7 @@ aw_map_cmddb(void)
 	if (aw_cmddb_va) {
 		return 0;
 	}
-	vm_offset_t loc = ml_io_map((vm_offset_t)(AW_CMDDB_LOCATOR & ~0xfffull), 0x1000);
+	vm_offset_t loc = ml_io_map_unmappable((vm_offset_t)(AW_CMDDB_LOCATOR & ~0xfffull), 0x1000, VM_WIMG_IO);
 	if (!loc) {
 		return ENOMEM;
 	}
@@ -299,7 +299,7 @@ aw_map_cmddb(void)
 		printf(AW_TAG " cmd-db locator invalid (pa %#x size %#x)\n", pa, size);
 		return EINVAL;
 	}
-	aw_cmddb_va = ml_io_map((vm_offset_t)pa, size);
+	aw_cmddb_va = ml_io_map_unmappable((vm_offset_t)pa, size, VM_WIMG_IO);
 	if (!aw_cmddb_va) {
 		return ENOMEM;
 	}
