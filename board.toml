@@ -197,6 +197,17 @@ kernel_args = [
   # off for the boot (CPU copy). 0 until step 4 has been seen to pass.
   # 2026-11-07: step 4 passed, first run of the GPU copy on the phone.
   "andrgpupresent=1",
+  # Phases F5/F6 (patch 0200, xnu/andromeda_gpu_mtl.c + SweetAccelerator.cpp,
+  # port of ios-flame 0096/0097/0115/0116): after andrgpu's step 4, andrmtl=1
+  # publishes IOAcceleratorES with the NativeAdreno user client (v2test/vktest;
+  # Core Animation stays in software), andrmtl=2 also names the SweetMetal2
+  # plug-in, so backboardd and /var/local/mtl2-clients compose with Metal (root
+  # with SweetMetal2.bundle and libvulkan_freedreno). One ring user per boot:
+  # with andrmtl the GPU copy above is declined and the CPU copy shows the
+  # frames. BO pool andrmtlpool/andrmtlpoolsize (default 0x1E2000000, 464 MiB;
+  # refused if XNU manages any of it). Host-tested only; test image:
+  # ANDROMEDA_TAG=mtl ANDROMEDA_ARGS="andrmtl=1" ./build-boot.sh
+  # "andrmtl=0",  (default; not passed, see the boot-args length note)
   # Bring-up (andromeda_probe.c): 100 s after start, log Bluetooth UART pins,
   # clocks and SE13, Wi-Fi/BT regulators and the PM8150B charger/fuel gauge.
   # PMIC reads only; level 2 also sets the s3 clock vote briefly and restores
