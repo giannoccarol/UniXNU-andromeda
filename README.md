@@ -1,3 +1,26 @@
+# UniXNU-andromeda
+
+**iOS 16.7.16 su Xiaomi Mi Mix 3 5G (`andromeda`, Snapdragon 855 / SM8150): Project Aloha UEFI → UniXNU/DarwinBoot
+→ kernel XNU 8796 (piattaforma ios-sweet "SWEET") → iOS fino alla schermata di blocco.**
+
+Questo repository nasce da [`YangQi0408/UniXNU-cepheus`](https://github.com/YangQi0408/UniXNU-cepheus), il port per
+lo Xiaomi Mi 9 (stesso SoC), a sua volta derivato da
+[`JohnLeeeeeee678/UniXNU-raphael`](https://github.com/JohnLeeeeeee678/UniXNU-raphael); il kernel e i driver di base
+vengono da [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet) e molto lavoro sull'SM8150 da
+[`NWylynko/ios-flame`](https://github.com/NWylynko/ios-flame). Tutte le persone e i progetti di cui usiamo il lavoro
+sono in [CREDITS.md](CREDITS.md).
+
+- Stato, istruzioni e risultati sul telefono: [ANDROMEDA.md](ANDROMEDA.md)
+- Cosa manca e prove da fare: [docs/COSA-MANCA.md](docs/COSA-MANCA.md); piano: [ROADMAP.md](ROADMAP.md)
+- Regole del progetto: [CONTRIBUTING.md](CONTRIBUTING.md)
+
+Nessun file Apple (IPSW, immagini iOS, device tree estratti) e nessun dato del telefono è in questo repository: il
+sistema iOS si costruisce sul proprio PC dall'IPSW scaricato da Apple.
+
+---
+
+Il README originale del port per il Mi 9 (`YangQi0408/UniXNU-cepheus`) segue invariato.
+
 # UniXNU-cepheus
 
 **在小米 9（`cepheus`，骁龙 855 / SM8150）上通过 UEFI 引导苹果 XNU 内核，跑到 iOS 16.7.16 的 SpringBoard。**

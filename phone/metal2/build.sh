@@ -552,7 +552,7 @@ Source (GPL-2.0 section 3(a), LGPL-3.0 section 4(d)(0))
   Cargo.toml, Cargo.lock) and the scripts that build and install them, with
   REBUILD.txt. With it you can modify metal2vulkan and rebuild and relink the
   bundle. If you received the binaries without it, the same files come from
-  the commits above and from https://github.com/giannoccarol/UniXNU-cepheus
+  the commits above and from https://github.com/giannoccarol/UniXNU-andromeda
   (branch andromeda: phone/metal2, phone/turnip).
 
 There is no warranty for this program (see the licence texts).

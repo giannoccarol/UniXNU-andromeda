@@ -1,6 +1,6 @@
 # Cosa manca: iOS 16 sul Xiaomi Mi Mix 3 5G (`andromeda`)
 
-Stato al 6 novembre 2026, sera. Ramo `andromeda` del fork `giannoccarol/UniXNU-cepheus`.
+Stato al 6 novembre 2026, sera. Ramo `andromeda` del repository `giannoccarol/UniXNU-andromeda`.
 
 iOS 16.7.16 parte dal `fastboot boot` fino alla schermata di blocco e alla home; funzionano tasti, USB (rete e log),
 memoria UFS e ricarica (in hardware). Tutto il resto è descritto qui: cosa è pronto da provare, cosa serve da te, e
