@@ -659,7 +659,19 @@ fallbacks(void)
 	g = geom(lw, lh);
 	assert(andromeda_gpu_present_setup(&g) != 0);
 	assert(map_slot(0) != 0);
+	andromeda_gpu_present_decline("test");		/* nothing to decline */
+	assert(ap_state == AP_OFF);
 	arg_present = 1;
+
+	printf("--- declined (Metal has the ring, andrmtl=N): off for the boot, a later attach is ignored\n");
+	reset(pw, ph, rb, lw, lh, bpr);
+	andromeda_gpu_present_decline("Metal (andrmtl=1) has the GPU ring");
+	assert(!andromeda_gpu_present_ready() && ap_state == AP_OFF);
+	andromeda_gpu_present_attach(&gpu, ANDR_POOL_SIZE);
+	assert(!andromeda_gpu_present_ready());
+	g = geom(lw, lh);
+	assert(andromeda_gpu_present_setup(&g) != 0 && map_slot(0) != 0);
+	assert(gpu.wptr == ANDR_RING_DW - 4 && emu.rptr == gpu.wptr);	/* the ring untouched */
 
 	printf("--- a wrong GPU pixel with a quiet console: GPU off, CPU copy\n");
 	reset(pw, ph, rb, lw, lh, bpr);

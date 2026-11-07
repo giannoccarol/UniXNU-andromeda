@@ -74,6 +74,8 @@ jobs:
           # Power P1 straight into dxb/patches: 0102-0104 change files that the 0083 generator rewrites.
           cp cepheus/xnu/0101-andromeda-idle-cache.patch cepheus/xnu/0102-andromeda-fb-vsync-park.patch cepheus/xnu/0103-andromeda-usb-idle-poll.patch cepheus/xnu/0104-andromeda-keys-idle-poll.patch dxb/patches/
           cp cepheus/xnu/andromeda_gpu_present.c cepheus/xnu/andromeda_gpu_present.h cepheus/xnu/0120-andromeda-gpu-present.patch dxb/patches/
+          # F5/F6 (patch 0200, andrmtl=N): user client + IOAcceleratorES; patch and stage script come with build-kernel-patches.sh.
+          cp cepheus/xnu/andromeda_gpu_mtl.c cepheus/xnu/andromeda_gpu_mtl.h cepheus/xnu/SweetAccelerator.cpp cepheus/xnu/NativeAdrenoABI.h dxb/patches/
           for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
             cepheus_gpu_memory_state.h \
             cepheus_gmu_upload_mmio.h \
@@ -143,6 +145,9 @@ jobs:
           /tmp/ctl-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_gpu_present.c -o /tmp/present-test
           /tmp/present-test
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_gpu_mtl.c -o /tmp/mtl-test
+          /tmp/mtl-test
+          python3 -I cepheus/scripts/test-mtl-abi.py
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_a640_pm4.c -o /tmp/pm4-test
           /tmp/pm4-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_gmu_firmware.c -o /tmp/gmu-test
@@ -196,7 +201,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0120-|0135-|0136-|0140-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0120-|0135-|0136-|0140-|0200-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -313,6 +318,24 @@ jobs:
           cmp cepheus/xnu/andromeda_gpu_present.h dxb/xnu/iokit/Kernel/arm/andromeda_gpu_present.h
           grep -F 'andromeda_gpu_present_attach(&gpu, ag_pool_size);' dxb/xnu/bsd/dev/andromeda_gpu.c
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrgpupresent", b"present: GPU attached", b"present not used: %s; CPU copy"))'
+          # andromeda: F5/F6 NativeAdreno user client + IOAcceleratorES (patch 0200, andrmtl=N, off by default).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0200-andromeda-mtl.patch'
+          grep -E '^bsd/dev/andromeda_gpu_mtl.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
+          grep -E '^iokit/Kernel/arm/SweetAccelerator.cpp[[:space:]]+optional iokitcpp$' dxb/xnu/iokit/conf/files.arm64
+          grep -F '= SweetAccelerator;' dxb/xnu/iokit/KernelConfigTables.cpp
+          cmp cepheus/xnu/andromeda_gpu_mtl.c dxb/xnu/bsd/dev/andromeda_gpu_mtl.c
+          cmp cepheus/xnu/andromeda_gpu_mtl.h dxb/xnu/bsd/dev/andromeda_gpu_mtl.h
+          cmp cepheus/xnu/andromeda_gpu_mtl.h dxb/xnu/iokit/Kernel/arm/andromeda_gpu_mtl.h
+          cmp cepheus/xnu/SweetAccelerator.cpp dxb/xnu/iokit/Kernel/arm/SweetAccelerator.cpp
+          cmp cepheus/xnu/NativeAdrenoABI.h dxb/xnu/iokit/Kernel/arm/NativeAdrenoABI.h
+          grep -F 'andromeda_gpu_mtl_attach(&gpu, ag_pool_size)' dxb/xnu/bsd/dev/andromeda_gpu.c
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA MTL:", b"andrmtl", b"andrmtlpool", b"IOAcceleratorES", b"SweetAcceleratorUserClient", b"SweetMTL2Device", b"present: not attached (%s)"))'
+          # FEAT_SHA3/SM4 instructions (EOR3, BCAX, RAX1, XAR, SM3*, SM4*) are undefined on the A76/A55; ios-flame
+          # hit EOR3 in its GPU blit code with the same -march (HANDOFF, patch 0095 MakeInc.def). Reported, not fatal.
+          if objdump=$(xcrun --find llvm-objdump 2>/dev/null); then
+            n=$("$objdump" -d --no-show-raw-insn "$K" 2>/dev/null | grep -cE '[[:space:]](eor3|bcax|rax1|xar|sm3[a-z0-9]+|sm4e[a-z]*)[[:space:]]' || true)
+            if [ "${n:-0}" != 0 ]; then echo "::warning::kernel has ${n} FEAT_SHA3/SM4 instructions, undefined on the A76/A55 (docs/research/gpu.md)"; fi
+          fi
           # andromeda: AMFI trust-query stand-in (patch 0096, port of ios-flame 0103).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0096-andromeda-amfi-trust.patch'
           cmp cepheus/xnu/SweetAMFI.cpp dxb/xnu/iokit/Kernel/arm/SweetAMFI.cpp

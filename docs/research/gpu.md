@@ -308,9 +308,9 @@ SpringBoard e app, shader compilati sul telefono, **19–26 fps** scorrendo le p
 | `0096`/`0097` | `SweetAccelerator : IOAcceleratorES` con `MetalPluginName`, `MetalPluginClassName`, `IOGLBundleName`, `model "Adreno 640"` (solo con `sweetmtl`); user client v1 | sì |
 | `0102`, `0122` | RPMh generico; voti BCM MC0 e SH0 al massimo all'avvio della GPU (banda CPU a 8 thread 13,7 → 18–19,6 GB/s; `sweetddr=0`) | sì, in accordo col Mi 9 |
 | `0103`, `0114` | AMFI: ogni cdhash è "trusted"; policy dyld | sì (il nostro AMFI è già permissivo) |
-| `0104`, `0124` | IOSurface: bytesPerRow delle superfici planari; superfici a 10 bit come BGRA solo per WebContent | sì |
+| `0104`, `0124` | IOSurface: bytesPerRow delle superfici planari; superfici a 10 bit come BGRA solo per WebContent | sì, con F7: servono a Safari, non a backboardd/SpringBoard (vedi l'aggiornamento F5/F6) |
 | `0105`–`0109`, `0113`, `0117`–`0120` | Riuso dei VA, tabelle, frequenza GPU, recupero (soft reset + ZAP con SCM `0x0a`), submit asincroni, unmap dopo la fence, contabilità del pool, statistiche | sì |
-| `0115` | User client v2 = ABI NativeAdreno v1 (per Turnip); include la correzione di `pmap_sync_page_attributes_phys` e `+nosha3+nosm4` in `MakeInc.def` | sì; la correzione pmap l'abbiamo già (0088) |
+| `0115` | User client v2 = ABI NativeAdreno v1 (per Turnip); include la correzione di `pmap_sync_page_attributes_phys` | sì (patch 0200); la correzione pmap l'abbiamo già (0088). La modifica di `MakeInc.def` contro EOR3 è nella `0095`, non qui (correzione del 7 novembre) |
 | `0110`–`0112` | Angoli arrotondati disegnati dalla GPU | più avanti |
 
 **Sequenza di accensione** (`a6_power_up` = `power_cx` → `gmu_boot` → `gmu_hfi` → `gpu_cp`; ✔ patch 0095 e HANDOFF
@@ -608,16 +608,18 @@ Regole di metodo (da ROADMAP):
 | **F3** GPU accesa | Il GPU esegue comandi | Port di `sweet_a6xx.c`/`sweet_gpu.c` (flame 0095 senza il present, + 0094 `sweet_smc`, 0102) con: parametri dall'FDT (ZAP, cmd-db, SID), firmware dall'ADT, pool in RAM non gestita, guardie del Mi 9 (TSENS, PA a 64 bit, nessuna ZAP finta, limite ai passi). Avanza per gradini con `sweetgpu=N`: CX → GMU → HFI+GX → CP+ZAP → `CP_MEM_WRITE` → riempimento di un'area del framebuffer | Per gradino: `0xBABEFACE` e `HFI_CTRL_STATUS=1`; GDSC GX acceso e `RBBM_STATUS` letto; PAS init/mem/auth = 0; `0xcafef00d` scritto; rettangolo GPU visibile sul pannello. 10 avvii consecutivi senza fault SMMU; arresto (slumber) pulito | media, 1–2 settimane | **Da fare una volta per entrambi**: PR al loro ramo con i parametri da FDT |
 | **F4** Present via GPU | Prima integrazione con IOSurface | Blit GPU IOSurface → framebuffer con fence (flame 0095 present, 0119 asincrono); ritorno alla copia CPU con un parametro | CRC uguali tra percorso CPU e GPU su N frame; tempo di present ≤ copia CPU; 30 min senza artefatti né fault | media, ~1 settimana | Insieme: stesso pannello EA8076 1080×2340 |
 | **F5** Turnip sul telefono | Driver Vulkan funzionante | User client v2 (flame 0115, ABI NativeAdreno v1). Build di Turnip per iOS 16 (Mesa `85fda3b3` + patch UniXNU) in un workflow macOS; `v2test`/`vktest` nel root | `v2test` e `vktest` "ALL PASS" con UBWC, sysmem e GMEM forzato | media-alta, 1–2 settimane (toolchain Mac + Rust) | Insieme (workflow condiviso) |
-| **F6** Composizione Metal | Obiettivo minimo (a) | `SweetAccelerator : IOAcceleratorES` (0096/0116), `SweetMetal2.bundle` installato da `build-root.sh`, impostazioni CA, elenco client = backboardd + SpringBoard; correzioni IOSurface 0104 | Blocco schermo e Home composti dalla GPU (log `MTL2`); fps ≥ F1 nello stesso benchmark; 30 min stabile; `sweetmtl=0` riporta al software | alta, 2–4 settimane | Insieme |
-| **F7** Metal per le app e rifiniture | Obiettivo (b) | Elenco client `* -chronod`, Safari (0124), recupero (0108), contabilità del pool (0117/0122), statistiche (0120), angoli (0110–0112) | Impostazioni, Safari, Foto e Note corrette; 1 ora senza DeviceLost; temperatura sotto la soglia | alta, aperta | Insieme |
+| **F6** Composizione Metal | Obiettivo minimo (a) | `SweetAccelerator : IOAcceleratorES` (0096/0116), `SweetMetal2.bundle` installato da `build-root.sh`, impostazioni CA, elenco client = backboardd + SpringBoard | Blocco schermo e Home composti dalla GPU (log `MTL2`); fps ≥ F1 nello stesso benchmark; 30 min stabile; `andrmtl=0` riporta al software | alta, 2–4 settimane | Insieme |
+| **F7** Metal per le app e rifiniture | Obiettivo (b) | Elenco client `* -chronod`, Safari (IOSurface 0104 e 0124), recupero (0108), contabilità del pool (0117/0122), statistiche (0120), angoli (0110–0112) | Impostazioni, Safari, Foto e Note corrette; 1 ora senza DeviceLost; temperatura sotto la soglia | alta, aperta | Insieme |
 | *Alt-B* | Ripiego OpenGL ES | HakiosGPU + Mesa freedreno + iniezione EAGL con offset 20H392 ricavati da noi | Home composta via EAGLServer | alta | Solo se F5/F6 si bloccano |
 
 **Note tecniche per il port (F3–F6):**
 - **Numerazione.** Le patch di flame 0082–0124 si sovrappongono alle nostre e a quelle del Mi 9 (0082–0089): le portiamo
   in un intervallo a parte (es. `0200+`). Va tolto il doppione della correzione pmap: la nostra 0088 equivale alla parte
   pmap di flame 0115.
-- **Compilatore.** flame ha dovuto aggiungere `+nosha3+nosm4` perché clang emetteva EOR3, che gli A76/A55 non hanno. Va
-  verificato con il nostro Xcode 16.2 ?.
+- **Compilatore.** Con `-march=armv8.2-a+crypto` (ios-sweet 0004) clang emetteva EOR3 (FEAT_SHA3), che gli A76/A55 non
+  hanno: panic nel blit di flame. Il suo HANDOFF parla di `+crypto+nosha3+nosm4`; la patch 0095 pubblicata mette
+  `-mcpu=cortex-a55+crypto` in `MakeInc.def`. Noi non abbiamo cambiato i flag: dal 7 novembre il workflow del
+  kernel segnala (senza fallire) le istruzioni SHA3/SM4 nel kernel ?.
 - **Cosa sostituire.** ios-flame parte dal suo shim, noi da Aloha + DarwinBoot. Gli indirizzi fissi di 0095 (ZAP,
   framebuffer, pool) vanno sostituiti con letture dall'FDT o dall'ADT.
 - **`SweetSurface`.** Le mappature WC delle IOSurface nel kernel hanno lo stesso rischio di alias incoerente: vanno
@@ -781,3 +783,85 @@ del kernel.
 - **Prossimo: F5/F6.** Lo user client NativeAdreno e `SweetAccelerator` (port di ios-flame 0096/0097/0115/0116) sono in
   integrazione dietro `andrmtl`; poi il root con `SweetMetal2.bundle` (scrittura su `userdata`, con l'OK dell'utente).
 
+## Aggiornamento (7 novembre 2026): F5/F6, lato kernel (patch 0200, `andrmtl=N`)
+
+**Stato: scritto e provato solo sull'host** (`xnu/test_andromeda_gpu_mtl.c`, `scripts/test-mtl-abi.py`). Non ancora
+compilato dal workflow `kernel-andromeda` né provato sul telefono. Spento se `andrmtl` manca o vale 0.
+
+**Cosa è stato portato** da ios-flame (`745c4341`, Nick Wylynko; MIT, file XNU APSL 2.0; dettagli in `CREDITS.md`):
+- `xnu/SweetAccelerator.cpp`: `IOAcceleratorES` e `SweetAccelerator` con personalità su `IOResources` (0096), proprietà
+  del plug-in `SweetMetal2`/`SweetMTL2Device` (0116), user client `SweetAcceleratorUserClient` (0097/0115). Solo il
+  client v2 (ABI NativeAdreno v1, apertura di tipo `0x4147` o 2, tunnel `'NTNL'`): il client v1 di flame serviva al
+  vecchio `SweetMetal` a template e qui non c'è.
+- `xnu/andromeda_gpu_mtl.c`/`.h`: pool dei BO in RAM non gestita da XNU ("the big trap"), finestra GPU da 4 GB per
+  connessione da 64 GB in su, tabelle 4K sotto la L1 del nostro pool, submit di fino a 16 IB come `a6xx_submit` con
+  `CACHE_FLUSH_TS` (0115, controllo dello spazio della 0109), attesa dell'ultima fence alla chiusura (0113), rilevamento
+  del blocco, descrittori ancora mappati tenuti da parte, contabilità del pool per client (0117, senza i limiti).
+- `xnu/NativeAdrenoABI.h`: l'ABI v1 di UniXNU NativeAdreno (MIT), identica byte per byte a quella con cui è compilato lo
+  userland (`ABI_HEADER_SHA256` di `phone/turnip/build.sh`; oggi `UniXNU/Adreno740` è alla v2, non la usiamo).
+- Patch `0200-andromeda-mtl.patch` + `0200-stage-andromeda-mtl.sh`: compilano i due file e aggiungono la personalità a
+  `KernelConfigTables.cpp`. Il workflow esegue i test sull'host, pretende la 0200, confronta i file e cerca le stringhe.
+
+**Differenze volute da flame:** il servizio è registrato solo dopo il gradino 4 di `andrgpu` (flame lo pubblica
+all'avvio); nessun reset né recupero (0108): un blocco, una sincronizzazione del TLB non confermata o il limite
+termico (`andrgpuhot`, ricontrollato ogni 10 s) fermano Metal fino al riavvio e i client vedono "device lost"; gli
+import devono essere RAM gestita da XNU, mai i pool della GPU; ogni IB deve stare dentro un BO del chiamante mappato a
+quell'indirizzo; i BO senza permesso di scrittura (e gli import che si possono bloccare solo in lettura) sono mappati in
+sola lettura per la GPU; il pool è controllato pagina per pagina prima dell'uso.
+
+**Come si accende** (prerequisito: `andrgpu=4` deve passare il gradino 4 in questo avvio; `andrmtl` si legge solo
+all'avvio, il gradino 4 può arrivare anche da `andctl.py gpu 4`):
+
+| Parametro | Effetto |
+|---|---|
+| `andrmtl=0` / assente | nessun servizio, nessuno user client; tutto come prima (anche la copia GPU F4) |
+| `andrmtl=1` | dopo il gradino 4, `IOAcceleratorES` con lo user client ma **senza** `MetalPluginName`: Metal non carica plug-in e CA resta in software. Per `v2test`/`vktest` (F5) |
+| `andrmtl=2` | come 1, più `MetalPluginName`/`IOGLBundleName` `SweetMetal2` e `MetalPluginClassName` `SweetMTL2Device`: chi chiede un device Metal carica `SweetMetal2.bundle` (F6) |
+| `andrmtlpool=PA`, `andrmtlpoolsize=B` | pool dei BO (default `0x1E2000000`, `0x1D000000` = 464 MiB, i primi 8 MiB per le tabelle): rifiutato se fuori dalla DRAM, sopra PStore, MPSS_EFS o il pool di `andrgpupool`, o se XNU ne gestisce anche una sola pagina |
+
+**Convivenza con `andrgpupresent` (F4): un solo utente del ring per avvio, scelta "rifiuta uno dei due".** Se `andrmtl`
+vale 1 o 2 e Metal si aggancia, la copia a schermo con la GPU viene rifiutata (`present: not attached (Metal (andrmtl)
+has the GPU ring)` nel log) e il pannello usa la copia CPU della 0094. Se Metal non riesce a partire (per esempio pool
+rifiutato), la F4 parte come senza `andrmtl`. flame invece fa passare present e submit di Metal dallo stesso ring
+(0119): serializzarli anche qui è un passo successivo, da fare solo dopo aver visto la F4 e la F6 funzionare separatamente.
+Con la copia CPU, i fotogrammi disegnati dalla GPU sono letti dal kernel attraverso la cache: è corretto perché il
+frontend di `SweetMetal2.bundle` pulisce e invalida (`dc civac`) le IOSurface importate quando il command buffer è
+finito; se comparissero artefatti, è il primo punto da guardare.
+
+**Già presenti, non riportati:**
+- **pmap**: la nostra 0088 è la parte pmap della 0115 di flame (`ptoa(pp)` in `pmap_sync_page_attributes_phys`).
+- **AMFI/dyld**: la nostra 0096 è la 0103 di flame (servizio `AppleMobileFileIntegrity`), la nostra 0115 è la 0114 di
+  flame (politica dyld `@rpath`); il resto viene dall'AMFI permissivo di ios-sweet (0025/0035).
+- **IOSurface bytesPerRow**: la 0104 di flame (somma dei bytesPerRow delle superfici planari) e la 0124 (superfici a 10
+  bit come BGRA solo per WebContent) **non** sono state portate. Secondo l'HANDOFF di flame servono a Safari (pagine
+  bianche, 'b3a8' e 'w30r' di WebContent); per backboardd e SpringBoard il bundle imposta `CAEnableDeepFramebuffer=NO` e le
+  compressioni a NO (`SweetMetal2.mm`), il framebuffer resta BGRA e le superfici 'w30r' di SpringBoard funzionano già.
+  Passano a F7 (tabella del §7 corretta).
+
+**Cosa manca per vedere la composizione Metal (F6):**
+1. Compilare il kernel con il workflow `kernel-andromeda` (non ancora fatto) e controllare nel log della build che la
+   0200 sia applicata e che non compaiano avvisi SHA3/SM4.
+2. Root iOS con lo userland del workflow `gpu-userland-andromeda` (artifact `andromeda-gpu-userland`):
+   `phone/turnip/install-root.sh` (`libvulkan_freedreno.dylib`, `vktest`, `v2test`) e `phone/metal2/install-root.sh`
+   (`/System/Library/Extensions/SweetMetal2.bundle`, cache shader `/private/var/local/m2v-cache` 0777, elenco client
+   `/private/var/local/mtl2-clients` = `SpringBoard`; backboardd riceve sempre un device).
+3. F5 prima: immagine di prova con `andrgpu=4 andrmtl=1` (senza `andrgpupresent`, o lasciandolo: viene rifiutato), poi
+   `v2test` e `vktest` "ALL PASS" (UBWC, sysmem, GMEM forzato). Nel log: `ANDROMEDA MTL: pool at pa ...`, `GPU attached
+   after step 4`, `IOAcceleratorES registered`.
+4. F6: `andrmtl=2`; le impostazioni di CA le mette il bundle per processo. Accettazione come nel §7: blocco schermo e
+   Home composti dalla GPU (righe `MTL2`), fps ≥ F1, 30 minuti stabili, `andrmtl=0` riporta al software.
+5. La riga dei parametri resta sotto i 608 caratteri: `andrmtl` va passato con `ANDROMEDA_ARGS` in un'immagine di
+   prova (in `board.toml` c'è solo la riga commentata).
+
+**Rischi:**
+- Il codice IOKit non è mai stato compilato con l'XNU vero: API come `IOMemoryDescriptor::withPhysicalAddress`,
+  `withAddressRange`, `IONewZero`/`IODelete` sono le stesse di flame sulla stessa base, ma il primo build può fallire.
+- Il pool di default (`0x1E2000000`–`0x1FF000000`) deve essere RAM che nessuno usa: il controllo rifiuta le pagine
+  gestite da XNU (per esempio la finestra da 3 GiB con `aloha-andromeda-ram-merge.patch`), non le regioni di runtime di UEFI.
+- Sicurezza: la protezione del CP è spenta (come in flame) e chiunque apra lo user client può far scrivere la GPU
+  ovunque: è un accesso DMA a tutta la memoria (§9, punto 8). Solo per ricerca.
+- Senza recupero, un blocco della GPU lascia backboardd senza device Metal fino al riavvio: comportamento di CA da
+  vedere; si torna indietro con un avvio senza `andrmtl`.
+- EOR3/SHA3: vedi la nota "Compilatore" del §7; la 0200 non cambia i flag.
+- Calore: il limite `andrgpuhot` vale anche qui, ma un uso continuo della GPU non è ancora stato misurato su questo
+  telefono.

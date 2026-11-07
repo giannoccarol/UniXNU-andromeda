@@ -34,6 +34,12 @@
  *   andrgpupresent=1   phase F4 (andromeda_gpu_present.c, patch 0120): after
  *                      a step 4 PASS the GPU is handed to the framebuffer,
  *                      which lets it copy the fitted frame (sweetfb_fit=1).
+ *   andrmtl=1|2        phases F5/F6 (andromeda_gpu_mtl.c, patch 0200): after
+ *                      a step 4 PASS the GPU goes to the NativeAdreno user
+ *                      client (1) and the Metal plug-in (2) instead; the
+ *                      present path is then declined (one ring user per
+ *                      boot) and the CPU copy shows the frames. If Metal
+ *                      cannot set up, andrgpupresent applies as without it.
  *
  * Runtime control (andromeda_ctl.c, andrctl=1, command "gpu N"): the same
  * steps, started from the PC. A boot-arg run still in its delay starts at
@@ -73,6 +79,7 @@ int vprintf(const char *, va_list);
 #endif
 #include "andromeda_gpu.h"
 #include "andromeda_gpu_present.h"
+#include "andromeda_gpu_mtl.h"
 
 #define AG_TAG "ANDROMEDA GPU:"
 
@@ -560,9 +567,19 @@ ag_thread(void *arg, wait_result_t wr)
 		failed = true;
 	} else {
 		reached = ANDR_STEP_MEMTEST;
-		/* F4, off unless andrgpupresent=1: the GPU goes to the framebuffer's
-		 * present path; this thread does not touch it again. */
-		andromeda_gpu_present_attach(&gpu, ag_pool_size);
+		/*
+		 * The ring has one user per boot; this thread does not touch the
+		 * GPU again. F5/F6, off unless andrmtl=1|2 (patch 0200): Metal
+		 * and Turnip get it, and a requested F4 present path is declined
+		 * (the CPU copy shows the frames). Otherwise, or when Metal could
+		 * not set up (no BO pool), F4 as before, off unless
+		 * andrgpupresent=1: the framebuffer's present path gets it.
+		 */
+		if (andromeda_mtl_level() != 0 && andromeda_gpu_mtl_attach(&gpu, ag_pool_size)) {
+			andromeda_gpu_present_decline("Metal (andrmtl) has the GPU ring");
+		} else {
+			andromeda_gpu_present_attach(&gpu, ag_pool_size);
+		}
 	}
 
 done:
