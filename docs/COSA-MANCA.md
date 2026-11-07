@@ -9,6 +9,21 @@ componente per componente il prossimo passo. I crediti di ogni lavoro ripreso o 
 
 ---
 
+## 0. Risultati del 7 novembre (kernel `9416c8a`, argomenti a 509 caratteri)
+
+| Prova | Esito sul telefono |
+|---|---|
+| Avvio fino alla schermata di blocco | **sì**, dopo aver accorciato gli argomenti di boot: oltre 607 caratteri DarwinBoot sovrascriveva `memSizeActual` e HFS andava in panic al mount (spiegazione in [ANDROMEDA.md](../ANDROMEDA.md)) |
+| Governor CPU (`andrcpu=1 andrgov=1`) | **funziona**: all'avvio Silver 1082 MHz di media, Gold/Prime fino a 2419/2841 MHz; a riposo Gold e Prime al minimo il 100 % del tempo, Silver ~330 MHz; costo 16 µs per controllo (0,03 % di un core); limite termico mai scattato |
+| Batteria vera (`sweetbattery=2`) | **funziona**: PM8150B 100 %, 4417 mV, 125 mA, in carica |
+| Barra di stato intera (`sweetfb_fit=1`) | **funziona** (verificato dal proprietario) |
+| Orologio rosso / sfondo della schermata di blocco (AMFI + MAC) | **risolto** (verificato dal proprietario) |
+| Touch, esperimento a 6 passi (`sweettouchexp=1`) | **nessun tocco** con il dito sullo schermo: 3000 letture, 0 eventi, interrupt sempre a riposo; il chip conferma ogni comando; il reset del passo 5 è rifiutato (`err=22`). Alimentazioni: sul Mix 3 5G L1C è `vdd` e il regolatore su GPIO37 è `avdd` (al contrario del Mi 9); entrambe risultano accese |
+| GPU, slider, sonda | spenti: senza il kernel con `andromeda_io_map()` (commit `7dda8db`, non ancora compilato) riempiono l'`io_submap` da 8 MiB |
+
+Le immagini di prova della tabella qui sotto sono state costruite con la riga di argomenti troppo lunga (gli
+interruttori aggiunti in coda non arrivavano al kernel e l'avvio andava in panic): vanno ricostruite.
+
 ## 1. Pronto da provare sul telefono
 
 Otto immagini, già costruite sul PC (in `out/andromeda/boot/`, fuori da git) con il kernel compilato su GitHub.
