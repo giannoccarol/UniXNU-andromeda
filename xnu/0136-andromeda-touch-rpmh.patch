@@ -4,11 +4,11 @@
  int cepheus_touch_power_enable(void);
  int andromeda_rpmh_bt_rail(const char *res, bool on);
  int andromeda_rpmh_cam_rail(const char *res, bool on);
-+int andromeda_rpmh_touch_vdd(void);
++int andromeda_rpmh_touch_vdd(bool on);
  
  /* Live downstream DT has two positional reg entries, no reg-names. */
  #define RH_RSC_PA       0x18220000u
-@@ -508,5 +509,43 @@
+@@ -508,5 +509,46 @@
  	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
  	return error;
  }
@@ -20,12 +20,13 @@
 + * (slave 4), so the 0084 enable-only vote left its voltage unrequested,
 + * while Linux (qcom-rpmh-regulator) votes voltage, mode and enable and
 + * TWRP's kernel reports pm8150l_l1 at 1800000 uV with the touch working.
-+ * Same sequence as andromeda_rpmh_bt_rail: 1800 mV, HPM (PMIC5 LDO raw 7),
-+ * enable. ACTIVE set only; same rh_lock, idle-slot checks and timeout
-+ * quarantine. A successful vote is not proof that the rail reached 1.8 V.
++ * Same sequence as andromeda_rpmh_bt_rail: on: 1800 mV, HPM (PMIC5 LDO
++ * raw 7), enable; off: enable=0 only. ACTIVE set only; same rh_lock,
++ * idle-slot checks and timeout quarantine. A successful vote is not proof
++ * that the rail reached 1.8 V.
 + */
 +int
-+andromeda_rpmh_touch_vdd(void)
++andromeda_rpmh_touch_vdd(bool on)
 +{
 +	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
 +		return EBUSY;
@@ -41,11 +42,13 @@
 +		error = rh_lookup("ldoc1", &address);
 +	}
 +	if (!error) {
-+		const uint32_t offsets[3] = {0, 8, 4}, values[3] = {1800, 7, 1};
-+		error = rh_send_cmds(address, 3, offsets, values);
++		const uint32_t on_offsets[3] = {0, 8, 4}, on_values[3] = {1800, 7, 1};
++		const uint32_t off_offsets[1] = {4}, off_values[1] = {0};
++		error = on ? rh_send_cmds(address, 3, on_offsets, on_values) :
++		    rh_send_cmds(address, 1, off_offsets, off_values);
 +	}
 +out:
-+	printf("ANDROMEDA RPMH: ldoc1 (touch vdd) 1800 mV HPM enable result=%d%s\n", error,
++	printf("ANDROMEDA RPMH: ldoc1 (touch vdd) %s result=%d%s\n", on ? "1800 mV HPM on" : "off", error,
 +	    rh_poisoned ? " (RPMh quarantined for this boot)" : "");
 +	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
 +	return error;

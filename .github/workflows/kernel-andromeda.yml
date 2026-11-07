@@ -264,7 +264,7 @@ jobs:
           # andromeda: touch vdd L1C voltage vote (patch 0136).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0136-andromeda-touch-rpmh.patch'
           grep -F 'andromeda_rpmh_touch_vdd' dxb/xnu/bsd/dev/sweet_rpmh.c
-          grep -F 'andromeda_rpmh_touch_vdd();' dxb/xnu/bsd/dev/cepheus_touch.c
+          grep -F 'andromeda_rpmh_touch_vdd(on)' dxb/xnu/bsd/dev/cepheus_touch.c
           grep -F 'andromeda_cam_init();' dxb/xnu/bsd/dev/cepheus_touch.c
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA CAM:", b"andrcamdelay", b"andrcamaddr", b"not an andromeda camera rail"))'
           # andromeda: Wi-Fi/modem W0-W1 (patch 0110, andrwlan=N).
