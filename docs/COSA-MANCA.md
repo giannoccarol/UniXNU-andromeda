@@ -91,7 +91,7 @@ Legenda difficoltà: **B** bassa, **M** media, **A** alta, **MA** molto alta.
 
 | Componente | Stato oggi | Prossimo passo | Diff. | Riferimenti principali |
 |---|---|---|---|---|
-| **Touch** | **funziona** dal 7 novembre (`andrboost=1`: `vdd_boost_vreg` acceso); restano multitouch e pulizia delle diagnostiche | prova del multitouch | B | Mi 9 (YangQi0408), ios-flame (Nick Wylynko), driver Xiaomi `fts_521` |
+| **Touch** | **tocchi funzionanti** dal 7 novembre (`andrboost=1`: `vdd_boost_vreg` acceso), anche con due dita; trascinamenti e pizzichi non riconosciuti da iOS | traccia `sweettouchtrace` | B–M | Mi 9 (YangQi0408), ios-flame (Nick Wylynko), driver Xiaomi `fts_521` |
 | **Display** | funziona; immagine ridotta del 4 % invece di ritagliata (da provare) | frequenza 60 Hz e vsync (ios-flame 0121), poi composizione con la GPU | M | ios-sweet, ios-flame |
 | **Schermata di blocco** | orologio rosso: PosterBoard senza fornitori di sfondi | servizio AMFI + indirizzi MAC (da provare, §1 prova 3) | B | ios-flame (patch 0103, `mkadt.py`) |
 | **CPU** | pronto: piena velocità, governatore a carico, protezione termica | misure sul telefono, taratura | B–M | ios-flame, Mi 9, Linux schedutil/interactive |
