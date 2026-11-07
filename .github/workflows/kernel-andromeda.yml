@@ -328,7 +328,8 @@ jobs:
           cmp cepheus/xnu/andromeda_gpu_mtl.h dxb/xnu/iokit/Kernel/arm/andromeda_gpu_mtl.h
           cmp cepheus/xnu/SweetAccelerator.cpp dxb/xnu/iokit/Kernel/arm/SweetAccelerator.cpp
           cmp cepheus/xnu/NativeAdrenoABI.h dxb/xnu/iokit/Kernel/arm/NativeAdrenoABI.h
-          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA MTL:", b"andrmtl", b"andrmtlpool", b"IOAcceleratorES", b"SweetAcceleratorUserClient", b"SweetMTL2Device"))'
+          grep -F 'andromeda_gpu_mtl_attach(&gpu, ag_pool_size)' dxb/xnu/bsd/dev/andromeda_gpu.c
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA MTL:", b"andrmtl", b"andrmtlpool", b"IOAcceleratorES", b"SweetAcceleratorUserClient", b"SweetMTL2Device", b"present: not attached (%s)"))'
           # FEAT_SHA3/SM4 instructions (EOR3, BCAX, RAX1, XAR, SM3*, SM4*) are undefined on the A76/A55; ios-flame
           # hit EOR3 in its GPU blit code with the same -march (HANDOFF, patch 0095 MakeInc.def). Reported, not fatal.
           if objdump=$(xcrun --find llvm-objdump 2>/dev/null); then

@@ -75,6 +75,13 @@ struct andr_present_src {
  * unless andrgpupresent=1.
  */
 void andromeda_gpu_present_attach(struct andr_gpu *g, uint64_t pool_size);
+/*
+ * From andromeda_gpu.c instead of attach, when another user has the GPU's
+ * ring this boot (Metal, andrmtl=N: one ring user at a time). A requested
+ * present path (andrgpupresent=1) is turned off for the boot with why in the
+ * log; the CPU copy carries on. Does nothing unless andrgpupresent=1.
+ */
+void andromeda_gpu_present_decline(const char *why);
 
 /*
  * From the framebuffer's work loop only (one thread). Each returns 0 on

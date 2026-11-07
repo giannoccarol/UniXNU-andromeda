@@ -46,6 +46,9 @@
  *     rest of the boot and the CPU copy carries on.
  * One thread uses all of this (the framebuffer's work loop); the bring-up
  * thread hands the GPU over once (andromeda_gpu_present_attach) and stops.
+ * The ring has one user per boot: when Metal (andrmtl=N, andromeda_gpu_mtl.c)
+ * takes the GPU, the bring-up thread declines this path instead
+ * (andromeda_gpu_present_decline) and the CPU copy shows the frames.
  * Submissions are synchronous: the frame's fence lands before the function
  * returns, so the CPU fallback, the display-off clear and surface unmaps
  * never race with GPU writes.
@@ -450,6 +453,15 @@ andromeda_gpu_present_attach(struct andr_gpu *g, uint64_t pool_size)
 	if (ap_move(AP_WAITING, AP_READY)) {
 		andr_log("present: GPU attached after step 4 (checks: first %u frames, then 1 in %u); "
 		    "the framebuffer hands it the next frame\n", ap_arg_checks, ap_arg_every);
+	}
+}
+
+void
+andromeda_gpu_present_decline(const char *why)
+{
+	ap_args();
+	if (ap_move(AP_WAITING, AP_OFF)) {
+		andr_log("present: not attached (%s); the CPU copies the frames this boot\n", why);
 	}
 }
 
