@@ -64,6 +64,9 @@ elif [[ ! -f $add_ipa ]]; then
 else
 	python3 -I "$here/install-apps.py" "$ROOT" "$apps" "$add_ipa"
 fi
+# 1b. iOS's own deletable apps (/private/var/staged_system_apps), whatever is
+# staged: see install-stock-apps.py. ANDROMEDA_STOCK_APPS=0 skips them.
+python3 -I "$here/install-stock-apps.py" "$ROOT"
 
 # 2. The helper.
 bin=

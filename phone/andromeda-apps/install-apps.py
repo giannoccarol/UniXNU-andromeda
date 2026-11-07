@@ -151,6 +151,10 @@ def main():
 
     old = read_manifest(root)
     ours = {ours_path(e) for e in old}
+    # iOS's own apps copied by install-stock-apps.py ("Stock": true) are not
+    # staged here: keep them listed and never remove them.
+    stock = [e for e in old if e.get('Stock') is True and (root / ours_path(e)[1:]).is_dir()]
+    old = [e for e in old if e.get('Stock') is not True]
     taken = system_bundle_ids(root, ours)
     staged = [p for p in sorted(staging.glob('*.app'))
               if p.is_dir() and not p.is_symlink() and not p.name.startswith('.')]
@@ -214,13 +218,13 @@ def main():
             say(f'removed {p} (no longer staged)')
 
     manifest = root / MANIFEST
-    if not installed and not keep and not os.path.lexists(manifest):
+    if not installed and not keep and not stock and not os.path.lexists(manifest):
         say('nothing to install')
         return
     ensure_dir(manifest.parent)
     tmp = manifest.with_name(manifest.name + '.tmp')
     with open(tmp, 'wb') as f:
-        plistlib.dump({'Version': 1, 'Apps': installed + keep}, f, fmt=plistlib.FMT_XML)
+        plistlib.dump({'Version': 1, 'Apps': installed + keep + stock}, f, fmt=plistlib.FMT_XML)
     os.chown(tmp, 0, 0)
     os.chmod(tmp, 0o644)
     os.replace(tmp, manifest)
