@@ -24,10 +24,17 @@
  * (andrfastboot=N), the PM8150B haptics registers for the vibration test
  * in andromeda_haptics.c (andrhap=1) and three registers of PM8150B GPIO5,
  * the vdd_boost_vreg enable (andrboost=1).
+ *
+ * Runtime control (andromeda_ctl.c, andrctl=1): "slider 1" starts the slider
+ * reader of andrslider=1 (once), "fastboot" runs the andrfastboot reboot
+ * now. The SE13 clock vote of andrprobe=2 takes the hardware turn of
+ * andromeda_ctl.c, so it never overlaps the Bluetooth run (same vote bit),
+ * whenever either starts.
  */
 #if defined(ARM64_BOARD_CONFIG_SWEET)
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/errno.h>
 #include <kern/clock.h>
 #include <kern/thread.h>
 #include <kern/sched_prim.h>
@@ -585,6 +592,9 @@ ap_gcc_se13(int level)
 
 static int ap_level;
 static void ap_boost(void);
+/* andromeda_ctl.c: the hardware turn shared with the gpu, bt, cam, hap, wlan runs. */
+extern void andromeda_ctl_turn(const char *who);
+extern void andromeda_ctl_turn_end(void);
 
 static void
 ap_thread(void *arg, wait_result_t result)
@@ -597,7 +607,13 @@ ap_thread(void *arg, wait_result_t result)
 	ap_wait(delay_s * 1000u);
 	printf(AP_TAG " begin (read only%s)\n", ap_level >= 2 ? ", brief s3 vote" : "");
 	ap_tlmm();
+	if (ap_level >= 2) {
+		andromeda_ctl_turn("probe s3 vote");   /* the Bluetooth run votes the same bit */
+	}
 	ap_gcc_se13(ap_level);
+	if (ap_level >= 2) {
+		andromeda_ctl_turn_end();
+	}
 	ap_pmic();
 	ap_boost();
 	printf(AP_TAG " done\n");
@@ -615,7 +631,8 @@ ap_thread(void *arg, wait_result_t result)
  * reset is PSCI SYSTEM_RESET over SMC, the conduit ios-sweet uses for
  * CPU_ON. Disks are synced first. The PON write is done only here, on
  * request; the only other PMIC writes in this file are the haptics ones
- * below (andromeda_spmi_hap_write, andrhap=1).
+ * below (andromeda_spmi_hap_write, andrhap=1) and the vdd_boost_vreg
+ * enable (ap_boost, andrboost=1).
  *
  * NOT YET VERIFIED ON THE PHONE: if ABL ignored the reason it would boot the
  * boot partition (Android). Test with the user watching.
@@ -1066,6 +1083,8 @@ out:
 }
 
 static unsigned ap_fastboot_s;
+static bool ap_slider_started;  /* the slider thread exists (andrslider=1 or "slider 1") */
+static bool ap_fastboot_now;    /* "fastboot" accepted, reboot in progress */
 
 static void
 ap_fastboot_thread(void *arg, wait_result_t result)
@@ -1077,6 +1096,82 @@ ap_fastboot_thread(void *arg, wait_result_t result)
 	ap_reboot_bootloader("timer");
 	(void)thread_terminate(current_thread());
 	thread_block(THREAD_CONTINUE_NULL);
+}
+
+/* "fastboot": one second for the answer to leave, then the timer's sequence. */
+static void
+ap_fastboot_now_thread(void *arg, wait_result_t result)
+{
+	(void)arg;
+	(void)result;
+	ap_wait(1000);
+	ap_reboot_bootloader("andrctl");
+	/* Back here only if the reboot was aborted (logged): may be asked again. */
+	__atomic_store_n(&ap_fastboot_now, false, __ATOMIC_RELEASE);
+	(void)thread_terminate(current_thread());
+	thread_block(THREAD_CONTINUE_NULL);
+}
+
+static bool
+ap_start_slider(void)
+{
+	thread_t thread;
+	if (__atomic_exchange_n(&ap_slider_started, true, __ATOMIC_ACQ_REL)) {
+		return true;
+	}
+	if (kernel_thread_start(ap_slider_thread, NULL, &thread) != KERN_SUCCESS) {
+		__atomic_store_n(&ap_slider_started, false, __ATOMIC_RELEASE);
+		return false;
+	}
+	thread_deallocate(thread);
+	return true;
+}
+
+/* Runtime control (andromeda_ctl.c); 0 = accepted. */
+int andromeda_probe_slider_ctl(char *out, size_t len);
+int andromeda_probe_fastboot_ctl(char *out, size_t len);
+bool andromeda_probe_slider_on(void);
+
+bool
+andromeda_probe_slider_on(void)
+{
+	return __atomic_load_n(&ap_slider_started, __ATOMIC_ACQUIRE);
+}
+
+int
+andromeda_probe_slider_ctl(char *out, size_t len)
+{
+	if (andromeda_probe_slider_on()) {
+		snprintf(out, len, "the slider reader already runs (read only, every 100 ms)");
+		return 0;
+	}
+	if (!ap_start_slider()) {
+		snprintf(out, len, "kernel_thread_start failed");
+		return EAGAIN;
+	}
+	snprintf(out, len, "slider reader started (read only, GPIO 42/114 every 100 ms; "
+	    "\"slidercam N\" publishes it to andromedad)");
+	return 0;
+}
+
+int
+andromeda_probe_fastboot_ctl(char *out, size_t len)
+{
+	thread_t thread;
+	if (__atomic_exchange_n(&ap_fastboot_now, true, __ATOMIC_ACQ_REL)) {
+		snprintf(out, len, "a reboot into fastboot is already in progress");
+		return EBUSY;
+	}
+	if (kernel_thread_start(ap_fastboot_now_thread, NULL, &thread) != KERN_SUCCESS) {
+		__atomic_store_n(&ap_fastboot_now, false, __ATOMIC_RELEASE);
+		snprintf(out, len, "kernel_thread_start failed");
+		return EAGAIN;
+	}
+	thread_deallocate(thread);
+	printf(AP_TAG " fastboot asked over andrctl: rebooting in 1 s\n");
+	snprintf(out, len, "syncing disks and rebooting into fastboot in about 5 s (the andrfastboot "
+	    "sequence; ANDROMEDA PROBE: REBOOT in the log)");
+	return 0;
 }
 
 void
@@ -1095,9 +1190,8 @@ andromeda_probe_init(void)
 	}
 	unsigned slider = 0;
 	(void)PE_parse_boot_argn("andrslider", &slider, sizeof(slider));
-	if (slider == 1 &&
-	    kernel_thread_start(ap_slider_thread, NULL, &thread) == KERN_SUCCESS) {
-		thread_deallocate(thread);
+	if (slider == 1) {
+		(void)ap_start_slider();
 	}
 	(void)PE_parse_boot_argn("andrprobe", &ap_level, sizeof(ap_level));
 	if (ap_level <= 0) {

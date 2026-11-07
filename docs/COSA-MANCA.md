@@ -20,6 +20,7 @@ componente per componente il prossimo passo. I crediti di ogni lavoro ripreso o 
 | Orologio rosso / sfondo della schermata di blocco (AMFI + MAC) | **risolto** (verificato dal proprietario) |
 | Touch, esperimento a 6 passi (`sweettouchexp=1`) | **nessun tocco** con il dito sullo schermo: 3000 letture, 0 eventi, interrupt sempre a riposo; il chip conferma ogni comando; il reset del passo 5 è rifiutato (`err=22`). Alimentazioni: sul Mix 3 5G L1C è `vdd` e il regolatore su GPIO37 è `avdd` (al contrario del Mi 9); entrambe risultano accese |
 | GPU, slider, sonda | spenti: senza il kernel con `andromeda_io_map()` (commit `7dda8db`, non ancora compilato) riempiono l'`io_submap` da 8 MiB |
+| Controllo a telefono acceso (`andrctl=1`) | **scritto e compilato, da provare** (ramo `andromeda-ctl`): `scripts/andctl.py gpu 1`, `idle keys 50`, `status`… avviano i driver senza riavviare; regole e perimetro in [ANDROMEDA.md](../ANDROMEDA.md#controllo-a-telefono-acceso-andrctl1) |
 
 Le immagini di prova della tabella qui sotto sono state costruite con la riga di argomenti troppo lunga (gli
 interruttori aggiunti in coda non arrivavano al kernel e l'avvio andava in panic): vanno ricostruite.
@@ -64,6 +65,7 @@ Il log via USB si legge con `scripts/udplog-ts.py` e si riassume con
 | 15 | **Vibrazione** (immagine `-hap`) | tieni il telefono in mano dopo 1 minuto | due vibrazioni brevi; `ANDROMEDA HAP: restored: every written register reads as before` |
 | 16 | **App non cifrate** | prepari le app con `python3 scripts/add-ipa.py tua-app.ipa`, poi si riscrive il sistema iOS | icone nella home; `andromeda-apps: … registered`; con `andrappsopen=ID` l'app si apre senza touch |
 | 17 | **GPU, copia a schermo** (`andrgpu=4 andrgpupresent=1`) | niente | dopo il gradino 4: `present: first 8 GPU frames checked: 8 identical to the CPU copy` |
+| 18 | **Controllo a telefono acceso** (`ANDROMEDA_ARGS="andrctl=1"`) | niente: i comandi li mando io dal PC | `ANDROMEDA CTL: listening on udp/5141`; `andctl.py status` risponde; poi comandi senza rischio (`pwr 1`, `idle`, `slider 1`), poi `gpu 1`; da quel momento le prove 6-9 e 11-15 si possono fare a telefono acceso, una dopo l'altra, senza riavviare (il ritorno in fastboot per ultimo) |
 
 Se la prova 8 funziona, i test successivi si possono fare anche senza di te: avvio, log, ritorno in fastboot,
 kernel successivo.
@@ -79,7 +81,7 @@ kernel successivo.
 | **Leggere la partizione `modem`** con `scripts/pull-modem-fw.sh <seriale>` (TWRP in RAM, sola lettura) | firmware di Wi-Fi (`modem.mdt`, `wlanmdsp.mbn`, `bdwlan.*`), DSP audio e DSP sensori; la costruzione del sistema iOS li copia in `/fw/modem` | nessuno, come per la GPU |
 | **Copia delle partizioni EFS del modem 5G** (`mdm1m9kefs*`) in sola lettura | backup prima di qualsiasi lavoro sul modem | nessuno |
 | **Messaggio a MakrSas** (ios-topaz) per la licenza di `radio.c` | la parte radio del Wi-Fi di ios-flame deriva da lì; senza permesso va riscritta da ath10k | nessuno (testo pronto in [richieste-permesso.md](research/richieste-permesso.md)) |
-| **Pannello di controllo a telefono acceso** | accendere/spegnere i driver senza riavviare | un servizio che riceve comandi dalla rete va progettato con cura (vedi §3, Diagnostica); da decidere insieme il perimetro |
+| **Controllo a telefono acceso: perimetro e prova** | accendere/avviare i driver senza riavviare (`andrctl=1`, scritto) | perimetro proposto in [ANDROMEDA.md](../ANDROMEDA.md#controllo-a-telefono-acceso-andrctl1): solo la rete USB e `192.168.7.1`, lista chiusa di comandi, stesse regole degli argomenti di boot. Serve il tuo ok sul perimetro e la prova con te presente |
 
 ---
 
@@ -112,7 +114,7 @@ Legenda difficoltà: **B** bassa, **M** media, **A** alta, **MA** molto alta.
 | **GPS** | ricerca fatta | client QMI LOC dopo l'avvio del modem, posizioni a `locationd` | A | iOSPlus10 (akshaynexus) |
 | **Avvio senza PC** | script pronto | da fare con la tua conferma (§2) | B | — |
 | **Velocità di avvio** | lock screen a ~116 s | sistema iOS con i demoni inutili tolti (§2); CPU veloce già dall'inizio | B | — |
-| **Diagnostica** | `scripts/andstatus.py`: stato leggibile dal log | sul telefono, una riga di stato periodica unica | B | — |
+| **Diagnostica** | `scripts/andstatus.py`: stato leggibile dal log; `scripts/andctl.py status` (con `andrctl=1`, da provare): stato dei driver a richiesta | prova del controllo a telefono acceso, poi lo stesso stato anche in una riga periodica | B | ios-sweet (log in diretta, patch 0077) |
 
 ---
 
@@ -136,6 +138,7 @@ mai, i file Apple e i dati del telefono non entrano nel repository.
 - Stato e istruzioni: [ANDROMEDA.md](../ANDROMEDA.md); ordine dei lavori: [ROADMAP.md](../ROADMAP.md).
 - Ricerche: [docs/research/](research/) — `gpu.md`, `wifi-flame.md`, `wifi-bluetooth.md`, `ricarica.md`, `audio.md`,
   `fotocamere.md`, `sospensione.md`, `sensori-vibrazione.md`, `modem-gps-nfc.md`, `app-store.md`.
-- Driver nostri: `xnu/andromeda_*.c` (sonda, CPU e governatore, GPU, Bluetooth, luminosità), patch `0089`–`0096`.
+- Driver nostri: `xnu/andromeda_*.c` (sonda, CPU e governatore, GPU, Bluetooth, luminosità, … e il controllo a
+  telefono acceso `andromeda_ctl.c`), patch `0089`–`0140`; dal PC: `scripts/andctl.py`, `scripts/andstatus.py`.
 - Crediti: [CREDITS.md](../CREDITS.md). Il progetto si regge sul lavoro di molti: ios-sweet (dipa-studio), il port del Mi 9
   (YangQi0408), ios-flame (Nick Wylynko), UniXNU, Project Aloha, HakiOS (OOSEX GANG) e gli altri citati lì.

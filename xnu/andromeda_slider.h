@@ -122,4 +122,29 @@ andromeda_slider_next(uint64_t prev, unsigned *stable, unsigned polarity,
 	       ((uint64_t)raw << 8) | (uint64_t)state;
 }
 
+/*
+ * Value after the polarity changes at run time ("slidercam N" of the runtime
+ * control): the last raw reading (raw, hall42 << 1 | hall114, or 0xff for
+ * none) decoded with the new polarity, generation + 1 so that a waiting
+ * daemon reads it, and no opening counted, whatever the old state was.
+ */
+static inline uint64_t
+andromeda_slider_repolarize(uint64_t prev, unsigned *stable, unsigned polarity, unsigned raw)
+{
+	unsigned opens = andromeda_slider_opens(prev);
+	uint32_t gen = andromeda_slider_generation(prev) + 1u;
+	unsigned state;
+	if (gen == 0u) {
+		gen = 1u;
+	}
+	if (raw > 3u) {
+		*stable = ANDROMEDA_SLIDER_NONE;
+		return prev;            /* no reading yet: nothing to decode */
+	}
+	state = andromeda_slider_decode(polarity, raw >> 1, raw & 1u);
+	*stable = state == ANDROMEDA_SLIDER_MOVING ? ANDROMEDA_SLIDER_NONE : state;
+	return ((uint64_t)gen << 32) | ((uint64_t)opens << 16) |
+	       ((uint64_t)raw << 8) | (uint64_t)state;
+}
+
 #endif /* ANDROMEDA_SLIDER_H */

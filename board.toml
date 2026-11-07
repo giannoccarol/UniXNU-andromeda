@@ -136,17 +136,18 @@ kernel_args = [
   "sweettouchreset=0",
   # 2026-11-07: TWRP raw frame 99..688, ours flat at -5800 (analog front end
   # not sensing). Drive fp_vdd_vreg (GPIO92, regulator-always-on in the live
-  # DT, no consumer) high as Linux does; its state is logged first.
-  "sweettouchfpvdd=1",
+  # DT, no consumer) high as Linux does; its state is logged first. Alone it
+  # changed nothing; left off to check that andrboost=1 is all touch needs.
+  # "sweettouchfpvdd=0",  (default; not passed, see the boot-args length note)
   # 2026-11-07: GPIO92 read off (input, low) and driving it high changed
   # nothing; PM8150B GPIO5 (vdd_boost_vreg, regulator-always-on in Linux)
   # reads as an input with pull-down. andrboost=1 enables it from
   # andromeda_probe.c (before the touch thread powers the controller).
   # Verified 2026-11-07: with it the sensor senses and touch reaches iOS.
   "andrboost=1",
-  # Bring-up: dump the first 60 non-empty FIFO events raw (the parser
-  # recognised no contact so far). Remove once touch works.
-  "sweettouchraw=200",
+  # Bring-up: dump the first N non-empty FIFO events raw. Off since touch
+  # works (2026-11-07).
+  # "sweettouchraw=0",  (default; not passed, see the boot-args length note)
   # Scan settings byte. 0x01 (Xiaomi fts_521, multi-touch) sent before the
   # controller-ready event gave nothing; 0xff (ios-flame, Pixel 4) gave only
   # display-noise contacts, then silence after the IC recalibrated. The
@@ -157,7 +158,8 @@ kernel_args = [
   # The experiment above ran on 2026-11-07 (6 steps, 0 touches) and is off now.
   # Read-only diagnostics instead: system info (FW/config/CX/AFE versions), then
   # 45 raw + strength frame summaries, one every 2 s, while the user touches.
-  "sweettouchdiag=90",
+  # Off since touch works (2026-11-07).
+  # "sweettouchdiag=0",  (default; not passed, see the boot-args length note)
   # Keys and Home as verified on the Mi 9 (patch 0083): power key via PON only,
   # one synthetic Home press after start so the lock screen opens even without
   # touch. andromeda: at 90 s it arrived 14 s before the lock screen was drawn
@@ -210,6 +212,12 @@ kernel_args = [
   # gauge and charger read over SPMI, no writes. 1 = ios-sweet's PM6150 path
   # (wrong PMIC here), absent = fixed 100 %.
   "sweetbattery=2",
+  # Runtime control from the PC (andromeda_ctl.c, patch 0140): a kernel UDP
+  # socket on udp/5141 takes one command per datagram from 192.168.7.1 over
+  # the USB link (scripts/andctl.py): gpu 1-4, bt 1-2, hap 1, cam 1, wlan 1-2,
+  # bl 1-2, pwr 0|1, idle NAME VALUE, slider 1, slidercam 0-2, fastboot. The
+  # features below stay off at boot and are started from the PC one at a time.
+  "andrctl=1",
   # Off in the main image; test image: ANDROMEDA_TAG=btbl
   # ANDROMEDA_ARGS="andrbt=1 andrbl=1" ./build-boot.sh
   # Bluetooth B1 (andromeda_bt.c, patch 0092): 150 s after start, WCN3990

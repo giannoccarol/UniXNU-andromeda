@@ -14,6 +14,11 @@
  *   andrcamaddr=0x1a  7-bit address to ask instead of the module's 0x10
  *                     (only 0x10 and 0x1a are accepted; one address per boot).
  *
+ * Runtime control (andromeda_ctl.c, andrctl=1, command "cam 1"): the same
+ * C1 run, started from the PC, once per boot, at the andrcamaddr address. A
+ * boot-arg run still in its delay starts at once. It takes its turn with
+ * the other hardware runs (andromeda_ctl_begin).
+ *
  * Power sequence: com.qti.sensormodule.andromeda_semco_imx363.bin from the
  * phone's vendor partition (not in git), slaveInfo: address 0x20 (8-bit),
  * id register 0x0016, id 0x0363; powerUpSequence, as msm_camera_power_seq_type
@@ -63,6 +68,18 @@
 #include <pexpert/pexpert.h>
 #include "cepheus_clock_status.h"
 #include "cepheus_i2c_bitbang.h"
+#include "andromeda_ctl.h"
+
+/* andromeda_ctl.c: runtime control and request state (andromeda_ctl.h). */
+extern void andromeda_ctl_delay(uint32_t *st, unsigned seconds);
+extern bool andromeda_ctl_is_boot(uint32_t *st);
+extern uint32_t andromeda_ctl_begin(uint32_t *st, const char *who);
+extern void andromeda_ctl_end(uint32_t *st, unsigned reached, bool failed, const char *who);
+extern bool andromeda_ctl_spawn(thread_continue_t fn);
+uint32_t andromeda_cam_req;
+const char *andromeda_cam_check(unsigned level);
+bool andromeda_cam_spawn(void);
+static bool cam_addr_ok = true;   /* andrcamaddr is 0x10 or 0x1a */
 
 extern vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t); /* andromeda_probe.c: shared, outside io_submap */
 /* Mach MIG declaration is not included by BSD's exported thread.h. */
@@ -650,7 +667,7 @@ cam_sequence(void)
 	return value == IMX363_ID ? NULL : "chip ID mismatch";
 }
 
-static void
+static bool
 cam_run(void)
 {
 	printf(CAM_TAG " c1 start sensor 0 imx363 cci0.m0 addr 0x%02x (GPIO I2C)\n", cam.addr);
@@ -662,6 +679,7 @@ cam_run(void)
 	}
 	cam_power_down();
 	printf(CAM_TAG " done\n");
+	return failed == NULL;
 }
 
 static void
@@ -669,11 +687,30 @@ cam_thread(void *arg, wait_result_t result)
 {
 	(void)arg;
 	(void)result;
-	printf(CAM_TAG " C1 starting in %u s (andrcam=1, addr 0x%02x)\n", cam_delay_s, cam.addr);
-	cam_wait(cam_delay_s * 1000u);
-	cam_run();
+	if (andromeda_ctl_is_boot(&andromeda_cam_req)) {
+		printf(CAM_TAG " C1 starting in %u s (andrcam=1, addr 0x%02x)\n", cam_delay_s, cam.addr);
+		andromeda_ctl_delay(&andromeda_cam_req, cam_delay_s);
+	} else {
+		printf(CAM_TAG " C1 starting now (andrctl, addr 0x%02x)\n", cam.addr);
+	}
+	(void)andromeda_ctl_begin(&andromeda_cam_req, "cam");
+	bool ok = cam_run();
+	andromeda_ctl_end(&andromeda_cam_req, ok ? 1u : 0u, !ok, "cam");
 	(void)thread_terminate(current_thread());
 	thread_block(THREAD_CONTINUE_NULL);
+}
+
+const char *
+andromeda_cam_check(unsigned level)
+{
+	(void)level;
+	return cam_addr_ok ? NULL : "andrcamaddr is not 0x10 or 0x1a: refusing";
+}
+
+bool
+andromeda_cam_spawn(void)
+{
+	return andromeda_ctl_spawn(cam_thread);
 }
 
 void
@@ -682,31 +719,31 @@ andromeda_cam_init(void)
 	static bool started;
 	int level = 0;
 	unsigned addr = IMX363_ADDR;
-	thread_t thread;
 	if (started) {
 		return;
 	}
 	started = true;
 	(void)PE_parse_boot_argn("andrcam", &level, sizeof(level));
+	(void)PE_parse_boot_argn("andrcamdelay", &cam_delay_s, sizeof(cam_delay_s));
+	(void)PE_parse_boot_argn("andrcamaddr", &addr, sizeof(addr));
+	if (cam_delay_s > 3600u) {
+		cam_delay_s = 3600u;
+	}
+	if (addr != IMX363_ADDR && addr != IMX363_ALT_ADDR) {
+		printf(CAM_TAG " andrcamaddr=%#x refused (only 0x10 or 0x1a)\n", addr);
+		cam_addr_ok = false;
+		return;
+	}
+	cam.addr = addr;
 	if (level != 1) {
 		if (level) {
 			printf(CAM_TAG " andrcam=%d not supported (only 1)\n", level);
 		}
 		return;
 	}
-	(void)PE_parse_boot_argn("andrcamdelay", &cam_delay_s, sizeof(cam_delay_s));
-	(void)PE_parse_boot_argn("andrcamaddr", &addr, sizeof(addr));
-	if (addr != IMX363_ADDR && addr != IMX363_ALT_ADDR) {
-		printf(CAM_TAG " andrcamaddr=%#x refused (only 0x10 or 0x1a)\n", addr);
-		return;
-	}
-	cam.addr = addr;
-	if (cam_delay_s > 3600u) {
-		cam_delay_s = 3600u;
-	}
-	if (kernel_thread_start(cam_thread, NULL, &thread) == KERN_SUCCESS) {
-		thread_deallocate(thread);
-	} else {
+	__atomic_store_n(&andromeda_cam_req, andr_st(ANDR_PH_WAIT, 1u, 0), __ATOMIC_RELEASE);
+	if (!andromeda_cam_spawn()) {
+		__atomic_store_n(&andromeda_cam_req, 0u, __ATOMIC_RELEASE);
 		printf(CAM_TAG " kernel_thread_start failed\n");
 	}
 }

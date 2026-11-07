@@ -6,7 +6,8 @@
 
 LOGFILE is what scripts/udplog-ts.py writes (phone/logs/*.log). Read only:
 the phone receives nothing; it only parses the lines the drivers already
-print (ANDROMEDA CPU/GPU/BT/BL/PROBE, SWEET TOUCH/HID/FB/BATTERY, ...).
+print (ANDROMEDA CPU/GPU/BT/BL/PROBE/CTL, SWEET TOUCH/HID/FB/BATTERY, ...).
+Commands to the drivers go through scripts/andctl.py (andrctl=1).
 """
 import re
 import sys
@@ -45,6 +46,10 @@ RULES = [
     ("Slider", "andromedad", r"andromedad: (.*)"),
     ("Vibrazione", "prova", r"ANDROMEDA HAP: (restored: .*|pulse \d: on .*|.*nothing written.*|WARNING: .*)"),
     ("Vibrazione", "registri", r"ANDROMEDA PROBE: (PM8150B HAPTICS sid3 .*)"),
+    ("Controllo", "in ascolto", r"ANDROMEDA CTL: (listening on .*)"),
+    ("Controllo", "ultimo comando", r"ANDROMEDA CTL: ((?:ok|no)[ :].*)"),
+    ("Controllo", "in coda", r"ANDROMEDA CTL: (\S+ waits for .*)"),
+    ("Controllo", "scartati", r"ANDROMEDA CTL: (dropped .*|too many commands.*)"),
     ("Sistema", "AMFI", r"SWEET AMFI: (.*)"),
     ("Sistema", "fastboot", r"ANDROMEDA PROBE: (REBOOT .*|will reboot into fastboot .*)"),
     ("Sistema", "panic", r"(panic\(.*)"),

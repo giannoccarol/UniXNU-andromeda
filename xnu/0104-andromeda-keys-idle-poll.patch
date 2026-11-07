@@ -9,7 +9,7 @@ diff --git a/bsd/dev/sweet_keys.c b/bsd/dev/sweet_keys.c
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern void sweet_hid_key(int key, int down);
-@@ -29,6 +30,15 @@ static uint16_t keys_pon_apid = KEYS_NO_APID, keys_gpio_apid = KEYS_NO_APID;
+@@ -29,6 +30,16 @@ static uint16_t keys_pon_apid = KEYS_NO_APID, keys_gpio_apid = KEYS_NO_APID;
  static uint32_t keys_version, keys_last_status;
  static bool keys_started;
  static int keys_pon_only;
@@ -19,18 +19,20 @@ diff --git a/bsd/dev/sweet_keys.c b/bsd/dev/sweet_keys.c
 + * instead of 20 (50 wakeups/s). PON_RT is a live status, not a latch: a press
 + * shorter than N ms can be missed, so keep N at 50-100 (a press lasts
 + * ~100 ms or more). A key that is down, and the display coming on (which
-+ * wakes the wait), bring the 20 ms period back at once.
++ * wakes the wait), bring the 20 ms period back at once. N lives in
++ * andromeda_idle_keys_ms (bsd/dev/andromeda_power.c), so that the runtime
++ * control ("idle keys N", andromeda_ctl.c, andrctl=1) can change it.
 + */
-+static unsigned keys_idle_ms;
  static int keys_sleep_chan;
  
  static uint32_t
-@@ -119,7 +129,13 @@ keys_thread(void *arg, wait_result_t result)
+@@ -119,7 +130,14 @@ keys_thread(void *arg, wait_result_t result)
  				sweet_hid_key(k, state[k]);
  			}
  		}
 -		keys_wait();
 +		__atomic_fetch_add(&andromeda_pwr_keys_polls, 1, __ATOMIC_RELAXED);
++		unsigned keys_idle_ms = __atomic_load_n(&andromeda_idle_keys_ms, __ATOMIC_RELAXED);
 +		if (keys_idle_ms && !state[0] && !state[1] && !state[2] &&
 +		    __atomic_load_n(&andromeda_display_off, __ATOMIC_RELAXED)) {
 +			andromeda_display_wait(keys_idle_ms);
@@ -40,13 +42,15 @@ diff --git a/bsd/dev/sweet_keys.c b/bsd/dev/sweet_keys.c
  	}
  }
  
-@@ -154,6 +170,11 @@ sweet_keys_init(void)
+@@ -154,6 +172,13 @@ sweet_keys_init(void)
  	}
  	keys_pon_apid = keys_find_apid(0x008, count);
  	PE_parse_boot_argn("sweetkeyspononly", &keys_pon_only, sizeof(keys_pon_only));
++	unsigned keys_idle_ms = 0;
 +	PE_parse_boot_argn("andrkeysidle", &keys_idle_ms, sizeof(keys_idle_ms));
 +	if (keys_idle_ms) {
 +		keys_idle_ms = keys_idle_ms < 20 ? 20 : (keys_idle_ms > 200 ? 200 : keys_idle_ms);
++		__atomic_store_n(&andromeda_idle_keys_ms, keys_idle_ms, __ATOMIC_RELAXED);
 +		printf("SWEET KEYS: %u ms polling while the display is off (andrkeysidle)\n", keys_idle_ms);
 +	}
  	keys_gpio_apid = keys_pon_only ? KEYS_NO_APID : keys_find_apid(0x4c1, count);

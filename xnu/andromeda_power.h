@@ -46,6 +46,19 @@ extern uint64_t andromeda_pwr_idle[ANDROMEDA_PWR_CPUS * ANDROMEDA_PWR_IDLE_STRID
 extern int andromeda_pwr_measure;
 extern uint64_t andromeda_pwr_long_abs;
 
+/*
+ * The P1 savings, 0 = off (the default): set from their boot-arg by the
+ * driver that uses them, and at run time by "idle NAME VALUE" of the runtime
+ * control (andromeda_ctl.c, andrctl=1). The users read them with
+ * __atomic_load_n(.., __ATOMIC_RELAXED) every time, so a change takes effect
+ * at the next poll. andridle (patch 0101) is osfmk/arm64/cpu.c's own
+ * TUNABLE_WRITEABLE andromeda_idle.
+ */
+extern unsigned andromeda_idle_fb_park;    /* andrfbpark, 0/1 (0102, SweetFramebuffer.cpp) */
+extern unsigned andromeda_idle_usb_ms;     /* andrusbidle, 0 or 2..20 ms (0103, sweet_usb.c) */
+extern unsigned andromeda_idle_keys_ms;    /* andrkeysidle, 0 or 20..200 ms (0104, sweet_keys.c) */
+extern unsigned andromeda_idle_touch_ms;   /* andrtouchidle, 0 or 20..1000 ms (0105, cepheus_touch.c) */
+
 void andromeda_power_init(void);
 
 #endif /* ANDROMEDA_POWER_H */

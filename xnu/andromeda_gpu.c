@@ -34,6 +34,14 @@
  *   andrgpupresent=1   phase F4 (andromeda_gpu_present.c, patch 0120): after
  *                      a step 4 PASS the GPU is handed to the framebuffer,
  *                      which lets it copy the fitted frame (sweetfb_fit=1).
+ *
+ * Runtime control (andromeda_ctl.c, andrctl=1, command "gpu N"): the same
+ * steps, started from the PC. A boot-arg run still in its delay starts at
+ * once; after a run that passed step K, "gpu N" runs steps K+1..N only (a
+ * step never runs twice); after a failed step nothing runs again this boot.
+ * The thermal checks are those of the boot path. Step 3 (ZAP) goes through
+ * TrustZone PAS, as the modem boot of andrwlan=2: the first of the two to
+ * ask owns PAS for the boot (andromeda_pas_claim) and the other is refused.
  */
 #if defined(ARM64_BOARD_CONFIG_SWEET)
 #include <sys/param.h>
@@ -75,6 +83,15 @@ extern kern_return_t thread_terminate(thread_t);
 extern boolean_t pmap_valid_address(uint64_t);
 extern void _disable_preemption(void);
 extern void _enable_preemption(void);
+/* andromeda_ctl.c: runtime control and request state (andromeda_ctl.h). */
+#include "andromeda_ctl.h"
+extern void andromeda_ctl_delay(uint32_t *st, unsigned seconds);
+extern bool andromeda_ctl_is_boot(uint32_t *st);
+extern uint32_t andromeda_ctl_begin(uint32_t *st, const char *who);
+extern void andromeda_ctl_end(uint32_t *st, unsigned reached, bool failed, const char *who);
+extern bool andromeda_ctl_spawn(thread_continue_t fn);
+extern bool andromeda_pas_claim(unsigned who);
+#define AG_PAS_OWNER 1u		/* andromeda_ctl.c ANDR_PAS_GPU */
 #if defined(KERNEL)
 extern int vprintf(const char *, va_list);
 #endif
@@ -377,18 +394,6 @@ static struct andr_gpu gpu;
 static unsigned ag_step, ag_hot_c = 80;
 static uint64_t ag_pool_arg = AG_POOL_DEFAULT, ag_pool_size = ANDR_POOL_SIZE;
 static unsigned ag_delay_s = 90;
-static unsigned ag_sleep_chan;
-
-static void
-ag_wait_s(unsigned s)
-{
-	for (unsigned i = 0; i < s; i++) {
-		uint64_t deadline;
-		clock_interval_to_deadline(1000, NSEC_PER_MSEC, &deadline);
-		(void)assert_wait_deadline(&ag_sleep_chan, THREAD_UNINT, deadline);
-		thread_block(THREAD_CONTINUE_NULL);
-	}
-}
 
 /* true if the GPU may be powered: temperature readable and below the limit. */
 static bool
@@ -454,83 +459,152 @@ ag_pool_map(void)
 	return 0;
 }
 
+uint32_t andromeda_gpu_req;	/* andromeda_ctl.h request state, levels = steps */
+const char *andromeda_gpu_check(unsigned level);
+bool andromeda_gpu_spawn(void);
+void andromeda_gpu_init(void);
+
+/*
+ * Steps andr_st_from(run)..andr_st_level(run). A step that passed in an
+ * earlier run (boot-arg or andrctl) is not run again; the state it left
+ * (pool, CX, GMU) is still in gpu and the pool mapping.
+ */
 static void
 ag_thread(void *arg, wait_result_t wr)
 {
 	(void)arg;
 	(void)wr;
-	uint64_t t0 = mach_absolute_time(), ns = 0;
+	uint64_t t0, ns = 0;
 
-	if (ag_delay_s) {
-		ag_wait_s(ag_delay_s);
+	if (andromeda_ctl_is_boot(&andromeda_gpu_req) && ag_delay_s) {
+		andromeda_ctl_delay(&andromeda_gpu_req, ag_delay_s);
 	}
-	printf(AG_TAG " andrgpu=%u: running gated bring-up steps\n", ag_step);
+	uint32_t run = andromeda_ctl_begin(&andromeda_gpu_req, "gpu");
+	unsigned from = andr_st_from(run), to = andr_st_level(run), reached = from - 1u;
+	bool failed = false;
+	int rc = 0;
+	t0 = mach_absolute_time();
+	if (from <= ANDR_STEP_PROBE) {
+		printf(AG_TAG " andrgpu=%u: running gated bring-up steps\n", to);
+	} else {
+		printf(AG_TAG " andrgpu=%u: continuing with steps %u..%u (step %u passed earlier)\n",
+		    to, from, to, from - 1u);
+	}
 
 	/* Step 1: read-only probe + firmware verification. No writes, no pool. */
-	int rc = andr_gpu_probe(&gpu);
-	printf(AG_TAG " step 1 (probe) %s\n", rc ? "reported missing firmware/ids" : "ok");
-	if (ag_step < ANDR_STEP_GMU) {
-		goto done;
+	if (from <= ANDR_STEP_PROBE) {
+		rc = andr_gpu_probe(&gpu);
+		printf(AG_TAG " step 1 (probe) %s\n", rc ? "reported missing firmware/ids" : "ok");
+		if (rc) {
+			if (to >= ANDR_STEP_GMU) {
+				printf(AG_TAG " not powering the GPU (thermal refuse or probe failed)\n");
+			}
+			failed = true;
+			goto done;
+		}
+		reached = ANDR_STEP_PROBE;
+		if (to < ANDR_STEP_GMU) {
+			goto done;
+		}
 	}
 
-	/* Everything below writes to the GPU: honour the thermal limit first. */
-	if (!ag_thermal_ok("before power-up") || rc) {
-		printf(AG_TAG " not powering the GPU (thermal refuse or probe failed)\n");
-		goto done;
-	}
-	if (ag_pool_map()) {
-		goto done;
-	}
-
-	/* Step 2: CX power + GMU firmware boot (expect 0xBABEFACE). */
-	if (andr_power_cx(&gpu) || andr_gmu_boot(&gpu)) {
-		printf(AG_TAG " step 2 (CX + GMU boot) FAILED; stopping\n");
-		goto done;
-	}
-	printf(AG_TAG " step 2 (CX + GMU boot) ok\n");
-	if (ag_step < ANDR_STEP_CP) {
-		goto done;
+	/* Step 2: CX power + GMU firmware boot (expect 0xBABEFACE). Everything
+	 * from here writes to the GPU: honour the thermal limit first. */
+	if (from <= ANDR_STEP_GMU) {
+		if (!ag_thermal_ok("before power-up")) {
+			printf(AG_TAG " not powering the GPU (thermal refuse or probe failed)\n");
+			goto done;	/* nothing written: may be asked again when cooler */
+		}
+		if (!pool_kva && ag_pool_map()) {
+			goto done;
+		}
+		if (andr_power_cx(&gpu) || andr_gmu_boot(&gpu)) {
+			printf(AG_TAG " step 2 (CX + GMU boot) FAILED; stopping\n");
+			failed = true;
+			goto done;
+		}
+		printf(AG_TAG " step 2 (CX + GMU boot) ok\n");
+		reached = ANDR_STEP_GMU;
+		if (to < ANDR_STEP_CP) {
+			goto done;
+		}
 	}
 
 	/* Step 3: HFI tables + GX via OOB, GPU SMMU + hw_init + SQE + CP + ZAP. */
-	if (!ag_thermal_ok("before GX/CP") || andr_gmu_hfi(&gpu) || andr_gpu_cp(&gpu)) {
-		printf(AG_TAG " step 3 (GX + CP + ZAP) FAILED; stopping\n");
-		goto done;
-	}
-	printf(AG_TAG " step 3 (GX + CP + ZAP) ok\n");
-	if (ag_step < ANDR_STEP_MEMTEST) {
-		goto done;
+	if (from <= ANDR_STEP_CP) {
+		if (!ag_thermal_ok("before GX/CP")) {
+			printf(AG_TAG " step 3 (GX + CP + ZAP) not started (thermal refuse)\n");
+			goto done;
+		}
+		if (andr_gmu_hfi(&gpu) || andr_gpu_cp(&gpu)) {
+			printf(AG_TAG " step 3 (GX + CP + ZAP) FAILED; stopping\n");
+			failed = true;
+			goto done;
+		}
+		printf(AG_TAG " step 3 (GX + CP + ZAP) ok\n");
+		reached = ANDR_STEP_CP;
+		if (to < ANDR_STEP_MEMTEST) {
+			goto done;
+		}
 	}
 
-	/* Step 4: CP_MEM_WRITE 0xcafef00d and read it back. */
+	/* Step 4: CP_MEM_WRITE 0xcafef00d and read it back. Continuing a run whose
+	 * step 3 passed earlier: the thermal check of step 3 is done again here. */
+	if (from > ANDR_STEP_CP && !ag_thermal_ok("before CP_MEM_WRITE")) {
+		printf(AG_TAG " step 4 (CP_MEM_WRITE) not started (thermal refuse)\n");
+		goto done;
+	}
 	rc = andr_cp_memtest(&gpu);
 	printf(AG_TAG " step 4 (CP_MEM_WRITE) %s\n", rc ? "FAILED" : "PASS");
-	if (!rc) {
+	if (rc) {
+		failed = true;
+	} else {
+		reached = ANDR_STEP_MEMTEST;
 		/* F4, off unless andrgpupresent=1: the GPU goes to the framebuffer's
 		 * present path; this thread does not touch it again. */
 		andromeda_gpu_present_attach(&gpu, ag_pool_size);
 	}
 
 done:
+	andromeda_ctl_end(&andromeda_gpu_req, reached, failed, "gpu");
 	absolutetime_to_nanoseconds(mach_absolute_time() - t0, &ns);
-	printf(AG_TAG " bring-up thread finished in %llu ms\n", (unsigned long long)(ns / 1000000));
+	printf(AG_TAG " bring-up thread finished in %llu ms (steps up to %u passed%s)\n",
+	    (unsigned long long)(ns / 1000000), reached, failed ? ", then a step FAILED" : "");
 	(void)thread_terminate(current_thread());
 	thread_block(THREAD_CONTINUE_NULL);
 }
 
-void andromeda_gpu_init(void);
+/* Preconditions shared by andrgpu=N and "gpu N"; NULL if fine. */
+const char *
+andromeda_gpu_check(unsigned level)
+{
+	(void)level;
+	if (ag_hot_c == 0 || ag_hot_c > 95) {
+		return "andrgpuhot outside 1..95 C: refusing to power the GPU";
+	}
+	return NULL;
+}
+
+bool
+andromeda_gpu_spawn(void)
+{
+	return andromeda_ctl_spawn(ag_thread);
+}
 
 void
 andromeda_gpu_init(void)
 {
 	static bool started;
-	thread_t thread;
+	if (started) {
+		return;
+	}
+	started = true;
 	(void)PE_parse_boot_argn("andrgpu", &ag_step, sizeof(ag_step));
 	(void)PE_parse_boot_argn("andrgpupool", &ag_pool_arg, sizeof(ag_pool_arg));
 	(void)PE_parse_boot_argn("andrgpupoolsize", &ag_pool_size, sizeof(ag_pool_size));
 	(void)PE_parse_boot_argn("andrgpudelay", &ag_delay_s, sizeof(ag_delay_s));
 	(void)PE_parse_boot_argn("andrgpuhot", &ag_hot_c, sizeof(ag_hot_c));
-	if (!ag_step || started) {
+	if (!ag_step) {
 		return;
 	}
 	if (ag_step > ANDR_STEP_MEMTEST) {
@@ -540,11 +614,17 @@ andromeda_gpu_init(void)
 		printf(AG_TAG " refusing hot limit %u C (need 1..95)\n", ag_hot_c);
 		return;
 	}
-	started = true;
+	if (ag_step >= ANDR_STEP_CP && !andromeda_pas_claim(AG_PAS_OWNER)) {
+		printf(AG_TAG " andrgpu=%u: TrustZone PAS (ZAP) is taken by the modem boot this boot;"
+		    " not starting\n", ag_step);
+		return;
+	}
 	printf(AG_TAG " andrgpu=%u pool=0x%llx size=0x%llx delay=%us: starting bring-up thread\n",
 	    ag_step, (unsigned long long)ag_pool_arg, (unsigned long long)ag_pool_size, ag_delay_s);
-	if (kernel_thread_start(ag_thread, NULL, &thread) == KERN_SUCCESS) {
-		thread_deallocate(thread);
+	__atomic_store_n(&andromeda_gpu_req, andr_st(ANDR_PH_WAIT, ag_step, 0), __ATOMIC_RELEASE);
+	if (!andromeda_gpu_spawn()) {
+		__atomic_store_n(&andromeda_gpu_req, 0u, __ATOMIC_RELEASE);
+		printf(AG_TAG " kernel_thread_start failed\n");
 	}
 }
 #endif /* ARM64_BOARD_CONFIG_SWEET */

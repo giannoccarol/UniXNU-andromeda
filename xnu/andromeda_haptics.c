@@ -11,6 +11,10 @@
  *   andrhapmv=N        drive amplitude in mV (default and maximum 2552,
  *                      minimum 1160); larger values are clamped to 2552.
  *
+ * Runtime control (andromeda_ctl.c, andrctl=1, command "hap 1"): the same
+ * test, started from the PC, once per boot, with the same checks and the
+ * same amplitude limit. A boot-arg run still in its delay starts at once.
+ *
  * Hardware: the LRA is driven by the haptics block of the PM8150B, SPMI SID 3,
  * base 0xC000, no supply to switch on (qcom,haptics@c000 in the phone's live
  * device tree: actuator "lra", shape "sine", auto-resonance "qwd",
@@ -71,6 +75,16 @@ int andromeda_spmi_hap_read(unsigned reg, uint8_t *value);
 int andromeda_spmi_hap_write(unsigned reg, uint8_t value, uint8_t *readback);
 void andromeda_spmi_hap_quiesce(void);
 void andromeda_haptics_init(void);
+#include "andromeda_ctl.h"
+/* andromeda_ctl.c: runtime control and request state (andromeda_ctl.h). */
+extern void andromeda_ctl_delay(uint32_t *st, unsigned seconds);
+extern bool andromeda_ctl_is_boot(uint32_t *st);
+extern uint32_t andromeda_ctl_begin(uint32_t *st, const char *who);
+extern void andromeda_ctl_end(uint32_t *st, unsigned reached, bool failed, const char *who);
+extern bool andromeda_ctl_spawn(thread_continue_t fn);
+uint32_t andromeda_hap_req;
+const char *andromeda_hap_check(unsigned level);
+bool andromeda_hap_spawn(void);
 
 #define AH_TAG "ANDROMEDA HAP:"
 
@@ -326,7 +340,8 @@ ah_restore(void)
 	return failures;
 }
 
-static void
+/* True when both pulses ran and every written register reads as before. */
+static bool
 ah_run(void)
 {
 	unsigned apid = 0, owner = 0;
@@ -339,7 +354,7 @@ ah_run(void)
 	    open ? ": no write channel, nothing will be written" : "");
 	bool read_ok = ah_read_all("before", ah_before, true);
 	if (open || apid >= 512) {
-		return;
+		return false;
 	}
 	bool same = read_ok && ah_read_all("before (again)", again, false);
 	for (unsigned i = 0; same && i < AH_DUMPS; ++i) {
@@ -354,22 +369,22 @@ ah_run(void)
 	}
 	if (!same) {
 		printf(AH_TAG " the two reads before the test disagree or failed: nothing written\n");
-		return;
+		return false;
 	}
 	if (ah_before[AH_TYPE] != AH_TYPE_HAPTICS || ah_before[AH_SUBTYPE] != AH_SUBTYPE_8150B) {
 		printf(AH_TAG " TYPE/SUBTYPE %02x/%02x, expected %02x/%02x: nothing written\n",
 		    ah_before[AH_TYPE], ah_before[AH_SUBTYPE], AH_TYPE_HAPTICS, AH_SUBTYPE_8150B);
-		return;
+		return false;
 	}
 	if ((ah_before[AH_STATUS1] | again[AH_STATUS1]) & (AH_SC_DET | AH_BUSY)) {
 		printf(AH_TAG " STATUS1 %02x/%02x: short circuit or busy before the test: nothing written\n",
 		    ah_before[AH_STATUS1], again[AH_STATUS1]);
-		return;
+		return false;
 	}
 	if ((ah_before[AH_EN_CTL1] | ah_before[AH_PLAY]) & AH_ON) {
 		printf(AH_TAG " EN_CTL1 %02x PLAY %02x: the block is in use: nothing written\n",
 		    ah_before[AH_EN_CTL1], ah_before[AH_PLAY]);
-		return;
+		return false;
 	}
 
 	static bool hooked;
@@ -396,7 +411,7 @@ ah_run(void)
 	}
 	printf("%s%s\n", line, config_ok ? " ok" : " FAILED, no pulse");
 
-	bool motor_off = true;
+	bool motor_off = true, pulses_ok = false;
 	if (config_ok) {
 		(void)ah_read_all("configured", ah_config, true);
 		int result = ah_pulse(1);
@@ -405,6 +420,7 @@ ah_run(void)
 			result = ah_pulse(2);
 		}
 		motor_off = result != -7;
+		pulses_ok = result == 0;
 		if (result == 1) {
 			printf(AH_TAG " SC_DET (short circuit) seen: stopped, no further pulse, SC_CLR not written\n");
 		} else if (result) {
@@ -439,7 +455,8 @@ ah_run(void)
 		d += snprintf(diff + d, sizeof(diff) - (size_t)d, " 46=%02x(was %02x) 70=%02x(was %02x)",
 		    after[AH_EN_CTL1], ah_before[AH_EN_CTL1], after[AH_PLAY], ah_before[AH_PLAY]);
 	}
-	if (after_ok && failures == 0 && d == d0) {
+	bool restored = after_ok && failures == 0 && d == d0;
+	if (restored) {
 		printf(AH_TAG " restored: every written register reads as before\n");
 	} else {
 		printf("%s%s (restore write failures %u)\n", d == d0 ? AH_TAG " restore NOT verified:" : diff,
@@ -451,7 +468,9 @@ ah_run(void)
 	} else {
 		printf(AH_TAG " WARNING: motor off not confirmed (EN_CTL1 %02x PLAY %02x)\n",
 		    after[AH_EN_CTL1], after[AH_PLAY]);
+		return false;
 	}
+	return pulses_ok && restored;
 }
 
 static void
@@ -459,15 +478,37 @@ ah_thread(void *arg, wait_result_t result)
 {
 	(void)arg;
 	(void)result;
-	printf(AH_TAG " test in %u s: %u mV (VMAX code %u), play rate %u us, 2 x %u ms, pause %u ms\n",
-	    ah_delay_s, (ah_mv / AH_MV_LSB) * AH_MV_LSB, ah_mv / AH_MV_LSB, AH_RATE_US, AH_PULSE_MS,
-	    AH_GAP_MS);
-	ah_wait(ah_delay_s * 1000u);
+	bool boot = andromeda_ctl_is_boot(&andromeda_hap_req);
+	if (boot) {
+		printf(AH_TAG " test in %u s: %u mV (VMAX code %u), play rate %u us, 2 x %u ms, pause %u ms\n",
+		    ah_delay_s, (ah_mv / AH_MV_LSB) * AH_MV_LSB, ah_mv / AH_MV_LSB, AH_RATE_US, AH_PULSE_MS,
+		    AH_GAP_MS);
+		andromeda_ctl_delay(&andromeda_hap_req, ah_delay_s);
+	} else {
+		printf(AH_TAG " test now (andrctl): %u mV (VMAX code %u), play rate %u us, 2 x %u ms,"
+		    " pause %u ms\n", (ah_mv / AH_MV_LSB) * AH_MV_LSB, ah_mv / AH_MV_LSB, AH_RATE_US,
+		    AH_PULSE_MS, AH_GAP_MS);
+	}
+	(void)andromeda_ctl_begin(&andromeda_hap_req, "hap");
 	printf(AH_TAG " begin\n");
-	ah_run();
+	bool ok = ah_run();
 	printf(AH_TAG " done\n");
+	andromeda_ctl_end(&andromeda_hap_req, ok ? 1u : 0u, !ok, "hap");
 	(void)thread_terminate(current_thread());
 	thread_block(THREAD_CONTINUE_NULL);
+}
+
+const char *
+andromeda_hap_check(unsigned level)
+{
+	(void)level;
+	return NULL;    /* amplitude and delay are clamped at init; ah_run checks the block */
+}
+
+bool
+andromeda_hap_spawn(void)
+{
+	return andromeda_ctl_spawn(ah_thread);
 }
 
 void
@@ -475,19 +516,11 @@ andromeda_haptics_init(void)
 {
 	static bool started;
 	unsigned level = 0;
-	thread_t thread;
 	if (started) {
 		return;
 	}
 	started = true;
 	(void)PE_parse_boot_argn("andrhap", &level, sizeof(level));
-	if (level == 0) {
-		return;
-	}
-	if (level != 1) {
-		printf(AH_TAG " andrhap=%u: only 1 exists, nothing done\n", level);
-		return;
-	}
 	(void)PE_parse_boot_argn("andrhapdelay", &ah_delay_s, sizeof(ah_delay_s));
 	if (ah_delay_s < 5 || ah_delay_s > 600) {
 		ah_delay_s = 60;
@@ -499,8 +532,17 @@ andromeda_haptics_init(void)
 	} else if (ah_mv < AH_MV_MIN) {
 		ah_mv = AH_MV_MIN;
 	}
-	if (kernel_thread_start(ah_thread, NULL, &thread) == KERN_SUCCESS) {
-		thread_deallocate(thread);
+	if (level == 0) {
+		return;
+	}
+	if (level != 1) {
+		printf(AH_TAG " andrhap=%u: only 1 exists, nothing done\n", level);
+		return;
+	}
+	__atomic_store_n(&andromeda_hap_req, andr_st(ANDR_PH_WAIT, 1u, 0), __ATOMIC_RELEASE);
+	if (!andromeda_hap_spawn()) {
+		__atomic_store_n(&andromeda_hap_req, 0u, __ATOMIC_RELEASE);
+		printf(AH_TAG " kernel_thread_start failed\n");
 	}
 }
 #endif /* ARM64_BOARD_CONFIG_SWEET */

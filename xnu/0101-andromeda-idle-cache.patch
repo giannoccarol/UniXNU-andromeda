@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm64/cpu.c b/osfmk/arm64/cpu.c
 --- a/osfmk/arm64/cpu.c
 +++ b/osfmk/arm64/cpu.c
-@@ -120,6 +120,88 @@ sysreg_restore_t sysreg_restore __attribute__((section("__DATA, __const"))) = {
+@@ -120,6 +120,90 @@ sysreg_restore_t sysreg_restore __attribute__((section("__DATA, __const"))) = {
  //  1 : normal
  //  2 : overhead simulation (delay & flags)
  TUNABLE(unsigned int, wfi, "wfi", 1);
@@ -25,8 +25,10 @@ diff --git a/osfmk/arm64/cpu.c b/osfmk/arm64/cpu.c
 + * With andrpwr=1 (bsd/dev/andromeda_power.c, patch 0100) cpu_idle() also
 + * counts, per CPU: WFI entries, time in WFI, time in WFI periods >= 4 ms,
 + * and the number, time and maximum of the flushes, for ANDROMEDA PWR.
++ * Writeable: the runtime control ("idle cpu 0|1", bsd/dev/andromeda_ctl.c,
++ * andrctl=1) flips bit 0 while iOS runs; every idle entry reads it afresh.
 + */
-+TUNABLE(unsigned int, andromeda_idle, "andridle", 0);
++TUNABLE_WRITEABLE(unsigned int, andromeda_idle, "andridle", 0);
 +#define ANDROMEDA_IDLE_NO_FLUSH 1u
 +/* bsd/dev/andromeda_power.c; layout as bsd/dev/andromeda_power.h. */
 +extern int andromeda_pwr_measure;
@@ -57,7 +59,7 @@ diff --git a/osfmk/arm64/cpu.c b/osfmk/arm64/cpu.c
 +	    cpu >= 0 && cpu < ANDROMEDA_IDLE_CPUS;
 +	uint64_t start = measure ? mach_absolute_time() : 0;
 +
-+	if (!(andromeda_idle & ANDROMEDA_IDLE_NO_FLUSH)) {
++	if (!(__atomic_load_n(&andromeda_idle, __ATOMIC_RELAXED) & ANDROMEDA_IDLE_NO_FLUSH)) {
 +		platform_cache_idle_enter();
 +		if (measure) {
 +			uint64_t now = mach_absolute_time(), took = now - start;
@@ -90,7 +92,7 @@ diff --git a/osfmk/arm64/cpu.c b/osfmk/arm64/cpu.c
  #if DEVELOPMENT || DEBUG
  
  // wfi_flags
-@@ -487,6 +569,9 @@ cpu_idle(void)
+@@ -487,6 +571,9 @@ cpu_idle(void)
  	cpu_data_t     *cpu_data_ptr = getCpuDatap();
  	uint64_t        new_idle_timeout_ticks = 0x0ULL, lastPop;
  	bool idle_disallowed = false;
@@ -100,7 +102,7 @@ diff --git a/osfmk/arm64/cpu.c b/osfmk/arm64/cpu.c
  
  	if (__improbable((!idle_enable))) {
  		idle_disallowed = true;
-@@ -568,7 +653,9 @@ cpu_idle(void)
+@@ -568,7 +655,9 @@ cpu_idle(void)
  #endif /* MONOTONIC */
  
  	if (wfi) {
@@ -111,7 +113,7 @@ diff --git a/osfmk/arm64/cpu.c b/osfmk/arm64/cpu.c
  		platform_cache_idle_enter();
  #endif
  
-@@ -590,6 +677,9 @@ cpu_idle(void)
+@@ -590,6 +679,9 @@ cpu_idle(void)
  #else
  		__builtin_arm_wfi();
  #endif

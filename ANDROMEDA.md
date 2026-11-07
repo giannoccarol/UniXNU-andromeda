@@ -26,6 +26,7 @@ Riepilogo di cosa è pronto da provare e di cosa manca: [docs/COSA-MANCA.md](doc
 | 7. Batteria per iOS | **driver pronto** (patch 0091, `sweetbattery=2`): percentuale, tensione, corrente e stato di carica veri dal PM8150B al posto del 100 % fisso. Da provare |
 | 8. GPU | driver integrato (port di ios-flame): gradini `andrgpu=1..4`, copia a schermo con la GPU (F4, `andrgpupresent=1`, patch 0120) e librerie Turnip/Metal compilate (F5, workflow `gpu-userland-andromeda`). Firmware nel device tree Apple. Niente ancora provato sul telefono oltre il gradino 1 da preparare |
 | Ritorno in fastboot | **scritto, non provato** (`andrfastboot=N`): dopo N secondi sync dei dischi, motivo "bootloader" nel PMIC e reset PSCI. Da provare solo con l'utente presente |
+| Controllo a telefono acceso | **scritto e compilato, non provato** (`andrctl=1`, `scripts/andctl.py`): dal PC, via UDP sulla rete USB, avvia i driver a un livello e accende/spegne statistiche e risparmi senza riavviare. Vedi [sotto](#controllo-a-telefono-acceso-andrctl1) |
 | Avvio | misurato: sistema montato a 43 s, SpringBoard a 73 s, schermata di blocco a **116 s** dal `fastboot boot` |
 
 ## Compilare l'UEFI
@@ -119,6 +120,76 @@ succede perché c'è sempre un payload vero. Da sistemare nel modulo: leggere so
 **Perché 34 MiB.** Il bootloader carica il ramdisk a `0x80800000` e la zona "Kernel" della mappa finisce a
 `0x82A00000`; da `0x83722000` inizia "HLOS 1", memoria che il firmware usa per sé. Il payload da 64 MiB del Mi 9
 arriverebbe a `0x84800000`, sopra quella zona. 34 MiB con cluster da 512 byte restano un FAT32 valido.
+
+## Controllo a telefono acceso (`andrctl=1`)
+
+**Scritto e compilato, non ancora provato sul telefono.** Con l'argomento di boot `andrctl=1` il kernel
+(`xnu/andromeda_ctl.c`, patch 0140) riceve comandi dal PC mentre iOS gira e avvia o accende i driver andromeda senza
+riavviare e senza ricostruire l'immagine. Serve anche perché i 607 caratteri della riga di boot non bastano più per
+tutti gli interruttori. Senza `andrctl=1` non si apre nessuna porta.
+
+```bash
+ANDROMEDA_ARGS="andrctl=1" ./build-boot.sh             # immagine con il ricevitore acceso (9 caratteri in più)
+python3 scripts/udplog-punch.py phone/logs/xnu.log     # log, come sempre
+python3 scripts/andctl.py status                       # stato di tutti i driver, una riga
+python3 scripts/andctl.py gpu 1                        # GPU gradino 1 adesso
+python3 scripts/andctl.py idle keys 50                 # un risparmio P1
+```
+
+Il PC deve avere `192.168.7.1` sull'interfaccia USB, come per il log. La risposta è una sola riga, `ok COMANDO: cosa
+succede` oppure `no COMANDO: perché no`, e finisce anche nel log come `ANDROMEDA CTL: …` (`scripts/andstatus.py` mostra
+l'ultima). `andctl.py` esce con 0 per `ok`, 1 per `no`, 2 se non arriva risposta. Le risposte passano il firewall del
+PC (ufw) senza regole né sudo perché sono risposte al pacchetto partito dal PC.
+
+| Comando | Cosa fa | Argomento di boot equivalente |
+|---|---|---|
+| `status`, `help` | stato di ogni driver (`-`, `wait:N` in attesa del suo ritardo, `run:A-B`, `done:N` = passato fino a N, `fail:N`), proprietario di PAS, consumi, risparmi, slider; elenco dei comandi | — |
+| `gpu 1`–`4` | gradini della GPU fino a N | `andrgpu=N` |
+| `bt 1`–`2` | Bluetooth B1 o B1+B2 | `andrbt=N` |
+| `hap 1` | le due vibrazioni di prova | `andrhap=1` |
+| `cam 1` | fotocamera C1 | `andrcam=1` |
+| `wlan 1`–`2` | Wi-Fi W0 (sola lettura) o W0+W1 | `andrwlan=N` |
+| `bl 1`–`2` | luminosità: prova o servizio | `andrbl=N` |
+| `pwr 0`/`1` | righe `ANDROMEDA PWR` e conteggio idle spenti/accesi | `andrpwr=1` |
+| `idle` | mostra i cinque risparmi P1 | — |
+| `idle cpu 0`/`1`, `fb 0`/`1`, `usb 0`/`2`–`20`, `keys 0`/`20`–`200`, `touch 0`/`20`–`1000` | un risparmio P1, `0` = spento | `andridle` (bit 0), `andrfbpark`, `andrusbidle`, `andrkeysidle`, `andrtouchidle` |
+| `slider 1` | avvia la lettura dello slider | `andrslider=1` |
+| `slidercam 0`–`2` | polarità dello slider per `andromedad` (si prova senza riavviare) | `andrslidercam=N` |
+| `fastboot` | ritorno in fastboot adesso | `andrfastboot=N` |
+
+Regole, uguali a quelle degli argomenti di boot (stesso codice, stessi controlli):
+
+- **Un gradino già passato non riparte, una corsa fallita non si ripete.** GPU e Wi-Fi proseguono dal gradino
+  successivo (`gpu 3` dopo un avvio con `andrgpu=2` esegue solo il gradino 3; `wlan 2` dopo `wlan 1` esegue solo W1);
+  la luminosità può passare dalla prova (`bl 1`) al servizio (`bl 2`); Bluetooth, fotocamera e vibrazione girano una
+  volta per avvio. Una corsa di un argomento di boot ancora nel suo ritardo parte subito, al livello più alto dei due.
+- **Limiti invariati**: soglie termiche della GPU (ricontrollate anche prima del gradino 4 quando prosegue una corsa
+  già passata dal 3), tensione massima della vibrazione, valori dei risparmi entro gli
+  stessi intervalli degli argomenti di boot (fuori intervallo il comando è rifiutato, non corretto).
+- **GPU gradino 3 e Wi-Fi W1 mai nello stesso avvio.** Nel codice la risorsa in comune è **TrustZone PAS** (lo ZAP
+  della GPU e l'avvio del modem), non la mailbox AOP QMP: la GPU andromeda non apre mai QMP. Il primo dei due che
+  chiede PAS lo tiene per tutto l'avvio (`andromeda_pas_claim`); vale anche per gli argomenti di boot: con
+  `andrgpu>=3` e `andrwlan=2` nella stessa riga parte la GPU e il Wi-Fi si rifiuta con un messaggio (prima la regola
+  era solo scritta qui).
+- **Una corsa hardware alla volta**: GPU, Bluetooth, fotocamera, vibrazione, Wi-Fi e il voto SE13 della sonda si danno il turno
+  (`andromeda_ctl_begin`); una chiesta mentre un'altra gira aspetta (`ANDROMEDA CTL: bt waits for gpu …`). Vale
+  anche per le corse degli argomenti di boot, che prima potevano sovrapporsi se i ritardi coincidevano.
+- **Bluetooth e sonda**: il voto del clock SE13 di `andrprobe=2`, lo stesso bit che usa il Bluetooth, prende anch'esso
+  il turno, così i due non si sovrappongono qualunque siano i ritardi.
+
+Perimetro (cosa entra e cosa no):
+
+- solo pacchetti arrivati su `ue0`, la rete USB (verificato con `IP_RECVIF`), da `192.168.7.1`; tutto il resto è
+  scartato senza risposta (`ANDROMEDA CTL: dropped …` nel log);
+- solo la lista chiusa qui sopra (`xnu/andromeda_ctl.h`, testata sul PC da `xnu/test_andromeda_ctl.c`): ASCII
+  stampabile, al massimo 96 caratteri, parole fisse e piccoli numeri decimali; nessun indirizzo, registro, percorso o
+  testo libero arriva a un driver;
+- 8 comandi di fila, poi uno ogni 250 ms;
+- un comando non esegue mai il lavoro nel ricevitore: avvia il thread del driver, che fa quello che farebbe al boot.
+
+Cambi per gli avvii senza `andrctl` (dovuti al gestore, tutti più prudenti): la regola PAS e i turni delle corse
+hardware qui sopra; la GPU che si ferma per la temperatura prima del gradino 3 scrive `not started (thermal refuse)` e
+non conta come fallita; la riga finale della GPU dice fino a quale gradino è passata.
 
 ## Provare sul telefono
 

@@ -1,0 +1,7 @@
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -122,3 +122,4 @@
+ bsd/dev/andromeda_haptics.c		standard
++bsd/dev/andromeda_ctl.c			standard
+ bsd/dev/cepheus_gpu_compile.c		standard
+ bsd/dev/cepheus_gmu_workspace.c		standard
