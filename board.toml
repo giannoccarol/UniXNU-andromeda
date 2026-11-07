@@ -301,6 +301,16 @@ kernel_args = [
   # ENOENT, so assetsd and Photos aborted (2026-11-07). andrsbext=0 restores
   # ENOENT.
   # "andrsbext=1",  (default; not passed, see the boot-args length note)
+  # Frame rate (2026-11-08, sweetfb_stats=1 sweetfb_hz=60, home pages swiped
+  # from the PC): backboardd made 18 frames/s and 12 were shown, because the
+  # CPU copy (53 ms with the fence wait) ran inside the vsync timer and held
+  # back the vsync notifications that pace backboardd. andrfbasync=1 (patch
+  # 0202) copies on a thread call instead; in test.
+  # "andrfbasync=0",  (default; not passed, see the boot-args length note)
+  # GPU frequency voted to the GMU: 1 = 257 MHz (default) .. 5 = 585 MHz, the
+  # levels of Android's device tree. For measurements only; no load-based
+  # scaling yet.
+  # "andrgpulevel=1",  (default; not passed, see the boot-args length note)
 ]
 
 [payload.adt]

@@ -160,6 +160,9 @@ struct andr_gpu {
 	uint32_t hfi_seq;
 	uint32_t pt_next;		/* next free 4K table in the arena */
 	bool zap_authenticated;
+	/* GMU perf vote: index into the A640 levels (1 = 257 MHz .. 5 = 585 MHz,
+	 * live-fdt qcom,gpu-pwrlevels-0); boot-arg andrgpulevel, default 1. */
+	uint32_t perf_level;
 };
 
 /* ---- environment supplied by andromeda_gpu.c ---- */

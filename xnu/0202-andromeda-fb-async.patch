@@ -1,0 +1,162 @@
+andromeda: copy frames into the panel on a thread call (boot-arg andrfbasync=1)
+instead of inside the vsync timer of SweetFramebuffer (ios-sweet patch 0046
+and later, dipa-studio/ios-sweet; see CREDITS.md), so vsync notifications keep
+their period while a frame is copied. Needs 0094, 0102, 0120 and 0201.
+
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -51,6 +51,7 @@
+ #include <IOKit/system.h>
+ #include <pexpert/pexpert.h>
+ #include <kern/clock.h>
++#include <kern/thread_call.h>
+ #include <sys/proc.h>
+ 
+ /*
+@@ -167,6 +168,21 @@
+ 	 */
+ 	bool          fVsyncParked;   /* timer not armed; fLock */
+ 	void vsyncResume(void);
++	/*
++	 * andromeda, boot-arg andrfbasync=1 (patch 0202): the copy into the panel
++	 * runs on a thread call instead of inside the vsync timer, so the vsync
++	 * notifications that pace backboardd keep their 60 Hz while a frame is
++	 * copied. With the copy in the timer (2026-11-08, sweetfb_hz=60, home
++	 * screen pages swiped from the PC) backboardd made 18 frames/s, 12 were
++	 * shown, and a copy took 53 ms on average with the fence wait of patch
++	 * 0201. The thread call shows the latest frame, then any newer one, and
++	 * stops; one at a time (fPresentBusy, under fLock).
++	 */
++	uint32_t      fAsync;
++	thread_call_t fPresentCall;
++	bool          fPresentBusy;
++	uint8_t       fAsyncRecord[SWEET_FB_SWAP_REC_SIZE];   // thread call-owned
++	void presentAsync(void);
+ 
+ 	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
+ 	void addClient(IOMobileFramebufferUserClient *client);
+@@ -183,6 +199,13 @@
+ 
+ OSDefineMetaClassAndStructors(AppleCLCD, IOMobileFramebuffer);
+ 
++/* andrfbasync=1 (patch 0202): the thread call that copies frames. */
++static void
++sweet_fb_present_call(thread_call_param_t fb, __unused thread_call_param_t unused)
++{
++	((AppleCLCD *)fb)->presentAsync();
++}
++
+ class IOMobileFramebufferUserClient : public IOUserClient {
+ 	OSDeclareDefaultStructors(IOMobileFramebufferUserClient);
+ 
+@@ -274,6 +297,15 @@
+ 
+ 	PE_parse_boot_argn("sweetfb_fixedtimer", &fFixedTimer, sizeof(fFixedTimer));
+ 	PE_parse_boot_argn("sweetfb_stats", &fPerfStats, sizeof(fPerfStats));
++	PE_parse_boot_argn("andrfbasync", &fAsync, sizeof(fAsync));
++	if (fAsync) {
++		fPresentCall = thread_call_allocate_with_priority(&sweet_fb_present_call, this,
++		    THREAD_CALL_PRIORITY_HIGH);
++		if (fPresentCall == NULL) {
++			fAsync = 0;
++		}
++		IOLog("SWEET FB: frames copied on a thread call, vsync stays periodic (andrfbasync=%u)\n", fAsync);
++	}
+ 	uint32_t park = 0;
+ 	PE_parse_boot_argn("andrfbpark", &park, sizeof(park));
+ 	if (park) {
+@@ -314,6 +346,12 @@
+ 		    (IOMobileFramebufferUserClient *)fb->fClients->getObject(i);
+ 		client->notify(SWEET_FB_NOTIFY_VSYNC, values, 6);
+ 	}
++	if (fb->fPowerOff && fb->fPresentBusy) {
++		/* andrfbasync: blank (and park) only after the copy in flight */
++		IOLockUnlock(fb->fLock);
++		fb->finishTick(sender);
++		return;
++	}
+ 	if (fb->fPowerOff) {
+ 		bool blank = !fb->fBlanked;
+ 		bool park = __atomic_load_n(&andromeda_idle_fb_park, __ATOMIC_RELAXED) != 0;
+@@ -343,12 +381,21 @@
+ 	}
+ 	bool flush = fb->fDirty && (count % fb->fFlushTicks) == 0;
+ 	uint8_t *rec = NULL;
+-	if (flush) {
++	bool kick = false;
++	if (flush && fb->fAsync) {
++		if (!fb->fPresentBusy) {
++			fb->fPresentBusy = true;
++			kick = true;
++		}
++	} else if (flush) {
+ 		rec = fb->fPresentRecord;
+ 		memcpy(rec, fb->fPending, SWEET_FB_SWAP_REC_SIZE);
+ 		fb->fDirty = false;
+ 	}
+ 	IOLockUnlock(fb->fLock);
++	if (kick) {
++		thread_call_enter(fb->fPresentCall);
++	}
+ 	if (rec != NULL) {
+ 		uint64_t begin = mach_absolute_time();
+ 		fb->present(rec);
+@@ -360,6 +407,33 @@
+ 	fb->finishTick(sender);
+ }
+ 
++/* andrfbasync=1: show the latest frame, then any newer one; one copy at a time. */
++void
++AppleCLCD::presentAsync(void)
++{
++	for (;;) {
++		IOLockLock(fLock);
++		if (!fDirty || fPowerOff) {
++			fPresentBusy = false;
++			IOLockUnlock(fLock);
++			return;
++		}
++		memcpy(fAsyncRecord, fPending, SWEET_FB_SWAP_REC_SIZE);
++		fDirty = false;
++		IOLockUnlock(fLock);
++		uint64_t begin = mach_absolute_time();
++		present(fAsyncRecord);
++		uint64_t elapsed = mach_absolute_time() - begin;
++		IOLockLock(fLock);
++		fCopyTicks += elapsed;
++		if (elapsed > fCopyMax) {
++			fCopyMax = elapsed;
++		}
++		++fPresented;
++		IOLockUnlock(fLock);
++	}
++}
++
+ void
+ AppleCLCD::finishTick(IOTimerEventSource *sender)
+ {
+@@ -367,17 +441,19 @@
+ 	if (fPerfStats && now - fStatsAt >= fStatsPeriod) {
+ 		uint64_t ns, copy_ns, max_ns;
+ 		absolutetime_to_nanoseconds(now - fStatsAt, &ns);
+-		absolutetime_to_nanoseconds(fCopyTicks, &copy_ns);
+-		absolutetime_to_nanoseconds(fCopyMax, &max_ns);
+ 		IOLockLock(fLock);
+ 		uint64_t submitted = fSubmitted, overwritten = fOverwritten;
++		uint64_t presented = fPresented, copied = fCopiedBytes;
++		absolutetime_to_nanoseconds(fCopyTicks, &copy_ns);
++		absolutetime_to_nanoseconds(fCopyMax, &max_ns);
+ 		fSubmitted = fOverwritten = 0;
++		fPresented = fCopyTicks = fCopyMax = fCopiedBytes = 0;
+ 		bool off = fPowerOff;
+ 		IOLockUnlock(fLock);
+ 		IOLog("SWEET PERF: ms=%llu submitted=%llu presented=%llu overwritten=%llu copy_us=%llu max_us=%llu bytes=%llu missed=%llu off=%u\n",
+-		    ns / 1000000, submitted, fPresented, overwritten, copy_ns / 1000,
+-		    max_ns / 1000, fCopiedBytes, fMissed, off ? 1u : 0u);
+-		fPresented = fCopyTicks = fCopyMax = fCopiedBytes = fMissed = 0;
++		    ns / 1000000, submitted, presented, overwritten, copy_ns / 1000,
++		    max_ns / 1000, copied, fMissed, off ? 1u : 0u);
++		fMissed = 0;
+ 		fStatsAt = now;
+ 	}
+ 	if (!fFixedTimer) {

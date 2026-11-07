@@ -672,11 +672,15 @@ int andr_gmu_hfi(struct andr_gpu *g)
 	msg[1] = 0;
 	rc |= hfi_send(g, 14, msg, 2);
 	rc |= hfi_send(g, 10, msg, 1);
+	uint32_t lvl = g->perf_level;
+	if (lvl < 1 || lvl >= sizeof(gpu_khz) / sizeof(gpu_khz[0]))
+		lvl = 1;		/* 257 MHz */
 	msg[1] = 1;
-	msg[2] = 1;			/* 257 MHz */
+	msg[2] = lvl;
 	msg[3] = 0;
 	rc |= hfi_send(g, 30, msg, 4);
-	andr_log("hfi: perf/bw tables, core fw start, start, perf vote 257 MHz -> %d\n", rc);
+	andr_log("hfi: perf/bw tables, core fw start, start, perf vote %u MHz (level %u) -> %d\n",
+	    gpu_khz[lvl] / 1000, lvl, rc);
 
 	wr32(GMU_REG(GMU_H2G_SET), 1u << 30);	/* OOB GPU_SET: the GMU raises GX */
 	int ack = wait_bit(GMU_REG(GMU_G2H_INFO), 1u << 31, 1, 1000);

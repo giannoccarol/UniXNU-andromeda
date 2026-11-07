@@ -399,6 +399,7 @@ andr_gpu_temperature(int *max_mc)
 
 static struct andr_gpu gpu;
 static unsigned ag_step, ag_hot_c = 80;
+static unsigned ag_level = 1;	/* andrgpulevel: GMU perf vote, 1 (257 MHz) .. 5 (585 MHz) */
 static uint64_t ag_pool_arg = AG_POOL_DEFAULT, ag_pool_size = ANDR_POOL_SIZE;
 static unsigned ag_delay_s = 90;
 
@@ -461,6 +462,7 @@ ag_pool_map(void)
 	memset((void *)va, 0, (size_t)size);
 	__asm__ volatile("dsb osh" ::: "memory");
 	andr_gpu_state_init(&gpu, base);
+	gpu.perf_level = ag_level;
 	printf(AG_TAG " pool at pa 0x%llx size 0x%llx (unmanaged, write-combining)\n",
 	    (unsigned long long)base, (unsigned long long)size);
 	return 0;
@@ -621,6 +623,11 @@ andromeda_gpu_init(void)
 	(void)PE_parse_boot_argn("andrgpupoolsize", &ag_pool_size, sizeof(ag_pool_size));
 	(void)PE_parse_boot_argn("andrgpudelay", &ag_delay_s, sizeof(ag_delay_s));
 	(void)PE_parse_boot_argn("andrgpuhot", &ag_hot_c, sizeof(ag_hot_c));
+	(void)PE_parse_boot_argn("andrgpulevel", &ag_level, sizeof(ag_level));
+	if (ag_level < 1 || ag_level > 5) {
+		printf(AG_TAG " andrgpulevel %u out of 1..5: using 1 (257 MHz)\n", ag_level);
+		ag_level = 1;
+	}
 	if (!ag_step) {
 		return;
 	}
