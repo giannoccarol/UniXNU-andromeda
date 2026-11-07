@@ -1143,14 +1143,27 @@ touch_thread(void *arg, wait_result_t result)
 	printf("SWEET TOUCH (cepheus): controller ready %s (transport %s)\n",
 	    ready ? "seen" : "NOT seen in 3 s", st.gpio_i2c ? "GPIO" : "GENI SE17");
 	touch_log_sysregs(ready ? "after reset" : "firmware silent");
+	/* 2026-11-07, after TWRP updated the controller firmware: 0x20000024 reads
+	 * 01 (M3 held, as hold_m3() in the ST/Xiaomi flash code leaves it) and the
+	 * boot option 0x20000025 reads 22, where flash_unlock() writes 20; neither
+	 * the reset GPIO nor a 0x80 system reset released it. Register writes only,
+	 * never a flash command. Step 1: clear the hold. Step 2: boot option 20,
+	 * then a system reset. */
 	if (!ready) {
-		/* Linux fts_system_reset() without a reset GPIO: 0x80 into the system
-		 * control register. Also clears an M3 hold (bit 0) left behind. */
-		int sr = fts_write_hw(0x20000024u, 0x80u);
-		printf("SWEET TOUCH (cepheus): software system reset (FA 20000024 80) err=%d\n", sr);
-		ready = touch_drain_log("boot event after soft reset", 3000, FTS_EVT_CONTROLLER_READY);
-		printf("SWEET TOUCH (cepheus): controller ready after soft reset: %s\n", ready ? "seen" : "NOT seen");
-		touch_log_sysregs("after soft reset");
+		int e1 = fts_write_hw(0x20000024u, 0x00u);
+		printf("SWEET TOUCH (cepheus): release M3 hold (FA 20000024 00) err=%d\n", e1);
+		ready = touch_drain_log("boot event after M3 release", 3000, FTS_EVT_CONTROLLER_READY);
+		printf("SWEET TOUCH (cepheus): controller ready after M3 release: %s\n", ready ? "seen" : "NOT seen");
+		touch_log_sysregs("after M3 release");
+	}
+	if (!ready) {
+		int e2 = fts_write_hw(0x20000025u, 0x20u);
+		int e3 = fts_write_hw(0x20000024u, 0x80u);
+		printf("SWEET TOUCH (cepheus): boot option 20 (FA 20000025 20) err=%d, system reset (FA 20000024 80) err=%d\n",
+		    e2, e3);
+		ready = touch_drain_log("boot event after boot option", 3000, FTS_EVT_CONTROLLER_READY);
+		printf("SWEET TOUCH (cepheus): controller ready after boot option + reset: %s\n", ready ? "seen" : "NOT seen");
+		touch_log_sysregs("after boot option + reset");
 	}
 	(void)touch_drain_log("pending event", 50, 0);
 	int scan_error = touch_scan_on("after reset");
