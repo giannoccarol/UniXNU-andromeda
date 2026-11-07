@@ -18,7 +18,7 @@ Chi ha fatto il lavoro su cui costruiamo è elencato in [CREDITS.md](CREDITS.md)
 
 | # | Componente | Stato | Difficoltà |
 |---|---|---|---|
-| 1 | Touch | il chip risponde e segnala contatti, ma non le dita: **prova passo per passo pronta** | bassa-media |
+| 1 | Touch | **funziona** (7 novembre): mancava `vdd_boost_vreg` (pin 5 del PM8150B, `andrboost=1`); restano multitouch e pulizia delle diagnostiche | bassa |
 | 2 | Allineamento al ramo `feat/adreno640` del Mi 9 | **fatto** (6 novembre) | media |
 | 3 | Tasti, Home, blocco e spegnimento schermo | **funzionano** | bassa |
 | 4 | Avvio senza PC (partizione `boot`) | pronto, da fare con conferma dell'utente | bassa |
@@ -36,7 +36,9 @@ Chi ha fatto il lavoro su cui costruiamo è elencato in [CREDITS.md](CREDITS.md)
 | — | iCloud, Face ID / Touch ID, Apple Pay | non realizzabile (Secure Enclave, server Apple) | — |
 
 ### 1. Touch
-- **Stato**: kernel con il driver ST-FTS del Mi 9 reso configurabile (`sweettouchrst=54`, `sweettouchvddio=37`, tile
+- **Stato (7 novembre)**: tocchi e trascinamenti arrivano a iOS. Servivano tre cose: L1C votato a 1,8 V (patch 0136), nessun
+  impulso di reset (`sweettouchreset=0`, il firmware parte all'accensione) e `vdd_boost_vreg` acceso (`andrboost=1`).
+- **Prima**: kernel con il driver ST-FTS del Mi 9 reso configurabile (`sweettouchrst=54`, `sweettouchvddio=37`, tile
   TLMM per pin, elenco chiuso di pin ammessi). Stessi parametri confermati sul Mi 9: I2C via GPIO, voto RPMh per `ldoc1`,
   60 s di attesa.
 - **Fatto quando**: tocchi e trascinamenti arrivano a iOS (log `SWEET TOUCH`, risposta dell'interfaccia).
