@@ -213,6 +213,14 @@ metal2vulkan, l'archivio del sorgente corrispondente completo.
 | **Sviluppatori Mesa** (freedreno, Turnip), Mesa `e6dd90e0` (MIT): `a6xx.xml`, `tu_clear_blit.cc` | campi e allineamenti dei registri A2D; l'idea di scrivere una destinazione non allineata dall'indirizzo allineato sottostante con uno scostamento in x; nessun codice copiato |
 | **dipa-studio**, `ios-sweet` (`45263bee`, MIT) | `SweetFramebuffer.cpp` e `SweetSurface` che la 0120 modifica |
 
+## GPU: user client NativeAdreno e Metal (fasi F5/F6, patch 0200, `andrmtl=N`)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **Nick Wylynko** (NWylynko), [`ios-flame`](https://github.com/NWylynko/ios-flame) (commit `745c4341`, MIT, copia in `licenses/ios-flame-MIT.txt`; i file XNU modificati sono APSL 2.0): patch `0115-flame-gpu-v2-client-turnip` (`sweet_gpu.c` e il client v2 di `SweetAccelerator.cpp`), `0117-flame-gpu-pool-accounting`, le parti di `0109-flame-gpu-async` e `0113-flame-gpu-unmap-after-fence` che la 0115 usa, `HANDOFF.md` ("The big trap") | in `xnu/andromeda_gpu_mtl.c` / `.h`: il pool dei BO in RAM che XNU non gestisce, con la lista libera ordinata e fusa in unità da 16 KiB; una finestra GPU da 4 GB per connessione da 64 GB in su; le tabelle 4K sotto la L1 condivisa (`map_4k`, `pt_walk`, `a6_unmap`); il submit di fino a 16 IB avvolti come `a6xx_submit` (invalidazione CCU, IB, `CACHE_FLUSH_TS` che scrive la fence) con il controllo dello spazio nel ring; le attese a fette e il rilevamento del blocco senza progressi; i metodi dell'ABI (`v2Method`), l'attesa dell'ultima fence alla chiusura, i descrittori "zombie" e la contabilità del pool per client. Nostri: l'aggancio dopo il gradino 4, nessun reset (un blocco ferma Metal per l'avvio), i controlli più stretti (IB dentro un BO mappato del chiamante, import solo da RAM gestita da XNU, BO in sola lettura mappati in sola lettura, pool controllato pagina per pagina) e il test sull'host `xnu/test_andromeda_gpu_mtl.c` |
+| **UniXNU contributors**, NativeAdreno (oggi [`UniXNU/Adreno740`](https://github.com/UniXNU/Adreno740): `NativeAdrenoABI.h`, `NativeAdrenoPublish.cpp`; MIT, copia in `licenses/NativeAdreno-MIT.txt`), nella copia di ios-flame `phone/turnip/NativeAdrenoABI.h` (`745c4341`) | `xnu/NativeAdrenoABI.h` senza modifiche: l'ABI v1 (record, metodi, flag) che parla il backend darwin di Turnip; il tunnel `'NTNL'` e i tipi di apertura `0x4147`/2. `scripts/test-mtl-abi.py` controlla che sia identico al pin dello userland (`phone/turnip/build.sh`) |
+| **Kernel Linux** drm/msm (GPL-2.0), `a6xx_gpu.c` `a6xx_submit`; **Sviluppatori Mesa** (freedreno, MIT), `adreno_pm4.xml`, `a6xx.xml` | solo documentazione, tramite ios-flame: l'involucro dei submit e i codici degli eventi CP (nessun codice copiato) |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |
