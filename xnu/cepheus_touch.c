@@ -588,6 +588,16 @@ touch_drain_log(const char *why, unsigned ms, unsigned want)
 	unsigned events = 0;
 	for (unsigned t = 0; t < ms;) {
 		if (fts_read_cmd(FTS_CMD_READ_ALL_EVENTS, e, sizeof(e)) != 0) { return false; }
+		/* All 0xFF: the firmware does not answer yet (seen with touch FW 0x50
+		 * right after reset): keep waiting instead of counting events. */
+		if (e[0] == 0xffu && e[1] == 0xffu && e[7] == 0xffu) {
+			if (t == 0 || (t % 1000u) == 0) {
+				printf("SWEET TOUCH (cepheus): %s +%ums: all 0xFF (firmware not answering)\n", why, t);
+			}
+			touch_wait(10);
+			t += 10;
+			continue;
+		}
 		if (e[0] != 0) {
 			if (++events > 2u * FTS_FIFO_DEPTH) { return false; } /* never spin */
 			printf("SWEET TOUCH (cepheus): %s +%ums %02x %02x %02x %02x %02x %02x %02x %02x\n",
@@ -615,6 +625,9 @@ touch_fts(void)
 	memcpy(frame.y, st.y, sizeof(frame.y));
 	int err = fts_read_cmd(FTS_CMD_READ_ALL_EVENTS, buf, FTS_FIFO_EVENT_SIZE);
 	if (err) { return err; }
+	if (buf[0] == 0xffu && buf[1] == 0xffu && buf[7] == 0xffu) {
+		return EIO; /* firmware not answering: no events, no 31-event read */
+	}
 	if (touch_raw_log) {
 		touch_raw_polls++;
 		if (buf[0] != 0) {
@@ -1014,7 +1027,9 @@ touch_thread(void *arg, wait_result_t result)
 	int power = 0;
 	(void)PE_parse_boot_argn("sweettouchpower", &power, sizeof(power));
 	if (power) {
-		if (!st.gpio_i2c || cepheus_touch_power_enable() != 0) { goto out; }
+		/* andromeda: also with the GENI transport (sweettouchgpio=0), which
+		 * is how Linux/TWRP talk to this controller (c80000.i2c). */
+		if (cepheus_touch_power_enable() != 0) { goto out; }
 		touch_wait(10);
 	}
 	printf("SWEET TOUCH (cepheus): TLMM reset=%#x irq=%#x vddio=%#x\n",
@@ -1023,8 +1038,8 @@ touch_thread(void *arg, wait_result_t result)
 	    touch_rd(touch_tile(TOUCH_PIN_VDDIO), TOUCH_GPIO_IO(TOUCH_PIN_VDDIO)));
 	/* SDA/SCL on qup17, IRQ input with pull-up, VDDIO enable high. */
 	if (!st.gpio_i2c) {
-		touch_gpio(TOUCH_PIN_SDA, 1, 0, 0, false, false);
-		touch_gpio(TOUCH_PIN_SCL, 1, 0, 0, false, false);
+		touch_gpio(TOUCH_PIN_SDA, 1, 3, 0, false, false); /* qup17, pull-up, 2 mA (TWRP) */
+		touch_gpio(TOUCH_PIN_SCL, 1, 3, 0, false, false);
 	}
 	touch_gpio(TOUCH_PIN_IRQ, 0, 3, 3, false, false);
 	touch_gpio(TOUCH_PIN_VDDIO, 0, 0, 0, true, true);
@@ -1060,8 +1075,9 @@ touch_thread(void *arg, wait_result_t result)
 	 * event (Linux allows 100 ms; give it 1 s), logging whatever the FIFO
 	 * holds; then log what the IC answers to the scan command.
 	 */
-	bool ready = touch_drain_log("boot event", 1000, FTS_EVT_CONTROLLER_READY);
-	printf("SWEET TOUCH (cepheus): controller ready %s\n", ready ? "seen" : "NOT seen in 1 s");
+	bool ready = touch_drain_log("boot event", 3000, FTS_EVT_CONTROLLER_READY);
+	printf("SWEET TOUCH (cepheus): controller ready %s (transport %s)\n",
+	    ready ? "seen" : "NOT seen in 3 s", st.gpio_i2c ? "GPIO" : "GENI SE17");
 	(void)touch_drain_log("pending event", 50, 0);
 	int scan_error = touch_scan_on("after reset");
 	printf("SWEET TOUCH (cepheus): active scan err=%d\n", scan_error);

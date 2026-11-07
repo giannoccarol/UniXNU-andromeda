@@ -120,7 +120,9 @@ kernel_args = [
   # regulator enable on GPIO37 (only ever driven high: it is also
   # disp_vddio_vreg). Keys stay off until touch is verified.
   "sweettouch=1",
-  "sweettouchgpio=1",
+  # andromeda 2026-11-07: GENI SE17 hardware I2C (FIFO_DISABLE=0 here), as
+  # Linux/TWRP use it; touch firmware 0x50 answers only 0xFF over GPIO I2C.
+  "sweettouchgpio=0",
   "sweettouchpower=1",
   "sweettouchdelay=120",
   "sweettouchrst=54",
@@ -182,7 +184,8 @@ kernel_args = [
   "andrslider=1",  # needs the kernel with andromeda_io_map() (commit 7dda8db)
   # Slider opens the Camera app (patch 0097 + phone/andromedad): 1 = open is
   # hall42=0 hall114=1, 2 = reversed. Needs the iOS root with andromedad.
-  # "andrslidercam=0",  (default; not passed, see the boot-args length note)
+  # Verified on the phone 2026-11-07: slider open = hall42=0 hall114=1.
+  "andrslidercam=1",
   # CPU at full clock (andromeda_cpufreq.c, method of ios-flame for the same
   # SoC): Gold/Prime drop to <= 1.4 GHz above 80 C and return below 70 C; an
   # unreadable temperature counts as hot.
