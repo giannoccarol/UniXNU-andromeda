@@ -29,13 +29,24 @@ GPU_DIR="$(cd "$GPU" && pwd)"
 exec docker run --rm --privileged -v /dev:/dev -e TURNIP_SMOKE="${TURNIP_SMOKE:-0}" \
   -v "$PWD/scripts:/scripts:ro" -v "$IMG_DIR:/out" \
   -v "$PWD/phone:/phone:ro" -v "$PWD/inputs/$NAME/userland:/userland:ro" \
-  -v "$GPU_DIR:/gpu:ro" \
+  -v "$GPU_DIR:/gpu:ro" -v "$PWD/inputs/$NAME/modemfw:/modemfw:ro" \
   ios-root-tools bash -c '
     set -euo pipefail
     img=/out/$1; simg=/out/$2
     mkdir -p /mnt/root /mnt/chk
     echo "== mount $1 read-write =="
     mount -t hfsplus -o loop,force,rw "$img" /mnt/root
+    # Modem firmware for the Wi-Fi driver (andrwlan=2 reads /fw/modem), as
+    # rebuild-root.sh does, without the whole-partition image and its digest.
+    if [ -n "$(ls -A /modemfw 2>/dev/null)" ]; then
+      echo "== modem firmware -> /fw/modem =="
+      mkdir -p /mnt/root/fw/modem
+      for f in /modemfw/*; do
+        case "${f##*/}" in modem.img|*.local|SHA256SUMS) continue ;; esac
+        cp -a "$f" /mnt/root/fw/modem/
+      done
+      echo "   $(ls /mnt/root/fw/modem | wc -l) files"
+    fi
     echo "== phone programs =="
     for script in /phone/*/install-root.sh; do
       [ -f "$script" ] || continue

@@ -22,7 +22,8 @@
  *     same code and the same checks: a level that already ran does not run
  *     again, a failed run is not retried, the thermal and voltage limits
  *     stay, the GPU ZAP (gpu >= 3) and the modem boot (wlan 2) both go
- *     through TrustZone PAS and never share a boot (andromeda_pas_claim),
+ *     through TrustZone PAS, shared in one boot unless andrpasshare=0
+ *     (andromeda_pas_claim),
  *     and the hardware runs of gpu, bt, cam, hap and wlan take turns
  *     (andromeda_ctl_begin), whether started here or by their boot-arg,
  *     with the SE13 clock vote of andrprobe=2 among them.
@@ -149,10 +150,27 @@ ctl_pas_name(unsigned who)
 	       who == ANDR_PAS_WLAN ? "the modem boot (wlan 2)" : "nobody";
 }
 
+/*
+ * andrpasshare (default 1): the GPU ZAP and the modem boot may both use
+ * TrustZone PAS in one boot, as Linux and ios-flame do (different PAS ids;
+ * the SCM calls still run one at a time inside the hardware turn). The first
+ * user stays the recorded owner for "status". andrpasshare=0 restores the
+ * old one-owner rule.
+ */
+static uint32_t ctl_pas_share = 1, ctl_pas_share_parsed;
+
 bool
 andromeda_pas_claim(unsigned who)
 {
-	return andr_claim(&ctl_pas, who);
+	if (__atomic_exchange_n(&ctl_pas_share_parsed, 1u, __ATOMIC_ACQ_REL) == 0) {
+		uint32_t v = 1;
+		(void)PE_parse_boot_argn("andrpasshare", &v, sizeof(v));
+		__atomic_store_n(&ctl_pas_share, v ? 1u : 0u, __ATOMIC_RELAXED);
+	}
+	if (andr_claim(&ctl_pas, who)) {
+		return true;
+	}
+	return __atomic_load_n(&ctl_pas_share, __ATOMIC_RELAXED) != 0;
 }
 
 /* Undo a claim this request has just taken and then did not use. */

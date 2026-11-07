@@ -28,8 +28,8 @@
  *                   EDL_PATCH_TLV_REQ segments of 243 bytes with the
  *                   acknowledgements the TLV download mode asks for, then
  *                   HCI_Reset and Read_Local_Version at the operating speed:
- *                   PASS needs manufacturer 29 and lmp_subver/hci_rev
- *                   changed from the ROM baseline. NVM tag 17 gets the
+ *                   PASS needs manufacturer 29 and the HCI/LMP version,
+ *                   hci_rev or lmp_subver changed from the ROM baseline. NVM tag 17 gets the
  *                   operating baud index (as Linux), but in-band sleep (tag
  *                   17 bit 7) and deep sleep (tag 27 bit 0) are cleared:
  *                   there is no IBS on our side yet. Then powered down as B1.
@@ -1449,10 +1449,13 @@ bt_b2(void)
 		return "manufacturer is not 29 (Qualcomm)";
 	}
 	if (have_rom) {
-		printf(BT_TAG " ROM -> patched: hci_rev %#x -> %#x, lmp_subver %#x -> %#x\n", rom_lv.rev, lv.rev,
-		    rom_lv.subver, lv.subver);
-		if (rom_lv.rev == lv.rev && rom_lv.subver == lv.subver) {
-			return "hci_rev and lmp_subver unchanged after the download";
+		printf(BT_TAG " ROM -> patched: hci %u -> %u, lmp %u -> %u, hci_rev %#x -> %#x, lmp_subver %#x -> %#x\n",
+		    rom_lv.hci, lv.hci, rom_lv.lmp, lv.lmp, rom_lv.rev, lv.rev, rom_lv.subver, lv.subver);
+		/* WCN3998 (2026-11-07): the patch raises HCI/LMP 8 -> 9 (Bluetooth
+		 * 4.2 -> 5.0) and keeps hci_rev 0 and lmp_subver 0x2be. */
+		if (rom_lv.hci == lv.hci && rom_lv.lmp == lv.lmp && rom_lv.rev == lv.rev &&
+		    rom_lv.subver == lv.subver) {
+			return "HCI/LMP version, hci_rev and lmp_subver all unchanged after the download";
 		}
 	}
 	printf(BT_TAG " running %s + %s at %u baud\n", rules.patch, rules.nvm, baud);

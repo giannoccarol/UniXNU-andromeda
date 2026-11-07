@@ -65,7 +65,7 @@ echo "   booting TWRP in RAM..."
 fastboot -s "$SERIAL" boot "$TWRP"
 
 echo "   waiting for TWRP's adb (grant the prompt on the phone if asked)..."
-adb -s "$SERIAL" wait-for-device
+adb -s "$SERIAL" wait-for-any-device   # TWRP shows up as "recovery", not "device"
 # Guard: refuse to continue unless this really is a recovery/TWRP ramdisk, so
 # we never dd a live/booted Android that could be mid-write.
 STATE="$(adb -s "$SERIAL" get-state 2>/dev/null | tr -d '\r' || true)"
@@ -85,7 +85,8 @@ echo "== 2. modem partition = $MODEM_DEV (read only) =="
 
 mkdir -p "$OUT"
 echo "   dd the whole modem partition to the PC (read only)..."
-adb -s "$SERIAL" exec-out "dd if=$BYNAME/modem bs=4M 2>/dev/null" > "$OUT/modem.img"
+# TWRP's adbd gives 0 bytes for exec-out dd (2026-11-07); pull the block device.
+adb -s "$SERIAL" pull "$MODEM_DEV" "$OUT/modem.img"
 sz="$(wc -c < "$OUT/modem.img")"
 [ "$sz" -gt 0 ] || { echo "modem.img is empty; aborting." >&2; exit 1; }
 echo "   got $sz bytes"
