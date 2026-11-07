@@ -18,7 +18,7 @@ Chi ha fatto il lavoro su cui costruiamo è elencato in [CREDITS.md](CREDITS.md)
 
 | # | Componente | Stato | Difficoltà |
 |---|---|---|---|
-| 1 | Touch | **tocchi funzionanti** (7 novembre): mancava `vdd_boost_vreg` (pin 5 del PM8150B, `andrboost=1`); trascinamenti e pizzichi non ancora riconosciuti da iOS | bassa-media |
+| 1 | Touch | **funziona** (7 novembre): tocchi, scorrimento, gesti di sistema, più dita; mancava `vdd_boost_vreg` (pin 5 del PM8150B, `andrboost=1`); pizzico da confermare | bassa |
 | 2 | Allineamento al ramo `feat/adreno640` del Mi 9 | **fatto** (6 novembre) | media |
 | 3 | Tasti, Home, blocco e spegnimento schermo | **funzionano** | bassa |
 | 4 | Avvio senza PC (partizione `boot`) | pronto, da fare con conferma dell'utente | bassa |
@@ -36,8 +36,9 @@ Chi ha fatto il lavoro su cui costruiamo è elencato in [CREDITS.md](CREDITS.md)
 | — | iCloud, Face ID / Touch ID, Apple Pay | non realizzabile (Secure Enclave, server Apple) | — |
 
 ### 1. Touch
-- **Stato (7 novembre)**: i tocchi (anche con più dita) arrivano a iOS e funzionano; trascinamenti e pizzichi no: le
-  posizioni arrivano a SweetHID, ma iOS non li riconosce (in analisi con `sweettouchtrace`). Per i tocchi servivano tre cose: L1C votato a 1,8 V (patch 0136), nessun
+- **Stato (7 novembre)**: tocchi, scorrimento (Home e liste) e gesti di sistema (Centro di Controllo) funzionano, anche con
+  più dita; il pizzico è da confermare. Il primo "non scorre" veniva da un avvio con la CPU 1 bloccata dal gradino 2 della
+  GPU (prima della correzione del GMU). La traccia `sweettouchtrace` mostra un movimento ogni 12-14 ms. Servivano tre cose: L1C votato a 1,8 V (patch 0136), nessun
   impulso di reset (`sweettouchreset=0`, il firmware parte all'accensione) e `vdd_boost_vreg` acceso (`andrboost=1`).
 - **Prima**: kernel con il driver ST-FTS del Mi 9 reso configurabile (`sweettouchrst=54`, `sweettouchvddio=37`, tile
   TLMM per pin, elenco chiuso di pin ammessi). Stessi parametri confermati sul Mi 9: I2C via GPIO, voto RPMh per `ldoc1`,
