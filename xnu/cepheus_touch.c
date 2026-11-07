@@ -405,8 +405,9 @@ touch_abort(void)
 	}
 }
 
-/* One Linux-style FIFO message. TX at most 5 bytes; RX at most 256.
- * Pack at most four bytes per word (a 5-byte hardware read spans two words).
+/* One Linux-style FIFO message. TX at most 8 bytes (a 6-byte hardware
+ * register write: FA, 4 address bytes, value); RX at most 256. Pack at most
+ * four bytes per word.
  */
 static int
 touch_msg(uint8_t addr, const uint8_t *tx, unsigned nt, uint8_t *rx,
@@ -416,7 +417,7 @@ touch_msg(uint8_t addr, const uint8_t *tx, unsigned nt, uint8_t *rx,
 		if (stretch) { return EINVAL; } /* use a combined GPIO transfer */
 		return cepheus_bb_xfer(&touch_bb, addr, tx, nt, rx, nr);
 	}
-	if (st.dead || nt > 5 || nr > FTS_FIFO_EVENT_SIZE * FTS_FIFO_DEPTH ||
+	if (st.dead || nt > 8 || nr > FTS_FIFO_EVENT_SIZE * FTS_FIFO_DEPTH ||
 	    (nt && nr) || (!nt && !nr) || (nt && !tx) || (nr && !rx)) {
 		return EINVAL;
 	}
@@ -523,6 +524,34 @@ fts_read_hw(uint32_t address, uint8_t *buf, unsigned len)
 		return err;
 	}
 	return touch_msg(TOUCH_I2C_ADDR, NULL, 0, buf, len, false);
+}
+
+/* Write one byte of an ST-FTS hardware register (fts_writeU8UX with
+ * FTS_CMD_HW_REG_W 0xFA and a 4-byte address, ftsIO.c). Only used for the
+ * system control register: a reset, never a flash operation. */
+static int
+fts_write_hw(uint32_t address, uint8_t value)
+{
+	const uint8_t cmd[6] = {
+		0xfa, (uint8_t)(address >> 24), (uint8_t)(address >> 16),
+		(uint8_t)(address >> 8), (uint8_t)address, value
+	};
+	return touch_msg(TOUCH_I2C_ADDR, cmd, sizeof(cmd), NULL, 0, false);
+}
+
+/* System control (0x20000024: bit 0 holds the M3 core that runs the firmware,
+ * hold_m3() in ftsFlash.c; 0x80 = system reset), boot option (0x25), IER
+ * (0x29) and ICR (0x2D, interface select), read only. */
+static void
+touch_log_sysregs(const char *why)
+{
+	uint8_t a[4] = {0}, b[4] = {0}, c[4] = {0};
+	int ea = fts_read_hw(0x20000024u, a, sizeof(a));
+	int eb = fts_read_hw(0x20000028u, b, sizeof(b));
+	int ec = fts_read_hw(0x2000002cu, c, sizeof(c));
+	printf("SWEET TOUCH (cepheus): sysregs %s: 24..27 %02x %02x %02x %02x | 28..2b %02x %02x %02x %02x | "
+	    "2c..2f %02x %02x %02x %02x (err %d/%d/%d)\n", why, a[0], a[1], a[2], a[3],
+	    b[0], b[1], b[2], b[3], c[0], c[1], c[2], c[3], ea, eb, ec);
 }
 
 static void
@@ -1113,6 +1142,16 @@ touch_thread(void *arg, wait_result_t result)
 	bool ready = touch_drain_log("boot event", 3000, FTS_EVT_CONTROLLER_READY);
 	printf("SWEET TOUCH (cepheus): controller ready %s (transport %s)\n",
 	    ready ? "seen" : "NOT seen in 3 s", st.gpio_i2c ? "GPIO" : "GENI SE17");
+	touch_log_sysregs(ready ? "after reset" : "firmware silent");
+	if (!ready) {
+		/* Linux fts_system_reset() without a reset GPIO: 0x80 into the system
+		 * control register. Also clears an M3 hold (bit 0) left behind. */
+		int sr = fts_write_hw(0x20000024u, 0x80u);
+		printf("SWEET TOUCH (cepheus): software system reset (FA 20000024 80) err=%d\n", sr);
+		ready = touch_drain_log("boot event after soft reset", 3000, FTS_EVT_CONTROLLER_READY);
+		printf("SWEET TOUCH (cepheus): controller ready after soft reset: %s\n", ready ? "seen" : "NOT seen");
+		touch_log_sysregs("after soft reset");
+	}
 	(void)touch_drain_log("pending event", 50, 0);
 	int scan_error = touch_scan_on("after reset");
 	printf("SWEET TOUCH (cepheus): active scan err=%d\n", scan_error);

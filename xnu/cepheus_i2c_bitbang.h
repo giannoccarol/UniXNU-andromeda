@@ -91,7 +91,7 @@ static int bb_get(struct cepheus_bb *b, uint8_t *byte, int last)
 static int cepheus_bb_xfer(struct cepheus_bb *b, unsigned address,
     const uint8_t *tx, unsigned nt, uint8_t *rx, unsigned nr)
 {
-	if (address > 0x7f || nt > 5 || nr > 256 || (!nt && !nr) ||
+	if (address > 0x7f || nt > 8 || nr > 256 || (!nt && !nr) ||
 	    (nt && !tx) || (nr && !rx)) { return EINVAL; }
 	int error = bb_start(b);
 	if (error) { bb_release(b); return error; }
