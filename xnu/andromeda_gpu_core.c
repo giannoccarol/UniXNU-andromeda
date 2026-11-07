@@ -384,12 +384,22 @@ static void rpmh_init(void)
 		{ 0x15e2, 0x30090 }, { 0x15e3, 3 },
 		{ 0x1148, 0 }, { 0x1140, 0x80000001 },
 	};
+	/* andromeda 2026-11-07: step 2 hung the CPU between the GMU SMMU bank and
+	 * the firmware load (no further log, that CPU took no more interrupts):
+	 * name each register block before touching it. */
+	andr_log("gmu: rscc %llx: %u writes\n", (unsigned long long)RSCC_REG(0),
+	    (unsigned)(sizeof(rscc) / sizeof(rscc[0])));
 	for (unsigned i = 0; i < sizeof(rscc) / sizeof(rscc[0]); i++)
 		wr32(RSCC_REG(rscc[i][0]), rscc[i][1]);
+	andr_log("gmu: pdc seq %llx: %u writes\n", (unsigned long long)ANDR_PDC_SEQ,
+	    (unsigned)(sizeof(seq) / sizeof(seq[0])));
 	for (unsigned i = 0; i < sizeof(seq) / sizeof(seq[0]); i++)
 		wr32(ANDR_PDC_SEQ + 4 * i, seq[i]);
+	andr_log("gmu: pdc cfg %llx: %u writes\n", (unsigned long long)PDC_REG(0),
+	    (unsigned)(sizeof(pdc) / sizeof(pdc[0])));
 	for (unsigned i = 0; i < sizeof(pdc) / sizeof(pdc[0]); i++)
 		wr32(PDC_REG(pdc[i][0]), pdc[i][1]);
+	andr_log("gmu: rpmh init written\n");
 }
 
 static void hfi_table(struct andr_gpu *g)
@@ -439,6 +449,7 @@ static int fw_load(struct andr_gpu *g)
 			andr_log("gmu fw: bad block %x size %x\n", addr, size);
 			return -1;
 		}
+		andr_log("gmu fw: block %d addr %x size %x -> %llx\n", n, addr, size, (unsigned long long)dst);
 		andr_write(dst, data, (size + 3) & ~3u);
 		p = data + size;
 		n++;
@@ -450,14 +461,19 @@ int andr_gmu_boot(struct andr_gpu *g)
 {
 	if (gmu_smmu(g))
 		return -1;
+	andr_log("gmu: smmu bank set; rpmh init next\n");
 	rpmh_init();
 	hfi_table(g);
+	andr_log("gmu: hfi table written; general_7 %llx\n", (unsigned long long)GMU_REG(GMU_GENERAL_7));
 
 	wr32(GMU_REG(GMU_GENERAL_7), 1);
+	andr_log("gmu: rscc req %llx\n", (unsigned long long)GMU_REG(GMU_RSCC_REQ));
 	wr32(GMU_REG(GMU_RSCC_REQ), 1u << 1);
-	(void)wait_bit(GMU_REG(GMU_RSCC_ACK), 1u << 1, 1, 200);	/* never acks; harmless */
-	(void)wait_bit(RSCC_REG(0x0101), 0xffffffff, 0, 10);
+	int ack = wait_bit(GMU_REG(GMU_RSCC_ACK), 1u << 1, 1, 200);	/* never acks; harmless */
+	int seq = wait_bit(RSCC_REG(0x0101), 0xffffffff, 0, 10);
 	wr32(GMU_REG(GMU_RSCC_REQ), 0);
+	andr_log("gmu: rscc ack %s, seq busy %s; firmware load next (itcm %llx)\n",
+	    ack ? "timeout" : "ok", seq ? "timeout" : "idle", (unsigned long long)GMU_REG(GMU_ITCM));
 
 	int nblk = fw_load(g);
 	andr_log("gmu: %d firmware blocks loaded\n", nblk);
