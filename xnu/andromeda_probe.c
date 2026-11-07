@@ -181,6 +181,10 @@ static const struct { uint8_t sid, periph; const char *name; } ap_allowed[] = {
 	{2, 0x43, "PM8150B FG 0x43 (MEM_IF?)"},
 	{2, 0x44, "PM8150B FG MEM_IF"},
 	{2, 0x45, "PM8150B FG ADC_RR"},
+	/* Touch investigation: vdd_boost_vreg (regulator-fixed on PM8150B GPIO5,
+	 * regulator-always-on, no consumer in the DT) and the touch bus supply. */
+	{2, 0xc4, "PM8150B GPIO5 (vdd_boost_vreg)"},
+	{4, 0x40, "PM8150L L1C (touch vdd 1.8V)"},
 };
 
 static bool
@@ -343,6 +347,10 @@ static const uint8_t ap_offs_soc[] = {0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 
 /* FG BATT_INFO: TEMP_STS, SYS_BATT, FG_STS, BATT_TEMP, VBATT, IBATT. */
 static const uint8_t ap_offs_info[] = {0x04, 0x05, 0x06, 0x07, 0x09, 0x10, 0x50, 0x51,
 	0xa0, 0xa1, 0xa2, 0xa3};
+/* PMIC GPIO (pinctrl-spmi-gpio.c): TYPE, SUBTYPE, STATUS1, INT_RT_STS, MODE_CTL,
+ * DIG_VIN_CTL, DIG_PULL_CTL, DIG_IN_CTL, DIG_OUT_SRC_CTL, DIG_OUT_CTL, EN_CTL. */
+static const uint8_t ap_offs_gpio[] = {0x04, 0x05, 0x08, 0x10, 0x40, 0x41, 0x42, 0x43,
+	0x44, 0x45, 0x46};
 /* MEM_IF / ADC_RR: identity only (MEM_IF data registers are a SRAM window). */
 static const uint8_t ap_offs_id[] = {0x04, 0x05};
 
@@ -369,6 +377,8 @@ ap_pmic(void)
 			offs = ap_offs_soc; count = AP_N(ap_offs_soc);
 		} else if (p == 0x41) {
 			offs = ap_offs_info; count = AP_N(ap_offs_info);
+		} else if (p >= 0xc0 && p <= 0xcb) {
+			offs = ap_offs_gpio; count = AP_N(ap_offs_gpio);
 		} else {
 			offs = ap_offs_id; count = AP_N(ap_offs_id);
 		}

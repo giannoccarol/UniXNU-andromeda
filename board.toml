@@ -130,8 +130,14 @@ kernel_args = [
   # andromeda: the touch controller is unpowered until the driver raises its
   # rails (GPIO37 read 0), and without a reset it answered (chip id 36:39,
   # active scan ok) but reported no contacts. Linux pulses reset after the
-  # supplies are stable: do the same.
-  "sweettouchreset=1",
+  # supplies are stable: do the same. 2026-11-07: with firmware 0x50 the
+  # pulse leaves the M3 core held (0x20000024 = 01, FIFO all 0xFF), while
+  # power-up with reset already high booted it (warm2 test, event 03). Off.
+  "sweettouchreset=0",
+  # 2026-11-07: TWRP raw frame 99..688, ours flat at -5800 (analog front end
+  # not sensing). Drive fp_vdd_vreg (GPIO92, regulator-always-on in the live
+  # DT, no consumer) high as Linux does; its state is logged first.
+  "sweettouchfpvdd=1",
   # Bring-up: dump the first 60 non-empty FIFO events raw (the parser
   # recognised no contact so far). Remove once touch works.
   "sweettouchraw=200",

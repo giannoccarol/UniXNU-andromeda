@@ -1068,6 +1068,29 @@ touch_thread(void *arg, wait_result_t result)
 	if (!touch_clocks() || !touch_se_init()) {
 		goto out;
 	}
+	if (touch_pin_reset == 54u) {
+		/*
+		 * andromeda: TWRP's raw frame spans 99..688 (media 445), ours stays
+		 * flat at about -5800: the analog front end does not sense. Log the
+		 * TLMM-driven fixed regulators of the live DT that Linux turns on and
+		 * this kernel never touches: disp_vci_vreg (GPIO7, regulator-boot-on)
+		 * and fp_vdd_vreg (GPIO92, regulator-always-on, no consumer in the
+		 * DT); andromeda_probe.c reads vdd_boost_vreg (PM8150B GPIO5).
+		 * sweettouchfpvdd=1 drives GPIO92 high as Linux does.
+		 */
+		printf("SWEET TOUCH (cepheus): rails GPIO7 cfg=%#x io=%#x GPIO92 cfg=%#x io=%#x GPIO37 cfg=%#x io=%#x\n",
+		    touch_rd(st.south, TOUCH_GPIO_CFG(7u)), touch_rd(st.south, TOUCH_GPIO_IO(7u)),
+		    touch_rd(st.gpio, TOUCH_GPIO_CFG(92u)), touch_rd(st.gpio, TOUCH_GPIO_IO(92u)),
+		    touch_rd(st.gpio, TOUCH_GPIO_CFG(37u)), touch_rd(st.gpio, TOUCH_GPIO_IO(37u)));
+		int fpvdd = 0;
+		(void)PE_parse_boot_argn("sweettouchfpvdd", &fpvdd, sizeof(fpvdd));
+		if (fpvdd) {
+			touch_gpio(92u, 0, 0, 0, true, true);
+			touch_wait(10);
+			printf("SWEET TOUCH (cepheus): fp_vdd GPIO92 driven high: cfg=%#x io=%#x\n",
+			    touch_rd(st.gpio, TOUCH_GPIO_CFG(92u)), touch_rd(st.gpio, TOUCH_GPIO_IO(92u)));
+		}
+	}
 	int power = 0;
 	(void)PE_parse_boot_argn("sweettouchpower", &power, sizeof(power));
 	if (power) {
