@@ -72,14 +72,17 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=PORT, help=f"UDP port (default {PORT})")
     parser.add_argument("--timeout", type=float, default=3.0, help="seconds to wait for the answer")
     parser.add_argument("words", nargs="+", metavar="COMMAND", help="e.g. status, gpu 2, idle keys 50")
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as stop:      # usage errors: 64, as documented; --help: 0
+        return 0 if stop.code in (0, None) else 64
 
     command = " ".join(args.words)
-    if len(command) > MAX_LEN or not command.isascii() or not command.isprintable():
+    words = command.split()
+    if not words or len(command) > MAX_LEN or not command.isascii() or not command.isprintable():
         print(f"andctl: the command must be printable ASCII, at most {MAX_LEN} characters",
               file=sys.stderr)
         return 64
-    words = command.split()
     tries = 3 if words[0] in RETRY_SAFE and (words[0] != "idle" or len(words) == 1) else 1
     try:
         answer = ask(command, args.phone, args.port, args.timeout, tries)

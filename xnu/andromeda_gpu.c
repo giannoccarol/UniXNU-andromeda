@@ -548,7 +548,12 @@ ag_thread(void *arg, wait_result_t wr)
 		}
 	}
 
-	/* Step 4: CP_MEM_WRITE 0xcafef00d and read it back. */
+	/* Step 4: CP_MEM_WRITE 0xcafef00d and read it back. Continuing a run whose
+	 * step 3 passed earlier: the thermal check of step 3 is done again here. */
+	if (from > ANDR_STEP_CP && !ag_thermal_ok("before CP_MEM_WRITE")) {
+		printf(AG_TAG " step 4 (CP_MEM_WRITE) not started (thermal refuse)\n");
+		goto done;
+	}
 	rc = andr_cp_memtest(&gpu);
 	printf(AG_TAG " step 4 (CP_MEM_WRITE) %s\n", rc ? "FAILED" : "PASS");
 	if (rc) {

@@ -51,9 +51,9 @@
  * Runtime control (andromeda_ctl.c, andrctl=1, command "bt N"): the same run,
  * started from the PC, once per boot (B1 or B2, not both: a second power-up
  * would start from the flags the first one left). A boot-arg run still in
- * its delay starts at once. Refused while andrprobe=2 has not finished, as
- * both vote the same SE13 clock. The run takes its turn with the other
- * hardware runs (andromeda_ctl_begin).
+ * its delay starts at once. The run takes its turn with the other hardware
+ * runs and with the SE13 clock vote of andrprobe=2 (andromeda_ctl_begin),
+ * so the two never vote the same bit at once, whatever their delays.
  *
  * Hardware numbers: live DT of the phone (qupv3_se13_4uart @0xc8c000,
  * pinctrl qupv3_se13_{ctsrx,rts,tx}, bt_wcn3990 supplies) and the
@@ -110,7 +110,6 @@ extern bool andromeda_ctl_is_boot(uint32_t *st);
 extern uint32_t andromeda_ctl_begin(uint32_t *st, const char *who);
 extern void andromeda_ctl_end(uint32_t *st, unsigned reached, bool failed, const char *who);
 extern bool andromeda_ctl_spawn(thread_continue_t fn);
-extern bool andromeda_probe_s3_pending(void);   /* andromeda_probe.c: andrprobe=2 not done yet */
 uint32_t andromeda_bt_req;
 const char *andromeda_bt_check(unsigned level);
 bool andromeda_bt_spawn(void);
@@ -1724,9 +1723,6 @@ andromeda_bt_check(unsigned level)
 	}
 	if (level == 2 && !bt_baud_known(bt_baud_req)) {
 		return "andrbtbaud must be 3000000, 2000000, 1000000, 921600 or 115200";
-	}
-	if (andromeda_probe_s3_pending()) {
-		return "andrprobe=2 has not finished and votes the same SE13 clock; wait for its \"done\"";
 	}
 	return NULL;
 }

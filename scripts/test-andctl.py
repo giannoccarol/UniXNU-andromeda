@@ -104,7 +104,9 @@ class AndctlTest(unittest.TestCase):
         self.assertEqual(run(1, "gpu", "è").returncode, 64)
         self.assertEqual(run(1, "x" * 97).returncode, 64)
         self.assertEqual(run(1, "gpu\t1").returncode, 64)
-        self.assertNotEqual(subprocess.run([sys.executable, str(ANDCTL)], capture_output=True).returncode, 0)
+        self.assertEqual(run(1, "   ").returncode, 64)
+        self.assertEqual(subprocess.run([sys.executable, str(ANDCTL)], capture_output=True).returncode, 64)
+        self.assertEqual(subprocess.run([sys.executable, str(ANDCTL), "--help"], capture_output=True).returncode, 0)
 
 
 if __name__ == "__main__":

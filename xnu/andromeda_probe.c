@@ -26,8 +26,9 @@
  *
  * Runtime control (andromeda_ctl.c, andrctl=1): "slider 1" starts the slider
  * reader of andrslider=1 (once), "fastboot" runs the andrfastboot reboot
- * now. andromeda_probe_s3_pending() tells andromeda_bt.c that andrprobe=2
- * (same SE13 clock vote) has not finished yet.
+ * now. The SE13 clock vote of andrprobe=2 takes the hardware turn of
+ * andromeda_ctl.c, so it never overlaps the Bluetooth run (same vote bit),
+ * whenever either starts.
  */
 #if defined(ARM64_BOARD_CONFIG_SWEET)
 #include <sys/param.h>
@@ -579,14 +580,9 @@ ap_gcc_se13(int level)
 /* ---- thread ------------------------------------------------------------- */
 
 static int ap_level;
-static bool ap_s3_pending;      /* andrprobe=2 thread started and not done */
-
-bool andromeda_probe_s3_pending(void);
-bool
-andromeda_probe_s3_pending(void)
-{
-	return __atomic_load_n(&ap_s3_pending, __ATOMIC_ACQUIRE);
-}
+/* andromeda_ctl.c: the hardware turn shared with the gpu, bt, cam, hap, wlan runs. */
+extern void andromeda_ctl_turn(const char *who);
+extern void andromeda_ctl_turn_end(void);
 
 static void
 ap_thread(void *arg, wait_result_t result)
@@ -599,10 +595,15 @@ ap_thread(void *arg, wait_result_t result)
 	ap_wait(delay_s * 1000u);
 	printf(AP_TAG " begin (read only%s)\n", ap_level >= 2 ? ", brief s3 vote" : "");
 	ap_tlmm();
+	if (ap_level >= 2) {
+		andromeda_ctl_turn("probe s3 vote");   /* the Bluetooth run votes the same bit */
+	}
 	ap_gcc_se13(ap_level);
+	if (ap_level >= 2) {
+		andromeda_ctl_turn_end();
+	}
 	ap_pmic();
 	printf(AP_TAG " done\n");
-	__atomic_store_n(&ap_s3_pending, false, __ATOMIC_RELEASE);
 	(void)thread_terminate(current_thread());
 	thread_block(THREAD_CONTINUE_NULL);
 }
@@ -1093,13 +1094,8 @@ andromeda_probe_init(void)
 	if (ap_level <= 0) {
 		return;
 	}
-	if (ap_level >= 2) {
-		__atomic_store_n(&ap_s3_pending, true, __ATOMIC_RELEASE);
-	}
 	if (kernel_thread_start(ap_thread, NULL, &thread) == KERN_SUCCESS) {
 		thread_deallocate(thread);
-	} else {
-		__atomic_store_n(&ap_s3_pending, false, __ATOMIC_RELEASE);
 	}
 }
 #endif /* ARM64_BOARD_CONFIG_SWEET */

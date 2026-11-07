@@ -81,11 +81,14 @@ void
 andromeda_slider_publish(unsigned h42, unsigned h114)
 {
 	__atomic_store_n(&as_raw, ((h42 & 1u) << 1) | (h114 & 1u), __ATOMIC_RELEASE);
+	/* Under as_lock: a "slidercam N" in between cannot be overwritten by a
+	 * value decoded with the old polarity. */
+	lck_mtx_lock(&as_lock);
 	unsigned polarity = as_polarity();
 	if (polarity == 0u) {
+		lck_mtx_unlock(&as_lock);
 		return;
 	}
-	lck_mtx_lock(&as_lock);
 	unsigned before = as_stable;
 	uint64_t v = andromeda_slider_next(as_value, &as_stable, polarity, h42, h114);
 	__atomic_store_n(&as_value, v, __ATOMIC_RELEASE);

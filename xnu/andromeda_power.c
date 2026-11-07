@@ -354,6 +354,7 @@ ap_start(void)
 	__atomic_store_n(&ap_on, 1, __ATOMIC_RELEASE);
 	if (ap_started) {
 		thread_wakeup(&ap_on);
+		thread_wakeup(&ap_sleep_chan);  /* still in the period of an earlier "on" */
 		return true;
 	}
 	thread_t thread;

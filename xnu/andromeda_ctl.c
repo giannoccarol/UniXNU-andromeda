@@ -24,7 +24,8 @@
  *     stay, the GPU ZAP (gpu >= 3) and the modem boot (wlan 2) both go
  *     through TrustZone PAS and never share a boot (andromeda_pas_claim),
  *     and the hardware runs of gpu, bt, cam, hap and wlan take turns
- *     (andromeda_ctl_begin), whether started here or by their boot-arg.
+ *     (andromeda_ctl_begin), whether started here or by their boot-arg,
+ *     with the SE13 clock vote of andrprobe=2 among them.
  *
  * Commands (grammar and ranges in andromeda_ctl.h):
  *   status, help
@@ -73,6 +74,8 @@ void andromeda_ctl_delay(uint32_t *st, unsigned seconds);
 bool andromeda_ctl_is_boot(uint32_t *st);
 uint32_t andromeda_ctl_begin(uint32_t *st, const char *who);
 void andromeda_ctl_end(uint32_t *st, unsigned reached, bool failed, const char *who);
+void andromeda_ctl_turn(const char *who);
+void andromeda_ctl_turn_end(void);
 bool andromeda_ctl_spawn(thread_continue_t fn);
 bool andromeda_pas_claim(unsigned who);
 unsigned andromeda_pas_owner(void);
@@ -151,6 +154,15 @@ andromeda_pas_claim(unsigned who)
 	return andr_claim(&ctl_pas, who);
 }
 
+/* Undo a claim this request has just taken and then did not use. */
+static void
+ctl_pas_unclaim(unsigned who)
+{
+	unsigned expected = who;
+	(void)__atomic_compare_exchange_n(&ctl_pas, &expected, 0u, false, __ATOMIC_ACQ_REL,
+	    __ATOMIC_ACQUIRE);
+}
+
 unsigned
 andromeda_pas_owner(void)
 {
@@ -189,6 +201,29 @@ andromeda_ctl_delay(uint32_t *st, unsigned seconds)
 }
 
 /*
+ * The hardware turn: one of the gpu, bt, cam, hap and wlan runs (and the
+ * SE13 clock vote of andrprobe=2, andromeda_probe.c) at a time.
+ */
+void
+andromeda_ctl_turn(const char *who)
+{
+	if (!lck_mtx_try_lock(&ctl_run_lock)) {
+		const char *owner = ctl_run_owner;
+		printf(CTL_TAG " %s waits for %s to finish (one hardware run at a time)\n", who,
+		    owner != NULL ? owner : "another run");
+		lck_mtx_lock(&ctl_run_lock);
+	}
+	ctl_run_owner = who;
+}
+
+void
+andromeda_ctl_turn_end(void)
+{
+	ctl_run_owner = NULL;
+	lck_mtx_unlock(&ctl_run_lock);
+}
+
+/*
  * A run starts: the state becomes RUN (andr_begin_word) and the returned
  * word says which levels to run (andr_st_from .. andr_st_level). With who
  * set, the run first waits its turn behind any other hardware run.
@@ -202,13 +237,7 @@ andromeda_ctl_begin(uint32_t *st, const char *who)
 	} while (!__atomic_compare_exchange_n(st, &cur, next, false, __ATOMIC_ACQ_REL,
 	    __ATOMIC_ACQUIRE));
 	if (who != NULL) {
-		if (!lck_mtx_try_lock(&ctl_run_lock)) {
-			const char *owner = ctl_run_owner;
-			printf(CTL_TAG " %s waits for %s to finish (one hardware run at a time)\n", who,
-			    owner != NULL ? owner : "another run");
-			lck_mtx_lock(&ctl_run_lock);
-		}
-		ctl_run_owner = who;
+		andromeda_ctl_turn(who);
 	}
 	return next;
 }
@@ -219,8 +248,7 @@ andromeda_ctl_end(uint32_t *st, unsigned reached, bool failed, const char *who)
 {
 	__atomic_store_n(st, andr_done_word(reached, failed), __ATOMIC_RELEASE);
 	if (who != NULL) {
-		ctl_run_owner = NULL;
-		lck_mtx_unlock(&ctl_run_lock);
+		andromeda_ctl_turn_end();
 	}
 }
 
@@ -299,13 +327,23 @@ ctl_unit_request(const struct ctl_unit *u, unsigned want)
 			break;
 		}
 		unsigned top = andr_st_level(next);
-		if (u->pas_from && top >= u->pas_from && !andromeda_pas_claim(u->pas_who)) {
-			snprintf(ctl_why, sizeof(ctl_why), "TrustZone PAS is taken by %s this boot; the "
-			    "GPU ZAP and the modem boot never share a boot", ctl_pas_name(andromeda_pas_owner()));
-			return false;
+		/* PAS before the swap (a woken boot run may start at once); a claim
+		 * this request took is given back if the request is not carried out. */
+		bool fresh = false;
+		if (u->pas_from && top >= u->pas_from) {
+			fresh = andromeda_pas_owner() == 0u;
+			if (!andromeda_pas_claim(u->pas_who)) {
+				snprintf(ctl_why, sizeof(ctl_why), "TrustZone PAS is taken by %s this boot; "
+				    "the GPU ZAP and the modem boot never share a boot",
+				    ctl_pas_name(andromeda_pas_owner()));
+				return false;
+			}
 		}
 		if (!__atomic_compare_exchange_n(u->st, &cur, next, false, __ATOMIC_ACQ_REL,
 		    __ATOMIC_ACQUIRE)) {
+			if (fresh) {
+				ctl_pas_unclaim(u->pas_who);
+			}
 			continue;       /* the driver moved meanwhile: decide again */
 		}
 		if (act == ANDR_ACT_NOW) {
@@ -316,6 +354,9 @@ ctl_unit_request(const struct ctl_unit *u, unsigned want)
 		}
 		if (!u->spawn()) {
 			__atomic_store_n(u->st, cur, __ATOMIC_RELEASE);
+			if (fresh) {
+				ctl_pas_unclaim(u->pas_who);
+			}
 			snprintf(ctl_why, sizeof(ctl_why), "kernel_thread_start failed");
 			return false;
 		}
@@ -619,6 +660,8 @@ ctl_serve(socket_t so)
 	ctl_reply(so, &from);
 	return true;
 }
+
+static void ctl_thread(void *arg, wait_result_t wr) __attribute__((noreturn));
 
 static void
 ctl_thread(void *arg, wait_result_t wr)

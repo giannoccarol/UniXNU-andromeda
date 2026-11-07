@@ -155,17 +155,19 @@ Regole, uguali a quelle degli argomenti di boot (stesso codice, stessi controlli
   successivo (`gpu 3` dopo un avvio con `andrgpu=2` esegue solo il gradino 3; `wlan 2` dopo `wlan 1` esegue solo W1);
   la luminosità può passare dalla prova (`bl 1`) al servizio (`bl 2`); Bluetooth, fotocamera e vibrazione girano una
   volta per avvio. Una corsa di un argomento di boot ancora nel suo ritardo parte subito, al livello più alto dei due.
-- **Limiti invariati**: soglie termiche della GPU, tensione massima della vibrazione, valori dei risparmi entro gli
+- **Limiti invariati**: soglie termiche della GPU (ricontrollate anche prima del gradino 4 quando prosegue una corsa
+  già passata dal 3), tensione massima della vibrazione, valori dei risparmi entro gli
   stessi intervalli degli argomenti di boot (fuori intervallo il comando è rifiutato, non corretto).
 - **GPU gradino 3 e Wi-Fi W1 mai nello stesso avvio.** Nel codice la risorsa in comune è **TrustZone PAS** (lo ZAP
   della GPU e l'avvio del modem), non la mailbox AOP QMP: la GPU andromeda non apre mai QMP. Il primo dei due che
   chiede PAS lo tiene per tutto l'avvio (`andromeda_pas_claim`); vale anche per gli argomenti di boot: con
   `andrgpu>=3` e `andrwlan=2` nella stessa riga parte la GPU e il Wi-Fi si rifiuta con un messaggio (prima la regola
   era solo scritta qui).
-- **Una corsa hardware alla volta**: GPU, Bluetooth, fotocamera, vibrazione e Wi-Fi si danno il turno
+- **Una corsa hardware alla volta**: GPU, Bluetooth, fotocamera, vibrazione, Wi-Fi e il voto SE13 della sonda si danno il turno
   (`andromeda_ctl_begin`); una chiesta mentre un'altra gira aspetta (`ANDROMEDA CTL: bt waits for gpu …`). Vale
   anche per le corse degli argomenti di boot, che prima potevano sovrapporsi se i ritardi coincidevano.
-- **Bluetooth** rifiutato finché `andrprobe=2` non ha finito (stesso voto del clock SE13).
+- **Bluetooth e sonda**: il voto del clock SE13 di `andrprobe=2`, lo stesso bit che usa il Bluetooth, prende anch'esso
+  il turno, così i due non si sovrappongono qualunque siano i ritardi.
 
 Perimetro (cosa entra e cosa no):
 
