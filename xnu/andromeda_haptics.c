@@ -24,7 +24,7 @@
  * Register sequence: Qualcomm/Xiaomi qti-haptics.c (andromeda-p-oss,
  * GPL-2.0), used as documentation only, no code copied:
  *   qti_haptics_hw_init() for an LRA: CFG1 = 0x00 (LRA), ILIM_CFG = 0x02
- *   (1000 mA), EN_CTL3 = 0xFD, ZX_CFG[2:0] = 3 (80 us), RATE_CFG1/2 = period
+ *   (1000 mA; not written here, see ah_plan), EN_CTL3 = 0xFD, ZX_CFG[2:0] = 3 (80 us), RATE_CFG1/2 = period
  *   / 5 us (5102 us -> 0x3FC), CFG2 = 0x00 (sine), AUTO_RES_CFG (mask 0x8F) =
  *   0x88 (QWD, CAL_EOP), AUTO_RES_CTRL = 0xEC;
  *   the VMAX branch of qti_haptics_load_constant_waveform() (>= 20 ms):
@@ -132,7 +132,10 @@ struct ah_step {
 /* In qti-haptics.c's order. VMAX_CFG's value is filled in from andrhapmv. */
 static const struct ah_step ah_plan[] = {
 	{AH_CFG1,          0xff, 0x00},
-	{AH_ILIM_CFG,      0xff, 0x02},
+	/* ILIM_CFG is left as the bootloader set it (0x01 on this phone): Linux
+	 * writes 0x02 (HAP_ILIM_SEL_1000MA) without reading it back, but here
+	 * bit 1 does not stick (2026-11-07: wrote 0x02, read 0x00), so the write
+	 * only cleared bit 0 and the read-back check stopped the test. */
 	{AH_EN_CTL3,       0xff, 0xfd},
 	{AH_ZX_CFG,        0x07, 0x03},
 	{AH_RATE_CFG1,     0xff, (uint8_t)(AH_RATE_CODE & 0xffu)},

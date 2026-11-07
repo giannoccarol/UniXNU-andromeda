@@ -114,6 +114,17 @@ modo (write-combining). Ogni nuova mappatura lascia una riga `ANDROMEDA PROBE: i
 
 **GPU, 7 novembre: copia a schermo (F4) riuscita.** Avvio con `andrgpu=4 andrgpupresent=1`: i gradini 1-4 passano da soli in 361 ms, poi la GPU copia sul pannello l'immagine adattata (1125×2436 → 1080×2338, 69 copie per fotogramma). Dei primi 8 fotogrammi confrontati con la copia della CPU (CRC-32 e pixel per pixel su 2.525.040 pixel) 5 sono identici, 3 "inconclusivi" perché la superficie cambiava durante la copia (animazioni), 0 diversi; poi un controllo ogni 1000. Primo fotogramma: GPU 4,4 ms, totale 5,1 ms (la copia della CPU costava 2,3-4,8 ms: il guadagno è di carico della CPU, non di tempo). Quando la scena ha più di un livello (`not exactly one layer`) quel fotogramma lo copia ancora la CPU. Nessun panic.
 
+**Prove dal PC con `andctl`, 7 novembre sera** (avvio con GPU e copia via GPU attive):
+- **Luminosità** (`bl 1`): 1023 → 256 → 1023 via DCS 0x51, nessun errore DSI; l'utente vede il cambio.
+- **Bluetooth** (`bt 1`, B1): **PASS**. Il WCN3990 risponde alla versione EDL (SoC `0x40010224`, ROM `0x1001`, patch
+  `0x6699`), a `HCI_Reset` (stato 0) e a `Read_Local_Version` (HCI 8, LMP 8, produttore 29 = Qualcomm, sottoversione
+  `0x2be`); poi spento.
+- **Vibrazione** (`hap 1`): nessun impulso. Il controllo di rilettura si è fermato su `ILIM_CFG` (`0x52`): scritto `0x02`
+  come fa `qti-haptics.c` (`HAP_ILIM_SEL_1000MA`), riletto `0x00`; tutti i registri sono stati rimessi com'erano. Il
+  bit 1 su questo PMIC non resta: ora il registro non viene toccato e resta il valore del bootloader (`0x01`).
+- **Fotocamera posteriore** (`cam 1`, C1): ferma alle precondizioni, `GCC_CAMERA_XO_CLK` spento, nulla scritto. Serve
+  accendere il clock XO della camera (e l'MCLK) prima del sensore: da fare.
+
 **Touch, 7 novembre (4): funziona.** Con `andrboost=1` la sonda accende il pin 5 del PM8150B come fa Linux (`MODE_CTL` 01, `DIG_OUT_SOURCE_CTL` 80, `EN_CTL` 80, tutte rilette uguali) 20 s prima che il driver alimenti il controller. Il frame grezzo diventa quello di TWRP (da -275 a 207, media circa 43), il rumore della forza scende a ±7 e sotto il dito sale fino a 966; il controller manda gli eventi di contatto (`13`/`23`/`33`) e iOS riceve i tocchi: 13 tocchi completi e 40 posizioni nel primo minuto, l'utente conferma che funziona. Il regolatore `vdd_boost_vreg` (device tree: `regulator-fixed` su `pm8150b_gpios 5`, `regulator-always-on`, senza utilizzatori dichiarati) è quindi l'alimentazione della parte analogica del sensore. Restano da verificare: se `sweettouchfpvdd=1` serve ancora, il multitouch, e togliere `sweettouchraw`/`sweettouchdiag` dagli argomenti.
 
 **Perché si bloccava.** Se il ramdisk non è un FAT `GUACESP`, `ShengBootMemoryDxe` cerca il payload leggendo pagina per
