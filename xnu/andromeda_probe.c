@@ -634,8 +634,8 @@ ap_thread(void *arg, wait_result_t result)
  * below (andromeda_spmi_hap_write, andrhap=1) and the vdd_boost_vreg
  * enable (ap_boost, andrboost=1).
  *
- * NOT YET VERIFIED ON THE PHONE: if ABL ignored the reason it would boot the
- * boot partition (Android). Test with the user watching.
+ * Verified on the phone 2026-11-07 ("andctl.py fastboot"): ABL honours the
+ * reason and stops in fastboot, 9 s from the command.
  */
 #define AP_CHNLS_PA        0x0c600000u  /* arbiter v5 "chnls": 0x10000 per APID */
 #define AP_PON_SPARE       0x088fu
