@@ -11,18 +11,19 @@ componente per componente il prossimo passo. I crediti di ogni lavoro ripreso o 
 
 ## 1. Pronto da provare sul telefono
 
-Sette immagini, già costruite sul PC (in `out/andromeda/boot/`, fuori da git) con il kernel compilato su GitHub.
+Otto immagini, già costruite sul PC (in `out/andromeda/boot/`, fuori da git) con il kernel compilato su GitHub.
 Ognuna si avvia **solo in RAM** con `fastboot boot`: nessuna scrittura sul telefono.
 
 | Immagine | Cosa contiene | UEFI |
 |---|---|---|
 | `boot-andromeda-xnu.img` | tutto quello che segue nella tabella delle prove | quello già provato |
-| `boot-andromeda-xnu-btbl.img` | la principale + prova Bluetooth (`andrbt=1`) e luminosità (`andrbl=1`) | quello già provato |
+| `boot-andromeda-xnu-btbl.img` | la principale + Bluetooth B1+B2 (`andrbt=2`: firmware nel chip) e luminosità (`andrbl=1`) | quello già provato |
 | `boot-andromeda-xnu-3g.img` | la principale con **~2,94 GiB** di memoria per iOS (`0xBC000000`) | nuovo, con la RAM unita |
 | `boot-andromeda-xnu-fb.img` | la principale + ritorno automatico in fastboot dopo 5 minuti (`andrfastboot=300`) | quello già provato |
 | `boot-andromeda-xnu-cam.img` | la principale + fotocamera C1 (`andrcam=1`) | quello già provato |
 | `boot-andromeda-xnu-pwr.img` | la principale + statistiche dei consumi (`andrpwr=1`) | quello già provato |
 | `boot-andromeda-xnu-wlan0.img` | la principale + Wi-Fi W0, controlli in sola lettura (`andrwlan=1`) | quello già provato |
+| `boot-andromeda-xnu-hap.img` | la principale + due vibrazioni di prova (`andrhap=1`), con il telefono in mano | quello già provato |
 
 Il log via USB si legge con `scripts/udplog-ts.py` e si riassume con
 `python3 scripts/andstatus.py <log> --follow`.
@@ -45,6 +46,9 @@ Il log via USB si legge con `scripts/udplog-ts.py` e si riassume con
 | 12 | **Fotocamera C1** (immagine `-cam`) | niente | `ANDROMEDA CAM: C1 PASS: IMX363 chip ID 0x0363 at 0x10`; se `no ACK`, riprovare con `andrcamaddr=0x1a` |
 | 13 | **Consumi, misura di partenza** (immagine `-pwr`) | blocchi lo schermo per qualche minuto | una riga `ANDROMEDA PWR: t=…` ogni 10 s; poi un avvio per ciascuno di `andridle=1`, `andrfbpark=1`, `andrusbidle=20`, `andrkeysidle=50`, `andrtouchidle=100` |
 | 14 | **Wi-Fi W0** (immagine `-wlan0`) | niente | `ANDROMEDA WLAN: … W0 done`, regione del modem fuori dalla memoria di iOS; W1 (`andrwlan=2`) solo dopo aver copiato i firmware del modem, e mai nello stesso avvio di `andrgpu=3` |
+| 15 | **Vibrazione** (immagine `-hap`) | tieni il telefono in mano dopo 1 minuto | due vibrazioni brevi; `ANDROMEDA HAP: restored: every written register reads as before` |
+| 16 | **App non cifrate** | prepari le app con `python3 scripts/add-ipa.py tua-app.ipa`, poi si riscrive il sistema iOS | icone nella home; `andromeda-apps: … registered`; con `andrappsopen=ID` l'app si apre senza touch |
+| 17 | **GPU, copia a schermo** (`andrgpu=4 andrgpupresent=1`) | niente | dopo il gradino 4: `present: first 8 GPU frames checked: 8 identical to the CPU copy` |
 
 Se la prova 8 funziona, i test successivi si possono fare anche senza di te: avvio, log, ritorno in fastboot,
 kernel successivo.
@@ -77,17 +81,17 @@ Legenda difficoltà: **B** bassa, **M** media, **A** alta, **MA** molto alta.
 | **Memoria** | 1,5 GiB; patch UEFI per ~3 GiB compilata | prova dell'immagine `-3g` | M | Project Aloha (RamPartitionDxe), DarwinBoot (UniXNU) |
 | **Ricarica** | funziona in hardware (FULLON, ~40 mA dal PC); watchdog innocuo | corrente d'ingresso giusta con un caricatore da muro | M | [ricarica.md](research/ricarica.md): ios-mh2lm, Linux qcom_smbx |
 | **Batteria per iOS** | pronta (`sweetbattery=2`) | temperatura vera dalla SRAM del fuel gauge | M | ios-sweet `SweetBattery` |
-| **GPU** | driver di ios-flame integrato, gradino 1 in sola lettura | gradini 2–4, poi copia a schermo dalla GPU, Turnip, Metal | A | [gpu.md](research/gpu.md): ios-flame, UniXNU, Mesa, metal2vulkan, Mi 9 |
-| **Bluetooth** | B1 pronto (accensione, versione, reset) | caricamento firmware/NVM, poi `bluetoothd` come controller | A | Linux btqca/hci_qca, renoir_xnu_bluethooth (daimile2), ios-flame 0102 |
-| **Wi-Fi** | W0 (sola lettura) e W1 (avvio del modem via TrustZone) pronti (`andrwlan=1/2`, patch 0110) | firmware dalla partizione `modem`, prova di W0 e W1, poi W2: comunicazione col modem (GLINK/QRTR) e servizi | MA | ios-flame `wland` (MIT), hakios-sm8150 (riferimento) |
+| **GPU** | gradini 1–4, copia a schermo con la GPU (F4, patch 0120) e librerie Turnip/Metal compilate per iOS (F5) | prove dei gradini, poi lo user client del kernel (ios-flame 0115) per Turnip, poi Metal per iOS (F6) | A | [gpu.md](research/gpu.md): ios-flame, UniXNU, Mesa, metal2vulkan, Mi 9 |
+| **Bluetooth** | B1 (accensione, versione) e B2 (firmware e NVM nel chip, 3 Mbaud) pronti (`andrbt=1/2`) | prova, poi i file della partizione `bluetooth` del telefono e il collegamento con `bluetoothd` | A | Linux btqca/hci_qca (documentazione), linux-firmware (Qualcomm), ios-flame 0102 |
+| **Wi-Fi** | W0 (sola lettura) e W1 (avvio del modem) pronti (`andrwlan=1/2`); W2 fermo | firmware dalla partizione `modem`, prova di W0 e W1; W2 (comunicazione col modem) con un perimetro più stretto dopo la prova | MA | ios-flame `wland` (MIT), hakios-sm8150 (riferimento) |
 | **Luminosità** | DCS `0x51` pronto (`andrbl=1/2`) | collegarla al cursore di iOS senza l'attenuazione digitale lenta | M | ios-topaz (fatti), UniXNU-sheng, Linux dsi_host |
 | **Audio** | A0 pronto: plug-in `AndromedaAudio.driver` (da HakiOS, MIT) con i dispositivi dell'iPhone X, compilato per iOS | entrare nel sistema iOS e provare che `mediaserverd` resta su; poi DSP audio via TrustZone | A | HakiOS (`audio_plugin.c` MIT), hakios-sm8150 (riferimento) |
-| **Vibrazione** | registri letti in sola lettura | due impulsi di prova da 200 ms con te presente, poi via audio "Actuator" | M | Qualcomm `qti-haptics.c` (documentazione), HakiOS `redwood` |
+| **Vibrazione** | prova pronta (`andrhap=1`): due impulsi da 200 ms a ≤2552 mV, registri ripristinati | prova con te; poi collegarla all'audio "Actuator" di iOS | M | Qualcomm `qti-haptics.c` (documentazione), hakios-sm8150 (metodo) |
 | **Slider** | lettura pronta (`andrslider=1`); apertura dell'app Fotocamera pronta (`andrslidercam=1`, servizio `andromedad` compilato per iOS) | dire quale posizione è "aperto", poi entrare nel sistema iOS | B | ios-flame `openapp` (MIT), Xiaomi `halls.c`, Demon000 (LineageOS) |
 | **Sensori** (rotazione, luce, prossimità) | tutti dietro il DSP dei sensori (SLPI); la prossimità è a ultrasuoni nel DSP audio | avvio dello SLPI via TrustZone, poi QMI; dal lato iOS basta un servizio HID "accelerometro" | MA | [sensori-vibrazione.md](research/sensori-vibrazione.md): libssc, hexagonrpc, Scion |
 | **Sospensione e consumo** | statistiche (`andrpwr=1`) e cinque risparmi pronti, uno per parametro (patch 0100-0105) | misura di partenza, poi un risparmio alla volta; poi spegnere i core a schermo spento e il pannello | A | HakiOS e ios-apollo (idee), [sospensione.md](research/sospensione.md) |
 | **Fotocamere** | C1 pronto (`andrcam=1`, patch 0098): accensione dell'IMX363 con la sequenza del modulo Xiaomi e lettura del suo ID | prova C1, poi pattern di prova e primo fotogramma grezzo | A | [fotocamere.md](research/fotocamere.md): ios-sunfish e ios-redfin (MIT), HakiOS, Linux CAMSS (A. Gigena) |
-| **App** | l'App Store non è percorribile (FairPlay); app **non cifrate** sì | installazione via copia in `/Applications` + registrazione in LaunchServices | M | [app-store.md](research/app-store.md): ios-flame, ios-apollo |
+| **App** | pronto: `scripts/add-ipa.py` + `andromeda-apps` (in `/Applications`, registrazione all'avvio) e politica dyld per i framework (patch 0115, ios-flame 0114) | prova con un'app tua dopo la riscrittura del sistema iOS | M | [app-store.md](research/app-store.md): ios-flame, ios-apollo, ios-sweet |
 | **Internet via USB** | messo in secondo piano (il Wi-Fi è la priorità) | l'interfaccia USB come scheda di rete IOKit vera | M | ios-sweet NOTES, HakiOS |
 | **Rete cellulare, SMS, dati** | ricerca fatta ([modem-gps-nfc.md](research/modem-gps-nfc.md)) | arriva dopo il Wi-Fi (stesso avvio del modem); dati 4G con QcomBaseband | MA | UniXNU QcomBaseband (HoshinoYumeka), UniXNU-OnePlus-Ace5 (tycykp) |
 | **GPS** | ricerca fatta | client QMI LOC dopo l'avvio del modem, posizioni a `locationd` | A | iOSPlus10 (akshaynexus) |
