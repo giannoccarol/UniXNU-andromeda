@@ -121,6 +121,16 @@ static unsigned touch_rescans;
  * bring-up: the IC reports display noise but no fingers). */
 static unsigned touch_exp;
 static unsigned touch_exp_enters;
+/* sweettouchdiag=N (andromeda bring-up, default 0 = off): read-only controller
+ * diagnostics. Once the scan is on: the system info (firmware, config and CX
+ * versions, AFE versions, channel counts, frame addresses), then every 2 s for
+ * N seconds one summary line of the mutual-sense raw frame and one of the
+ * strength frame (raw minus baseline: a finger gives a peak), so the log says
+ * whether the sensor sees the finger at all. Protocol from Xiaomi/ST fts_521
+ * (fts_lib/ftsCore.c readSysInfo, ftsFrame.c getMSFrame3/getFrameData), used
+ * as documentation: LOAD_SYS_INFO (A4 06 01) only copies data into the
+ * framebuffer and A6 reads it; nothing is written to the controller flash. */
+static unsigned touch_diag_s;
 /* andrtouchidle=N (andromeda, patch 0105; 20..1000 ms, default 0 = off):
  * while the display is off and no finger is down, read the FIFO every N ms
  * instead of every 10 ms (each read is a bit-banged I2C transfer that keeps
@@ -865,6 +875,117 @@ touch_experiment(unsigned step)
 	}
 }
 
+/* ---- sweettouchdiag: read-only system info and sense frames ------------- */
+
+#define FTS_CMD_FRAMEBUFFER_R   0xA6u        /* I2C: 2-byte address, no dummy */
+#define FTS_SYS_INFO_SIZE       208u
+#define FTS_DIAG_MAX_NODES      1024u
+
+static struct {
+	bool ok;
+	uint8_t tx, rx;
+	uint16_t raw_addr, stren_addr, base_addr;
+} touch_si;
+static uint8_t touch_diag_buf[FTS_DIAG_MAX_NODES * 2u];
+
+static uint16_t
+touch_le16(const uint8_t *p)
+{
+	return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
+}
+
+/* fts_writeReadU8UX(FTS_CMD_FRAMEBUFFER_R, BITS_16, address, ...), in chunks. */
+static int
+fts_read_fb(uint16_t address, uint8_t *buf, unsigned len)
+{
+	while (len) {
+		unsigned n = len > 64u ? 64u : len;
+		uint8_t cmd[3] = {FTS_CMD_FRAMEBUFFER_R, (uint8_t)(address >> 8), (uint8_t)address};
+		int err;
+		if (st.gpio_i2c) {
+			err = cepheus_bb_xfer(&touch_bb, TOUCH_I2C_ADDR, cmd, sizeof(cmd), buf, n);
+		} else {
+			err = touch_msg(TOUCH_I2C_ADDR, cmd, sizeof(cmd), NULL, 0, true);
+			if (!err) {
+				err = touch_msg(TOUCH_I2C_ADDR, NULL, 0, buf, n, false);
+			}
+		}
+		if (err) {
+			return err;
+		}
+		address = (uint16_t)(address + n);
+		buf += n;
+		len -= n;
+	}
+	return 0;
+}
+
+static void
+touch_diag_sysinfo(void)
+{
+	const uint8_t load[] = {0xa4, 0x06, 0x01}; /* writeSysCmd(SYS_CMD_LOAD_DATA, LOAD_SYS_INFO) */
+	uint8_t *d = touch_diag_buf;
+	int err = touch_msg(TOUCH_I2C_ADDR, load, sizeof(load), NULL, 0, false);
+	printf("SWEET TOUCH DIAG: load system info (A4 06 01) err=%d\n", err);
+	(void)touch_drain_log("diag answer", 200, 0);
+	err = fts_read_fb(0, d, FTS_SYS_INFO_SIZE);
+	printf("SWEET TOUCH DIAG: sysinfo read err=%d head %02x %02x %02x %02x | %02x %02x %02x %02x %02x %02x %02x %02x\n",
+	    err, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]);
+	if (err || d[0] != 0xa5 || d[1] != 0x01) {
+		printf("SWEET TOUCH DIAG: no valid system info (want header a5 01)\n");
+		return;
+	}
+	/* Offsets as readSysInfo() walks them. */
+	printf("SWEET TOUCH DIAG: api %u.%u rev %#x chip0 ver %#x id %#x fw %#x svn %#x\n",
+	    d[7], d[6], touch_le16(d + 4), touch_le16(d + 8), touch_le16(d + 10),
+	    touch_le16(d + 16), touch_le16(d + 18));
+	printf("SWEET TOUCH DIAG: config ver %#x project %#x, CX ver %#x project %#x\n",
+	    touch_le16(d + 20), touch_le16(d + 22), touch_le16(d + 24), touch_le16(d + 26));
+	printf("SWEET TOUCH DIAG: AFE versions: config %#x CX %#x panel-config %#x (Xiaomi: CX != config -> full panel init, "
+	    "panel-config != config -> panel init); protocol %#x\n", d[28], d[29], d[30], d[31]);
+	printf("SWEET TOUCH DIAG: release %02x%02x%02x%02x%02x%02x%02x%02x fw crc %#x config crc %#x\n",
+	    d[48], d[49], d[50], d[51], d[52], d[53], d[54], d[55],
+	    (unsigned)(touch_le16(d + 64) | ((uint32_t)touch_le16(d + 66) << 16)),
+	    (unsigned)(touch_le16(d + 68) | ((uint32_t)touch_le16(d + 70) << 16)));
+	touch_si.tx = d[84];
+	touch_si.rx = d[85];
+	touch_si.raw_addr = touch_le16(d + 136);
+	touch_si.stren_addr = touch_le16(d + 140);
+	touch_si.base_addr = touch_le16(d + 142);
+	printf("SWEET TOUCH DIAG: screen %ux%u, tx %u rx %u keys %u force %u; MS raw @%#x strength @%#x baseline @%#x\n",
+	    touch_le16(d + 80), touch_le16(d + 82), d[84], d[85], d[86], d[87],
+	    touch_si.raw_addr, touch_si.stren_addr, touch_si.base_addr);
+	touch_si.ok = touch_si.tx && touch_si.rx &&
+	    (unsigned)touch_si.tx * touch_si.rx <= FTS_DIAG_MAX_NODES &&
+	    touch_si.raw_addr && touch_si.stren_addr;
+}
+
+/* One summary line of a mutual-sense frame (int16 little endian per node). */
+static void
+touch_diag_frame(const char *name, uint16_t address, unsigned sample)
+{
+	unsigned nodes = (unsigned)touch_si.tx * touch_si.rx;
+	int err = fts_read_fb(address, touch_diag_buf, nodes * 2u);
+	if (err) {
+		printf("SWEET TOUCH DIAG: %s #%u read err=%d\n", name, sample, err);
+		return;
+	}
+	int min = 32767, max = -32768, at = 0;
+	int64_t sum = 0;
+	unsigned over50 = 0, over200 = 0;
+	for (unsigned i = 0; i < nodes; ++i) {
+		int v = (int16_t)touch_le16(touch_diag_buf + 2u * i);
+		sum += v;
+		if (v < min) { min = v; }
+		if (v > max) { max = v; at = (int)i; }
+		if (v > 50) { over50++; }
+		if (v > 200) { over200++; }
+	}
+	printf("SWEET TOUCH DIAG: %s #%u min %d avg %d max %d at tx %u rx %u, nodes >50: %u >200: %u\n",
+	    name, sample, min, (int)(sum / (int64_t)nodes), max,
+	    (unsigned)at / touch_si.rx, (unsigned)at % touch_si.rx, over50, over200);
+}
+
 static void
 touch_thread(void *arg, wait_result_t result)
 {
@@ -951,6 +1072,17 @@ touch_thread(void *arg, wait_result_t result)
 	unsigned errors = 0, ticks = 0;
 	uint64_t exp_interval = 0, exp_next = 0;
 	unsigned exp_step = 0;
+	uint64_t diag_interval = 0, diag_next = 0;
+	unsigned diag_sample = 0, diag_samples = touch_diag_s / 2u;
+	if (touch_diag_s) {
+		touch_diag_sysinfo();
+		if (touch_si.ok) {
+			nanoseconds_to_absolutetime(2ull * NSEC_PER_SEC, &diag_interval);
+			diag_next = mach_absolute_time();
+			printf("SWEET TOUCH DIAG: %u samples of the raw and strength frames, one every 2 s: touch the screen now\n",
+			    diag_samples);
+		}
+	}
 	if (touch_exp) {
 		nanoseconds_to_absolutetime(20ull * NSEC_PER_SEC, &exp_interval);
 		exp_next = mach_absolute_time() + exp_interval;
@@ -962,6 +1094,14 @@ touch_thread(void *arg, wait_result_t result)
 		if (touch_exp && exp_step <= 5 && mach_absolute_time() >= exp_next) {
 			touch_experiment(exp_step++);
 			exp_next = mach_absolute_time() + exp_interval;
+		}
+		if (touch_si.ok && diag_sample < diag_samples && mach_absolute_time() >= diag_next) {
+			touch_diag_frame("raw", touch_si.raw_addr, diag_sample);
+			touch_diag_frame("strength", touch_si.stren_addr, diag_sample);
+			if (++diag_sample == diag_samples) {
+				printf("SWEET TOUCH DIAG: done\n");
+			}
+			diag_next = mach_absolute_time() + diag_interval;
 		}
 		/* Optional IRQ hint still reads every 100 ms, and always while down. */
 		if (!st.irq_hint || st.active ||
@@ -1031,6 +1171,10 @@ sweet_touch_init(void)
 	(void)PE_parse_boot_argn("sweettouchscan", &touch_scan_settings, sizeof(touch_scan_settings));
 	touch_scan_settings &= 0xffu;
 	(void)PE_parse_boot_argn("sweettouchexp", &touch_exp, sizeof(touch_exp));
+	(void)PE_parse_boot_argn("sweettouchdiag", &touch_diag_s, sizeof(touch_diag_s));
+	if (touch_diag_s > 600) {
+		touch_diag_s = 600;
+	}
 	(void)PE_parse_boot_argn("andrtouchidle", &touch_idle_ms, sizeof(touch_idle_ms));
 	if (touch_idle_ms) {
 		touch_idle_ms = touch_idle_ms < 20 ? 20 : (touch_idle_ms > 1000 ? 1000 : touch_idle_ms);

@@ -140,7 +140,10 @@ kernel_args = [
   "sweettouchscan=1",
   # Bring-up: every 20 s one controller command (charger mode, force
   # calibration, sense off/on, 0xff, register reset) while the user touches.
-  "sweettouchexp=1",
+  # The experiment above ran on 2026-11-07 (6 steps, 0 touches) and is off now.
+  # Read-only diagnostics instead: system info (FW/config/CX/AFE versions), then
+  # 45 raw + strength frame summaries, one every 2 s, while the user touches.
+  "sweettouchdiag=90",
   # Keys and Home as verified on the Mi 9 (patch 0083): power key via PON only,
   # one synthetic Home press after start so the lock screen opens even without
   # touch. andromeda: at 90 s it arrived 14 s before the lock screen was drawn
@@ -162,7 +165,7 @@ kernel_args = [
   # firmware check (GPUCC/SMMU/GMU read only when their clocks/power are on),
   # 2 = CX + GMU boot, 3 = GX + CP + ZAP, 4 = CP_MEM_WRITE test. One step per
   # boot, watching the log.
-  # "andrgpu=1",  (off until the kernel with andromeda_io_map(), commit 7dda8db: the 8 MiB io_submap overflows)
+  "andrgpu=1",  # needs the kernel with andromeda_io_map() (commit 7dda8db)
   # Phase F4 (patch 0120, xnu/andromeda_gpu_present.c): with andrgpu=4 passing,
   # andrgpupresent=1 lets the GPU do the fitted panel copy of sweetfb_fit=1; the
   # first 8 GPU frames are compared with the CPU result (CRC-32,
@@ -173,10 +176,10 @@ kernel_args = [
   # clocks and SE13, Wi-Fi/BT regulators and the PM8150B charger/fuel gauge.
   # PMIC reads only; level 2 also sets the s3 clock vote briefly and restores
   # it. Remove once Bluetooth, Wi-Fi and charging have their own drivers.
-  # "andrprobe=2",  (off until the kernel with andromeda_io_map(), commit 7dda8db: the 8 MiB io_submap overflows)
+  "andrprobe=2",  # needs the kernel with andromeda_io_map() (commit 7dda8db)
   # Camera slider: log the two Hall sensors (GPIO 42/114) whenever they
   # change, read only (andromeda_probe.c).
-  # "andrslider=1",  (off until the kernel with andromeda_io_map(), commit 7dda8db: the 8 MiB io_submap overflows)
+  "andrslider=1",  # needs the kernel with andromeda_io_map() (commit 7dda8db)
   # Slider opens the Camera app (patch 0097 + phone/andromedad): 1 = open is
   # hall42=0 hall114=1, 2 = reversed. Needs the iOS root with andromedad.
   # "andrslidercam=0",  (default; not passed, see the boot-args length note)
