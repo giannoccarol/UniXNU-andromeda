@@ -62,6 +62,8 @@ jobs:
           cp cepheus/xnu/andromeda_bt.c cepheus/xnu/andromeda_backlight.c cepheus/xnu/AndromedaBacklight.cpp dxb/patches/
           cp cepheus/xnu/0092-andromeda-bt-rpmh.patch dxb/patches/
           cp cepheus/xnu/andromeda_cam.c cepheus/xnu/0098-andromeda-cam-rpmh.patch dxb/patches/
+          # Touch vdd L1C at 1.8 V (patch 0136, needs 0084, 0092 and 0098 in sweet_rpmh.c).
+          cp cepheus/xnu/0136-andromeda-touch-rpmh.patch dxb/patches/
           cp cepheus/xnu/andromeda_wlan.c dxb/patches/
           cp cepheus/xnu/andromeda_haptics.c dxb/patches/
           # dyld @rpath policy (port of ios-flame 0114), straight into dxb/patches.
@@ -189,7 +191,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0120-|0135-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0120-|0135-|0136-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -259,6 +261,10 @@ jobs:
           grep -E '^bsd/dev/andromeda_cam.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
           cmp cepheus/xnu/andromeda_cam.c dxb/xnu/bsd/dev/andromeda_cam.c
           grep -F 'andromeda_rpmh_cam_rail' dxb/xnu/bsd/dev/sweet_rpmh.c
+          # andromeda: touch vdd L1C voltage vote (patch 0136).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0136-andromeda-touch-rpmh.patch'
+          grep -F 'andromeda_rpmh_touch_vdd' dxb/xnu/bsd/dev/sweet_rpmh.c
+          grep -F 'andromeda_rpmh_touch_vdd();' dxb/xnu/bsd/dev/cepheus_touch.c
           grep -F 'andromeda_cam_init();' dxb/xnu/bsd/dev/cepheus_touch.c
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA CAM:", b"andrcamdelay", b"andrcamaddr", b"not an andromeda camera rail"))'
           # andromeda: Wi-Fi/modem W0-W1 (patch 0110, andrwlan=N).

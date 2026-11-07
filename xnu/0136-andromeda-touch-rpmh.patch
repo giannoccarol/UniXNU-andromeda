@@ -1,0 +1,54 @@
+--- a/bsd/dev/sweet_rpmh.c
++++ b/bsd/dev/sweet_rpmh.c
+@@ -15,6 +15,7 @@
+ int cepheus_touch_power_enable(void);
+ int andromeda_rpmh_bt_rail(const char *res, bool on);
+ int andromeda_rpmh_cam_rail(const char *res, bool on);
++int andromeda_rpmh_touch_vdd(void);
+ 
+ /* Live downstream DT has two positional reg entries, no reg-names. */
+ #define RH_RSC_PA       0x18220000u
+@@ -508,5 +509,43 @@
+ 	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
+ 	return error;
+ }
++
++/*
++ * andromeda (Mi Mix 3 5G) touch controller vdd, patch 0136. L1C (PM8150L
++ * LDO1) is the vdd-supply of fts@49 in the live DT, fixed at 1.8 V
++ * (regulator-min/max-microvolt 1800000). cmd-db lists ldoc1 as a VRM
++ * (slave 4), so the 0084 enable-only vote left its voltage unrequested,
++ * while Linux (qcom-rpmh-regulator) votes voltage, mode and enable and
++ * TWRP's kernel reports pm8150l_l1 at 1800000 uV with the touch working.
++ * Same sequence as andromeda_rpmh_bt_rail: 1800 mV, HPM (PMIC5 LDO raw 7),
++ * enable. ACTIVE set only; same rh_lock, idle-slot checks and timeout
++ * quarantine. A successful vote is not proof that the rail reached 1.8 V.
++ */
++int
++andromeda_rpmh_touch_vdd(void)
++{
++	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
++		return EBUSY;
++	}
++	int error = EIO;
++	uint32_t address = 0;
++	if (rh_poisoned) {
++		printf("SWEET RPMH: previous uncertain transaction; refusing further access\n");
++		goto out;
++	}
++	error = rh_map();
++	if (!error) {
++		error = rh_lookup("ldoc1", &address);
++	}
++	if (!error) {
++		const uint32_t offsets[3] = {0, 8, 4}, values[3] = {1800, 7, 1};
++		error = rh_send_cmds(address, 3, offsets, values);
++	}
++out:
++	printf("ANDROMEDA RPMH: ldoc1 (touch vdd) 1800 mV HPM enable result=%d%s\n", error,
++	    rh_poisoned ? " (RPMh quarantined for this boot)" : "");
++	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
++	return error;
++}
+ #include "cepheus_arc_probe.h"
+ #endif /* ARM64_BOARD_CONFIG_SWEET */

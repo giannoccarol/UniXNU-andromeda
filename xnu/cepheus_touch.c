@@ -67,6 +67,7 @@ extern int cepheus_touch_power_enable(void);
 extern void cepheus_soc_init(void);
 extern void andromeda_probe_init(void); /* andromeda_probe.c, andrprobe=1 */
 extern void andromeda_cpufreq_init(void); /* andromeda_cpufreq.c, andrcpu=1 */
+extern int andromeda_rpmh_touch_vdd(void); /* sweet_rpmh.c, patch 0136 */
 extern void andromeda_cpufreq_boost(void); /* andromeda_cpufreq.c, andrgov=1 touch floor */
 extern void andromeda_gpu_init(void); /* andromeda_gpu.c, andrgpu=N */
 extern void andromeda_bt_init(void); /* andromeda_bt.c, andrbt=1 */
@@ -1030,6 +1031,22 @@ touch_thread(void *arg, wait_result_t result)
 		/* andromeda: also with the GENI transport (sweettouchgpio=0), which
 		 * is how Linux/TWRP talk to this controller (c80000.i2c). */
 		if (cepheus_touch_power_enable() != 0) { goto out; }
+		/* andromeda: ldoc1 is a VRM in cmd-db and the enable-only vote left its
+		 * voltage unrequested; vote 1.8 V + HPM + enable as Linux does (TWRP
+		 * reports pm8150l_l1 at 1800000 uV with a working touch). The chip is
+		 * reset below, after the rail has settled. */
+		if (touch_pin_reset == 54u) {
+			int vdd = EBUSY;
+			for (unsigned i = 0; i < 20 && vdd == EBUSY; ++i) {
+				vdd = andromeda_rpmh_touch_vdd();
+				if (vdd == EBUSY) { touch_wait(50); }
+			}
+			if (vdd != 0) {
+				printf("SWEET TOUCH (cepheus): touch vdd 1.8 V vote failed (%d); stopping\n", vdd);
+				goto out;
+			}
+			touch_wait(20);
+		}
 		touch_wait(10);
 	}
 	printf("SWEET TOUCH (cepheus): TLMM reset=%#x irq=%#x vddio=%#x\n",

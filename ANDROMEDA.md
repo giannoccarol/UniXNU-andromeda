@@ -103,6 +103,8 @@ da tutti i driver andromeda, mappa con `ml_io_map_unmappable()` nello spazio dat
 il driver GPU di ios-flame, e riusa una mappatura che copre già l'intervallo; il pool della GPU è mappato allo stesso
 modo (write-combining). Ogni nuova mappatura lascia una riga `ANDROMEDA PROBE: io map …` con il totale.
 
+**Touch, 7 novembre.** Con le diagnostiche in sola lettura (`sweettouchdiag`) il sensore risultava piatto: frame strength mai oltre ±22 con il dito sullo schermo, mentre chip, comandi e versioni AFE (tutte 0x2) erano in regola. Avviato in RAM, **TWRP** (kernel Xiaomi, driver `fts_521`) ha il touch funzionante con le stesse alimentazioni, gli stessi pin e la stessa sequenza (reset, `A0 00 01`); il suo driver però **ha aggiornato da solo il firmware del controller** da 0x54/config 0x2A a **0x50/config 0x25** (file `st_fts_e5.ftb`): scrittura permanente nel chip, non prevista. Con il firmware 0x50 il nostro driver legge solo `0xFF` da tutto ciò che serve il firmware (l'ID del chip, registro hardware, si legge), sia via GPIO sia con il controller I2C hardware SE17 (`sweettouchgpio=0`, come Linux). Differenza trovata: nel cmd-db `ldoc1` è un regolatore VRM e il nostro voto chiedeva solo l'accensione, senza tensione, mentre TWRP mostra `pm8150l_l1` a 1800000 uV. La patch 0136 vota 1800 mV + HPM + acceso prima del reset del chip.
+
 **Perché si bloccava.** Se il ramdisk non è un FAT `GUACESP`, `ShengBootMemoryDxe` cerca il payload leggendo pagina per
 pagina tutta la memoria della mappa UEFI, comprese le zone `EfiReservedMemoryType`. Sul Mix 3 5G tra queste c'è
 "Hypervisor" (`0x85700000`), che non è leggibile: il firmware si ferma prima di disegnare qualsiasi cosa. Sul Mi 9 non
