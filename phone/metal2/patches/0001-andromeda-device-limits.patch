@@ -1,0 +1,81 @@
+andromeda: fill the base class's Metal limits table (texture sizes) from the
+device's own answers, so PhotosUICore does not redraw images at 0x0 (Photos
+aborted in PXGCreateContext). Applies to ios-flame (Nick Wylynko, MIT)
+phone/metal2/SweetMetal2.mm at 745c4341; see CREDITS.md.
+
+--- a/phone/metal2/SweetMetal2.mm
++++ b/phone/metal2/SweetMetal2.mm
+@@ -10,6 +10,7 @@
+ #import <Foundation/Foundation.h>
+ #import <Metal/Metal.h>
+ #import <objc/runtime.h>
++#import <objc/message.h>
+ #include <IOKit/IOKitLib.h>
+ #include <dlfcn.h>
+ #include <fcntl.h>
+@@ -127,6 +128,56 @@
+ @interface _MTLDevice : NSObject
+ @end
+ 
++/*
++ * andromeda (phone/metal2/patches/0001): the base class's limits table
++ * (-[_MTLDevice limits], ivar _limits) stays zero, because the frontend's
++ * -initLimits is empty on purpose. PhotosUICore reads the 2D texture size
++ * straight from it: PXGMetalCompatibleImageByRedrawingCGImage redrew an image
++ * at 0x0 and Photos aborted in PXGCreateContext (2026-11-08). Fill the fields
++ * whose getters were read in Metal of iOS 16.7.16 (uint32 each:
++ * maxTextureWidth2D 0x84, maxTextureHeight2D 0x88, maxTextureDepth3D 0x94,
++ * maxTextureDimensionCube 0x98, maxTextureLayers 0x9c) with the device's own
++ * answers, where the table still holds 0. Not in backboardd and SpringBoard,
++ * which compose correctly without them. SWEETMETAL2_LIMITS=0 (in
++ * /var/local/mtl2-env) turns it off, =all includes those two.
++ */
++static void sm2_fill_limits(id device)
++{
++	const char *mode = getenv("SWEETMETAL2_LIMITS");
++	if (mode && !strcmp(mode, "0"))
++		return;
++	bool all = mode && !strcmp(mode, "all");
++	if (!all && (!strcmp(getprogname(), "backboardd") || !strcmp(getprogname(), "SpringBoard")))
++		return;
++	SEL lsel = sel_registerName("limits");
++	if (![device respondsToSelector:lsel])
++		return;
++	uint8_t *limits = ((uint8_t * (*)(id, SEL))objc_msgSend)(device, lsel);
++	if (!limits)
++		return;
++	static const struct {
++		const char *sel;
++		unsigned off;
++	} fields[] = {
++		{ "maxTextureWidth2D", 0x84 }, { "maxTextureHeight2D", 0x88 }, { "maxTextureDepth3D", 0x94 },
++		{ "maxTextureDimensionCube", 0x98 }, { "maxTextureLayers", 0x9c },
++	};
++	char text[300] = "limits table:";
++	for (const auto &f : fields) {
++		SEL s = sel_registerName(f.sel);
++		if (![device respondsToSelector:s])
++			continue;
++		NSUInteger v = ((NSUInteger(*)(id, SEL))objc_msgSend)(device, s);
++		uint32_t *slot = (uint32_t *)(limits + f.off);
++		if (*slot == 0 && v > 0 && v <= UINT32_MAX)
++			*slot = (uint32_t)v;
++		size_t used = strlen(text);
++		snprintf(text + used, sizeof(text) - used, " %s %u", f.sel, *slot);
++	}
++	sm2_logs(text);
++}
++
++
+ @interface SweetMTL2Device : _MTLDevice
+ - (id)initWithAcceleratorPort:(mach_port_t)port;
+ @end
+@@ -215,6 +266,8 @@
+ 		if (device && strcmp(getprogname(), "backboardd") != 0)
+ 			class_replaceMethod(object_getClass(device), sel_registerName("supportsExtendedXR10Formats"),
+ 					    imp_implementationWithBlock(^BOOL(id me) { (void)me; return YES; }), "B16@0:8");
++		if (device)
++			sm2_fill_limits(device);
+ 		/* image bases, for symbolicating pstack samples (atos -o out/SweetMetal2.dSYM -l BASE ADDR) */
+ 		Dl_info self = { 0 }, tu = { 0 };
+ 		dladdr((void *)sm2_logs, &self);

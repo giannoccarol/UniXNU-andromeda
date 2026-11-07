@@ -34,6 +34,8 @@
 #     (UniXNU's, to metal2vulkan) and 0100-0101 (ios-flame's). The build
 #     follows ios-flame's phone/metal2/build.sh and tools/build-m2v-bridge.sh,
 #     which follow UniXNU's scripts/build-native-metal-bridge.py.
+#   - phone/metal2/patches (ours, applied to ios-flame's phone/metal2):
+#     0001 fills Metal's limits table (texture sizes) for PhotosUICore.
 #   - metal2vulkan (steelbrain / Anees Iqbal,
 #     https://github.com/steelbrain/metal2vulkan) 720ef1ce, UniXNU's and
 #     ios-flame's pin: GPL-2.0-or-later OR LGPL-3.0-or-later. Only the crates
@@ -262,6 +264,15 @@ for file in "${patch_files[@]}"; do
 	echo "$name: applying ${file#"$src"/}"
 	git -C "$m2v" apply --whitespace=nowarn "$file" || die "patch ${file##*/} does not apply to metal2vulkan $M2V_COMMIT"
 done
+# Our patches to ios-flame's phone/metal2 (phone/metal2/patches, in order;
+# fetch_git resets the checkout, so they apply on every build).
+flame_patches=()
+for file in "$here"/patches/*.patch; do
+	[[ -f $file ]] || continue
+	echo "$name: applying ${file#"$repo"/}"
+	git -C "$flame" apply --whitespace=nowarn "$file" || die "patch ${file##*/} does not apply to ios-flame $FLAME_COMMIT"
+	flame_patches+=("$file")
+done
 
 # --- Bridge: static library for aarch64-apple-ios ------------------------------
 # The runtime's example library and its function-constant fixture, assembled to
@@ -448,6 +459,10 @@ replace-with = "vendored-sources"
 directory = "../vendor"
 EOF
 cp "$here/build.sh" "$here/install-root.sh" "$here/Cargo.lock" "$top/andromeda/phone/metal2/"
+if ((${#flame_patches[@]})); then
+	mkdir -p "$top/andromeda/phone/metal2/patches"
+	cp "${flame_patches[@]}" "$top/andromeda/phone/metal2/patches/"
+fi
 cp "$repo/phone/turnip/build.sh" "$repo/phone/turnip/install-root.sh" "$top/andromeda/phone/turnip/"
 if [[ -f $repo/.github/workflows/gpu-userland-andromeda.yml ]]; then
 	mkdir -p "$top/andromeda/.github/workflows"
@@ -471,7 +486,8 @@ relink it with a modified metal2vulkan:
   metal2vulkan/        the crates the bridge builds, at $M2V_COMMIT, with
                        patches/metal2vulkan applied (order: series); the
                        licence texts are in metal2vulkan/LICENSE*
-  ios-flame/           ios-flame (Nick Wylynko) commit $FLAME_COMMIT, MIT:
+  ios-flame/           ios-flame (Nick Wylynko) commit $FLAME_COMMIT, MIT, with
+                       andromeda/phone/metal2/patches applied:
                        phone/metal2 = SweetMetal2.mm, Info.plist, m2vtest.c,
                        NativeBridgeMetalFrontend.* and bridge/ (UniXNU
                        NativeMetal, MIT, bridge/LICENSE)
