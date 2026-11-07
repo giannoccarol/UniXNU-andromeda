@@ -32,12 +32,13 @@ board = tomllib.loads((ROOT / "board.toml").read_text())
 # Test images: ANDROMEDA_OWNED=0xBC000000 overrides the kernel window size
 # (board.toml [payload.adt] owned_memory_size) for this build only.
 # Test images: ANDROMEDA_ARGS="andrbt=1 andrbl=1" replaces/adds kernel args
-# (same name = replaced) for this build only.
+# (same name = replaced) for this build only; "NAME=" with nothing after the
+# "=" drops NAME (room in the boot-args, e.g. "sweethidtest= sweethidonce=").
 if os.environ.get("ANDROMEDA_ARGS"):
     extra = os.environ["ANDROMEDA_ARGS"].split()
     names = {item.split("=", 1)[0] for item in extra}
     args = [item for item in board["payload"]["kernel_args"] if item.split("=", 1)[0] not in names]
-    board["payload"]["kernel_args"] = args + extra
+    board["payload"]["kernel_args"] = args + [item for item in extra if not item.endswith("=")]
     print(f"payload: kernel args overridden: {' '.join(extra)}")
 # XNU 8796 (iOS 16) reads 608 bytes of boot-args (BOOT_LINE_LENGTH in
 # pexpert/pexpert/arm64/boot.h), DarwinBoot copies into a 1024-byte field

@@ -70,6 +70,8 @@ jobs:
           cp cepheus/xnu/andromeda_ctl.c cepheus/xnu/andromeda_ctl.h dxb/patches/
           # dyld @rpath policy (port of ios-flame 0114), straight into dxb/patches.
           cp cepheus/xnu/0115-andromeda-dyld-policy.patch dxb/patches/
+          # Sandbox extension issue/consume for tccd and its clients (patch 0116, needs 0115).
+          cp cepheus/xnu/0116-andromeda-sandbox-extensions.patch dxb/patches/
           cp cepheus/xnu/andromeda_power.c cepheus/xnu/andromeda_power.h dxb/patches/
           # Power P1 straight into dxb/patches: 0102-0104 change files that the 0083 generator rewrites.
           cp cepheus/xnu/0101-andromeda-idle-cache.patch cepheus/xnu/0102-andromeda-fb-vsync-park.patch cepheus/xnu/0103-andromeda-usb-idle-poll.patch cepheus/xnu/0104-andromeda-keys-idle-poll.patch dxb/patches/
@@ -201,7 +203,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0120-|0135-|0136-|0140-|0200-|0201-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0140-|0200-|0201-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -310,6 +312,10 @@ jobs:
           # andromeda: dyld policy for apps with embedded frameworks (patch 0115, ios-flame 0114).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0115-andromeda-dyld-policy.patch'
           grep -F 'SWEET_AMFI_DYLD_POLICY_SELF' dxb/xnu/bsd/kern/sweet_amfi.c
+          # andromeda: sandbox extensions (patch 0116, andrsbext, default on).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0116-andromeda-sandbox-extensions.patch'
+          bash cepheus/scripts/test-sandbox-extensions.sh dxb/xnu/bsd/kern/sweet_amfi.c
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrsbext", b"SWEET Sandbox: %s issues %s"))'
           # andromeda: F4 GPU present (patch 0120, andrgpupresent=1).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0120-andromeda-gpu-present.patch'
           grep -E '^bsd/dev/andromeda_gpu_present.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files

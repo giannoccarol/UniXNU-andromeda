@@ -296,6 +296,11 @@ kernel_args = [
   # "andrusbidle=0",  (default; not passed, see the boot-args length note)
   # "andrkeysidle=0",  (default; not passed, see the boot-args length note)
   # "andrtouchidle=0",  (default; not passed, see the boot-args length note)
+  # Sandbox extensions (patch 0116): tccd hands out TCC permissions (Photos for
+  # assetsd) as extension tokens; the policy made up by ios-sweet's 0050 answered
+  # ENOENT, so assetsd and Photos aborted (2026-11-07). andrsbext=0 restores
+  # ENOENT.
+  # "andrsbext=1",  (default; not passed, see the boot-args length note)
 ]
 
 [payload.adt]

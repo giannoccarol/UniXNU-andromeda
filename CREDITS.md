@@ -224,6 +224,13 @@ metal2vulkan, l'archivio del sorgente corrispondente completo.
 | **UniXNU contributors**, NativeAdreno (oggi [`UniXNU/Adreno740`](https://github.com/UniXNU/Adreno740): `NativeAdrenoABI.h`, `NativeAdrenoPublish.cpp`; MIT, copia in `licenses/NativeAdreno-MIT.txt`), nella copia di ios-flame `phone/turnip/NativeAdrenoABI.h` (`745c4341`) | `xnu/NativeAdrenoABI.h` senza modifiche: l'ABI v1 (record, metodi, flag) che parla il backend darwin di Turnip; il tunnel `'NTNL'` e i tipi di apertura `0x4147`/2. `scripts/test-mtl-abi.py` controlla che sia identico al pin dello userland (`phone/turnip/build.sh`) |
 | **Kernel Linux** drm/msm (GPL-2.0), `a6xx_gpu.c` `a6xx_submit`; **Sviluppatori Mesa** (freedreno, MIT), `adreno_pm4.xml`, `a6xx.xml` | solo documentazione, tramite ios-flame: l'involucro dei submit e i codici degli eventi CP (nessun codice copiato) |
 
+## Foto e permessi TCC: estensioni della sandbox (patch 0116, `andrsbext`)
+
+| Progetto / autore | Cosa usiamo |
+|---|---|
+| **dipa-studio**, [`ios-sweet`](https://github.com/dipa-studio/ios-sweet) (`45263bee`, MIT; file XNU APSL 2.0) | la politica `Sandbox` permissiva di `bsd/kern/sweet_amfi.c` (patch `0050-sweet-sandbox-policy.patch`), a cui la 0116 aggiunge le operazioni 5 (emissione) e 6 (consumo) delle estensioni al posto di `ENOENT`; la scansione delle stringhe nell'heap di un processo che va in abort (patch `0051-sweet-crash-heap-strings.patch` e `0053-sweet-crash-scan-springboard.patch`, parametro `sweetscan=`), con cui abbiamo letto le eccezioni di Foto e di `assetsd` |
+| **Apple**, `libsystem_sandbox.dylib` di iOS 16.7.16 (20H392, nella dyld shared cache estratta in locale, non nel repository) | solo fatti: la disposizione degli argomenti di `__sandbox_ms("Sandbox", 5/6/7, …)`, letta disassemblandone il codice con [Capstone](https://www.capstone-engine.org/) (BSD-3-Clause); nessun codice copiato |
+
 ## Hardware del Mi Mix 3 5G
 
 | Fonte | Cosa usiamo |
