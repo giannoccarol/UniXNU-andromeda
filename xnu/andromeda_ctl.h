@@ -240,6 +240,8 @@ enum andr_verb {
 	ANDR_V_SLIDER,
 	ANDR_V_SLIDERCAM,
 	ANDR_V_FASTBOOT,
+	ANDR_V_SHOT,
+	ANDR_V_FBSYNC,
 	ANDR_V_COUNT
 };
 
@@ -274,6 +276,8 @@ static const struct andr_range andr_verbs[ANDR_V_COUNT] __attribute__((unused)) 
 	[ANDR_V_SLIDER]    = { "slider",    1, 1, false, true },
 	[ANDR_V_SLIDERCAM] = { "slidercam", 0, 2, false, true },
 	[ANDR_V_FASTBOOT]  = { "fastboot",  0, 0, false, false },
+	[ANDR_V_SHOT]      = { "shot",      4, 60, false, true },  /* block size, pixels */
+	[ANDR_V_FBSYNC]    = { "fbsync",    1, 1, true, true },
 };
 
 /* The clamps of the boot-args of patches 0101-0105, as accepted ranges. */

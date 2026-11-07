@@ -107,6 +107,7 @@ extern void andromeda_power_ctl_status(char *out, size_t len);
 /* andromeda_probe.c */
 extern int andromeda_probe_slider_ctl(char *out, size_t len);
 extern int andromeda_probe_fastboot_ctl(char *out, size_t len);
+extern int andromeda_fbsync_ctl(unsigned on, char *out, size_t len);	/* andromeda_gpu_mtl.c, patch 0201 */
 extern bool andromeda_probe_slider_on(void);
 /* andromeda_slider.c */
 extern int andromeda_slider_mode_ctl(unsigned mode, char *out, size_t len);
@@ -433,6 +434,66 @@ ctl_idle_show(void)
 	return true;
 }
 
+/*
+ * "shot N": a thumbnail of what the panel shows, into the log, so the screen
+ * can be looked at from the PC (2026-11-07: Metal frames with glitches).
+ * The panel framebuffer the UEFI set up (SweetFramebuffer: AppleCLCD
+ * 1080x2340, stride 4320, BGRA at 0x9c000000) is read through a device
+ * mapping; each N x N block is the average of a 4 x 4 grid of samples. One
+ * line per row of blocks and per 30 blocks: "ANDROMEDA SHOT row.part: RRGGBB...",
+ * header and footer lines give the size; scripts/andshot.py makes a PNG.
+ * Read only.
+ */
+#define CTL_PANEL_PA     0x9c000000u
+#define CTL_PANEL_W      1080u
+#define CTL_PANEL_H      2340u
+#define CTL_PANEL_STRIDE 4320u
+#define CTL_SHOT_CHUNK   30u
+extern vm_offset_t andromeda_io_map(vm_offset_t pa, vm_size_t size);
+static void ctl_sleep_ms(unsigned ms);
+
+static bool
+ctl_shot(unsigned block)
+{
+	vm_offset_t fb = andromeda_io_map(CTL_PANEL_PA, (vm_size_t)CTL_PANEL_STRIDE * CTL_PANEL_H);
+	if (!fb) {
+		snprintf(ctl_why, sizeof(ctl_why), "panel framebuffer not mapped");
+		return false;
+	}
+	unsigned cols = CTL_PANEL_W / block, rows = CTL_PANEL_H / block;
+	static unsigned shot_no;
+	unsigned no = ++shot_no;
+	printf("ANDROMEDA SHOT begin %u: %ux%u blocks of %u px (panel %ux%u)\n", no, cols, rows, block,
+	    CTL_PANEL_W, CTL_PANEL_H);
+	char line[16 + 6 * CTL_SHOT_CHUNK + 4];
+	for (unsigned r = 0; r < rows; ++r) {
+		for (unsigned c0 = 0; c0 < cols; c0 += CTL_SHOT_CHUNK) {
+			int n = 0;
+			for (unsigned c = c0; c < cols && c < c0 + CTL_SHOT_CHUNK; ++c) {
+				uint32_t sr = 0, sg = 0, sb = 0;
+				for (unsigned sy = 0; sy < 4; ++sy) {
+					for (unsigned sx = 0; sx < 4; ++sx) {
+						unsigned x = c * block + (2 * sx + 1) * block / 8;
+						unsigned y = r * block + (2 * sy + 1) * block / 8;
+						uint32_t px = *(volatile uint32_t *)(fb + (vm_offset_t)y * CTL_PANEL_STRIDE + 4u * x);
+						sb += px & 0xffu;
+						sg += (px >> 8) & 0xffu;
+						sr += (px >> 16) & 0xffu;
+					}
+				}
+				n += snprintf(line + n, sizeof(line) - (size_t)n, "%02x%02x%02x", sr / 16, sg / 16, sb / 16);
+			}
+			printf("ANDROMEDA SHOT %u %03u.%u: %s\n", no, r, c0 / CTL_SHOT_CHUNK, line);
+		}
+		if ((r % 8) == 7) {
+			ctl_sleep_ms(10);   /* let the USB log drain */
+		}
+	}
+	printf("ANDROMEDA SHOT end %u\n", no);
+	snprintf(ctl_why, sizeof(ctl_why), "shot %u: %ux%u blocks of %u px in the log", no, cols, rows, block);
+	return true;
+}
+
 /* Run one parsed command; ctl_why gets the explanation. */
 static bool
 ctl_execute(const struct andr_cmd *c)
@@ -471,6 +532,10 @@ ctl_execute(const struct andr_cmd *c)
 		return andromeda_slider_mode_ctl(c->value, ctl_why, sizeof(ctl_why)) == 0;
 	case ANDR_V_FASTBOOT:
 		return andromeda_probe_fastboot_ctl(ctl_why, sizeof(ctl_why)) == 0;
+	case ANDR_V_SHOT:
+		return ctl_shot(c->value);
+	case ANDR_V_FBSYNC:
+		return andromeda_fbsync_ctl(c->value, ctl_why, sizeof(ctl_why)) == 0;
 	default:
 		snprintf(ctl_why, sizeof(ctl_why), "unknown command");
 		return false;

@@ -162,6 +162,13 @@ test_parse_ok(void)
 	assert(parse("slidercam 0", &c) == ANDR_P_OK && c.verb == ANDR_V_SLIDERCAM && c.value == 0u);
 	assert(parse("slidercam 2", &c) == ANDR_P_OK && c.value == 2u);
 	assert(parse("fastboot", &c) == ANDR_P_OK && c.verb == ANDR_V_FASTBOOT);
+	assert(parse("shot 12", &c) == ANDR_P_OK && c.verb == ANDR_V_SHOT && c.value == 12u);
+	assert(parse("shot 60", &c) == ANDR_P_OK && c.value == 60u);
+	assert(parse("shot 3", &c) == ANDR_P_RANGE);
+	assert(parse("shot 61", &c) == ANDR_P_RANGE);
+	assert(parse("fbsync 0", &c) == ANDR_P_OK && c.verb == ANDR_V_FBSYNC && c.value == 0u);
+	assert(parse("fbsync 1", &c) == ANDR_P_OK && c.value == 1u);
+	assert(parse("fbsync 2", &c) == ANDR_P_RANGE);
 	assert(parse("idle", &c) == ANDR_P_OK && c.verb == ANDR_V_IDLE && c.idle == ANDR_IDLE_COUNT);
 	assert(parse("idle cpu 1", &c) == ANDR_P_OK && c.idle == ANDR_IDLE_CPU && c.value == 1u);
 	assert(parse("idle fb 0", &c) == ANDR_P_OK && c.idle == ANDR_IDLE_FB && c.value == 0u);

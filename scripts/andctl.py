@@ -24,6 +24,9 @@ Commands (the phone checks them again; see xnu/andromeda_ctl.h):
   pwr 0|1                       ANDROMEDA PWR statistics off/on
   idle [cpu 0-1 | fb 0-1 | usb 0,2-20 | keys 0,20-200 | touch 0,20-1000]
   slider 1 | slidercam 0-2 | fastboot
+  shot 4-60                     thumbnail of the panel into the log, N px blocks
+                                (scripts/andshot.py LOG OUT.png makes a PNG)
+  fbsync 0|1                    CPU copy of Metal frames waits for the GPU (1)
 
 One datagram per command. Only "status", "help" and "idle" without a value
 are sent again when no answer comes; a command that starts something is
@@ -67,7 +70,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description="andromeda runtime control (andrctl=1): one command, one answer",
         epilog="commands: status, help, gpu N, bt N, hap 1, cam 1, wlan N, bl N, pwr 0|1, "
-               "idle [NAME VALUE], slider 1, slidercam N, fastboot")
+               "idle [NAME VALUE], slider 1, slidercam N, fastboot, shot N, fbsync 0|1")
     parser.add_argument("--phone", default="192.168.7.2", help="phone address (default 192.168.7.2)")
     parser.add_argument("--port", type=int, default=PORT, help=f"UDP port (default {PORT})")
     parser.add_argument("--timeout", type=float, default=3.0, help="seconds to wait for the answer")

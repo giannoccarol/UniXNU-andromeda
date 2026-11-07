@@ -52,6 +52,8 @@ install -m 644 "$ROOT/xnu/0096-andromeda-amfi-trust.patch" "$ROOT/xnu/0096-stage
 # F5/F6 (andrmtl=N, off by default): NativeAdreno user client + IOAcceleratorES (port of ios-flame 0096/0097/0115/0116).
 install -m 644 "$ROOT/xnu/0200-andromeda-mtl.patch" "$ROOT/xnu/0200-stage-andromeda-mtl.sh" "$ROOT/xnu/andromeda_gpu_mtl.c" \
     "$ROOT/xnu/andromeda_gpu_mtl.h" "$ROOT/xnu/SweetAccelerator.cpp" "$ROOT/xnu/NativeAdrenoABI.h" "$DEST/xnu/patches/"
+# Frame sync for the framebuffer's CPU copy of Metal frames (andrfbsync, default on with andrmtl).
+install -m 644 "$ROOT/xnu/0201-andromeda-fbsync.patch" "$DEST/xnu/patches/"
 for file in cepheus_gpu_memory.cpp cepheus_gpu_memory.h cepheus_gpu_compile.c cepheus_gpu_compile.h \
     cepheus_gpu_memory_state.h \
     cepheus_gmu_upload_mmio.h \

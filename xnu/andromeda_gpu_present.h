@@ -99,6 +99,13 @@ int andromeda_gpu_present_map(uint32_t slot, const uint64_t *pages, uint32_t npa
 int andromeda_gpu_present_unmap(uint32_t slot);
 /* Clean the frame from the CPU caches, blit it onto the panel, wait for the fence. */
 int andromeda_gpu_present_frame(uint32_t slot, const struct andr_present_src *src);
+/*
+ * From the framebuffer's CPU copy (patch 0201), before reading a surface at
+ * kva: with Metal (andrmtl) on and andrfbsync not 0, wait for the GPU's
+ * submits and clean the surface from the caches. Does nothing otherwise.
+ * In andromeda_gpu_mtl.c.
+ */
+void andromeda_fbsync_before_read(uintptr_t kva, uint64_t bytes);
 
 #ifdef __cplusplus
 }

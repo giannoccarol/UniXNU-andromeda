@@ -1,0 +1,20 @@
+andromeda: before the framebuffer's CPU copy of a surface, let the GPU finish the
+Metal work already submitted and clean the surface from the CPU caches
+(andromeda_fbsync_before_read in bsd/dev/andromeda_gpu_mtl.c, declared in
+andromeda_gpu_present.h; off unless andrmtl is on, andrfbsync=0 disables).
+With Metal, backboardd swaps right after its submit and the copy read
+half-drawn or stale frames.
+
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -508,6 +508,9 @@
+ 			continue;
+ 		}
+ 		uintptr_t src = s->kernelAddress();
++		if (src != 0) {
++			andromeda_fbsync_before_read(src, (uint64_t)s->bytesPerRow * s->height);
++		}
+ 		uint32_t bpe = s->bytesPerElement ? s->bytesPerElement : 4;
+ 		if (w <= 0 || h <= 0) {
+ 			w = (int32_t)s->width;

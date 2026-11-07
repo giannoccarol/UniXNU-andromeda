@@ -1338,4 +1338,69 @@ andr_mtl_external(struct andr_mtl_client *c, uint32_t selector, const void *in, 
 	}
 	return mt_method(c, selector, in_size ? in : NULL, in_size, out, out_size);
 }
+/*
+ * ---- the framebuffer's CPU copy of Metal frames (andrfbsync, patch 0201) ----
+ * With Metal on, backboardd's frames are drawn by the GPU into IOSurfaces and
+ * swapped right after the submit; the framebuffer's CPU copy (0094) read them
+ * without waiting for the GPU and through the kernel's cached mapping of the
+ * surface (2026-11-07: wallpaper visible, many glitches). Before each copy:
+ * wait for every submit issued so far (at most MT_FBSYNC_MS), then clean and
+ * invalidate the frame's lines. ios-flame avoids the question by presenting
+ * on the GPU ring after the frame (its 0119). andrfbsync=0 at boot or
+ * "andctl.py fbsync 0" switches it off, "fbsync 1" on again.
+ */
+#define MT_FBSYNC_MS	50u
+#if defined(KERNEL)
+extern void flush_dcache64(addr64_t addr, unsigned count, int phys);
+#endif
+static uint32_t mt_fbsync = 1, mt_fbsync_parsed;
+static uint64_t mt_fbsync_frames, mt_fbsync_timeouts;
+
+static void
+mt_fbsync_args(void)
+{
+	if (__atomic_exchange_n(&mt_fbsync_parsed, 1u, __ATOMIC_ACQ_REL) == 0) {
+		uint32_t v = 1;
+		(void)PE_parse_boot_argn("andrfbsync", &v, sizeof(v));
+		__atomic_store_n(&mt_fbsync, v ? 1u : 0u, __ATOMIC_RELAXED);
+	}
+}
+
+void
+andromeda_fbsync_before_read(uintptr_t kva, uint64_t bytes)
+{
+	mt_fbsync_args();
+	if (!__atomic_load_n(&mt_fbsync, __ATOMIC_RELAXED) || mt_get_state() != MT_READY || mt_g == NULL ||
+	    kva == 0 || bytes == 0 || bytes > 0x10000000ull) {
+		return;
+	}
+	uint32_t target = __atomic_load_n(&mt_g->fence, __ATOMIC_ACQUIRE);
+	int rc = mt_wait(target, (uint64_t)MT_FBSYNC_MS * 1000000ull);
+	uint64_t n = __atomic_add_fetch(&mt_fbsync_frames, 1, __ATOMIC_RELAXED);
+	if (rc == 1) {
+		uint64_t t = __atomic_add_fetch(&mt_fbsync_timeouts, 1, __ATOMIC_RELAXED);
+		if (t <= 5 || (t % 1000) == 0) {
+			printf(MT_TAG " fbsync: GPU not done after %u ms (fence %u, done %u); %llu of %llu frames\n",
+			    MT_FBSYNC_MS, target, mt_fence_read(), (unsigned long long)t, (unsigned long long)n);
+		}
+	}
+#if defined(KERNEL)
+	flush_dcache64((addr64_t)kva, (unsigned)bytes, FALSE);
+#endif
+	if (n == 1) {
+		printf(MT_TAG " fbsync: the CPU copy waits for the GPU and cleans each frame first"
+		    " (andrfbsync=0 or \"andctl fbsync 0\" turns it off)\n");
+	}
+}
+
+int
+andromeda_fbsync_ctl(unsigned on, char *why, size_t len)
+{
+	mt_fbsync_args();
+	__atomic_store_n(&mt_fbsync, on ? 1u : 0u, __ATOMIC_RELAXED);
+	snprintf(why, len, "fbsync %s (%llu frames synced so far, %llu GPU waits timed out)", on ? "on" : "off",
+	    (unsigned long long)__atomic_load_n(&mt_fbsync_frames, __ATOMIC_RELAXED),
+	    (unsigned long long)__atomic_load_n(&mt_fbsync_timeouts, __ATOMIC_RELAXED));
+	return 0;
+}
 #endif /* ARM64_BOARD_CONFIG_SWEET */
