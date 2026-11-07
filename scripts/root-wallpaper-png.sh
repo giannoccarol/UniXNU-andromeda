@@ -6,7 +6,8 @@
 # default wallpaper (CollectionsPoster, "WWDC 2022") is drawn black. ImageIO
 # sniffs the content, so PNG data under the old name works. Workaround and
 # client list ("* -chronod": every process but chronod, whose widgets stay
-# white with a device) from ios-flame's HANDOFF.md (Nick Wylynko); see
+# white with a device; also without PridePosterExtension and Photos, which abort
+# with a Metal device here, 2026-11-07) from ios-flame's HANDOFF.md (Nick Wylynko); see
 # CREDITS.md. The originals are kept in /private/var/local/wallpaper-heic-backup.
 #
 # usage: scripts/root-wallpaper-png.sh IMG
@@ -52,10 +53,10 @@ docker run --rm --privileged -v /dev:/dev -v "$IMG_DIR:/out" -v "$W:/w:ro" ios-r
     cat "/w/out/${f%.*}.png" > "$f"
     chown "$own" "$f"; chmod "$mode" "$f"
   done < /w/list.txt
-  printf "* -chronod\n" > private/var/local/mtl2-clients
+  printf "* -chronod -PridePosterExtension -MobileSlideShow\n" > private/var/local/mtl2-clients
   chown 0:0 private/var/local/mtl2-clients
   chmod 0644 private/var/local/mtl2-clients
-  echo "wallpaper layers written as PNG (originals in /$B); mtl2-clients: * -chronod"
+  echo "wallpaper layers written as PNG (originals in /$B); mtl2-clients: * -chronod -PridePosterExtension -MobileSlideShow"
   cd /
   umount /mnt/r
 ' write "$IMG_BASE"
