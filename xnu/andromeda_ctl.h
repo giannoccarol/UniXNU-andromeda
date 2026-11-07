@@ -267,33 +267,33 @@ struct andr_range {
 };
 
 static const struct andr_range andr_verbs[ANDR_V_COUNT] __attribute__((unused)) = {
-	[ANDR_V_STATUS]    = { "status",    0, 0, false, false },
-	[ANDR_V_HELP]      = { "help",      0, 0, false, false },
-	[ANDR_V_GPU]       = { "gpu",       1, 4, false, true },
-	[ANDR_V_BT]        = { "bt",        1, 2, false, true },
-	[ANDR_V_HAP]       = { "hap",       1, 1, false, true },
-	[ANDR_V_CAM]       = { "cam",       1, 1, false, true },
-	[ANDR_V_WLAN]      = { "wlan",      1, 2, false, true },
-	[ANDR_V_BL]        = { "bl",        1, 2, false, true },
-	[ANDR_V_PWR]       = { "pwr",       0, 1, false, true },
-	[ANDR_V_IDLE]      = { "idle",      0, 0, false, true },  /* NAME VALUE */
-	[ANDR_V_SLIDER]    = { "slider",    1, 1, false, true },
-	[ANDR_V_SLIDERCAM] = { "slidercam", 0, 2, false, true },
-	[ANDR_V_FASTBOOT]  = { "fastboot",  0, 0, false, false },
-	[ANDR_V_SHOT]      = { "shot",      4, 60, false, true },  /* block size, pixels */
-	[ANDR_V_FBSYNC]    = { "fbsync",    1, 1, true, true },
-	[ANDR_V_KEY]       = { "key",       1, 3, true, true },   /* 0 power, 1 vol+, 2 vol-, 3 home */
+	[ANDR_V_STATUS]    = { "status",    0, 0, false, false, 0, 0 },
+	[ANDR_V_HELP]      = { "help",      0, 0, false, false, 0, 0 },
+	[ANDR_V_GPU]       = { "gpu",       1, 4, false, true, 0, 0 },
+	[ANDR_V_BT]        = { "bt",        1, 2, false, true, 0, 0 },
+	[ANDR_V_HAP]       = { "hap",       1, 1, false, true, 0, 0 },
+	[ANDR_V_CAM]       = { "cam",       1, 1, false, true, 0, 0 },
+	[ANDR_V_WLAN]      = { "wlan",      1, 2, false, true, 0, 0 },
+	[ANDR_V_BL]        = { "bl",        1, 2, false, true, 0, 0 },
+	[ANDR_V_PWR]       = { "pwr",       0, 1, false, true, 0, 0 },
+	[ANDR_V_IDLE]      = { "idle",      0, 0, false, true, 0, 0 },  /* NAME VALUE */
+	[ANDR_V_SLIDER]    = { "slider",    1, 1, false, true, 0, 0 },
+	[ANDR_V_SLIDERCAM] = { "slidercam", 0, 2, false, true, 0, 0 },
+	[ANDR_V_FASTBOOT]  = { "fastboot",  0, 0, false, false, 0, 0 },
+	[ANDR_V_SHOT]      = { "shot",      4, 60, false, true, 0, 0 },  /* block size, pixels */
+	[ANDR_V_FBSYNC]    = { "fbsync",    1, 1, true, true, 0, 0 },
+	[ANDR_V_KEY]       = { "key",       1, 3, true, true, 0, 0 },   /* 0 power, 1 vol+, 2 vol-, 3 home */
 	[ANDR_V_TOUCH]     = { "touch",     1, 2399, true, true, 2, 2 },  /* X Y, HID canvas 1080x2400 */
 	[ANDR_V_SWIPE]     = { "swipe",     1, 2399, true, true, 4, 5 },  /* X1 Y1 X2 Y2 [MS] */
 };
 
 /* The clamps of the boot-args of patches 0101-0105, as accepted ranges. */
 static const struct andr_range andr_idles[ANDR_IDLE_COUNT] __attribute__((unused)) = {
-	[ANDR_IDLE_CPU]   = { "cpu",   1, 1,    true, true },
-	[ANDR_IDLE_FB]    = { "fb",    1, 1,    true, true },
-	[ANDR_IDLE_USB]   = { "usb",   2, 20,   true, true },
-	[ANDR_IDLE_KEYS]  = { "keys",  20, 200, true, true },
-	[ANDR_IDLE_TOUCH] = { "touch", 20, 1000, true, true },
+	[ANDR_IDLE_CPU]   = { "cpu",   1, 1,    true, true, 0, 0 },
+	[ANDR_IDLE_FB]    = { "fb",    1, 1,    true, true, 0, 0 },
+	[ANDR_IDLE_USB]   = { "usb",   2, 20,   true, true, 0, 0 },
+	[ANDR_IDLE_KEYS]  = { "keys",  20, 200, true, true, 0, 0 },
+	[ANDR_IDLE_TOUCH] = { "touch", 20, 1000, true, true, 0, 0 },
 };
 
 enum andr_perr {
