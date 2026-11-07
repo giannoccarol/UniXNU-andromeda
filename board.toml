@@ -190,6 +190,10 @@ kernel_args = [
   # 2026-11-07: steps 1-4 all passed on the phone (GMU 0xBABEFACE, ZAP
   # authenticated, CP_MEM_WRITE read back) after the GMU register base fix.
   "andrgpu=4",
+  # 2026-11-07: backboardd looks for IOAcceleratorES only in its first ~12 s
+  # and then stays on the software renderer; with the default 90 s delay the
+  # GPU came up ~40 s too late. Start it 5 s after the thread is created.
+  "andrgpudelay=5",
   # Phase F4 (patch 0120, xnu/andromeda_gpu_present.c): with andrgpu=4 passing,
   # andrgpupresent=1 lets the GPU do the fitted panel copy of sweetfb_fit=1; the
   # first 8 GPU frames are compared with the CPU result (CRC-32,
@@ -207,7 +211,9 @@ kernel_args = [
   # frames. BO pool andrmtlpool/andrmtlpoolsize (default 0x1E2000000, 464 MiB;
   # refused if XNU manages any of it). Host-tested only; test image:
   # ANDROMEDA_TAG=mtl ANDROMEDA_ARGS="andrmtl=1" ./build-boot.sh
-  # "andrmtl=0",  (default; not passed, see the boot-args length note)
+  # 2026-11-07: on the phone SpringBoard got "Turnip Adreno (TM) 640" through
+  # SweetMetal2.bundle (root with update-root.sh, client list "* -chronod").
+  "andrmtl=2",
   # Bring-up (andromeda_probe.c): 100 s after start, log Bluetooth UART pins,
   # clocks and SE13, Wi-Fi/BT regulators and the PM8150B charger/fuel gauge.
   # PMIC reads only; level 2 also sets the s3 clock vote briefly and restores

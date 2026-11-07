@@ -149,6 +149,7 @@ Acayan, Stephan Gerhold, linux-msm/Linaro, libqmi/ModemManager e il wiki di post
 | **UniXNU contributors**, `UniXNU-sheng` (`ce0c600f`, BSD-2-Clause-Patent; consultato, nessun codice copiato): `hal/ShengAudioPlugIn.c` | il clock host a 24 MHz di CoreAudio contro un timer a 19,2 MHz, che il plug-in controlla al caricamento |
 | **MakrSas**, `ios-topaz` (`e4772911`, nessuna licenza: solo fatti); **Scion-Project**, `scion-starlte` (`e600c821`, `AUDIO.md`) | prova che lo stesso plug-in è stato portato su 20H392 (topaz) e che la catena plug-in → VirtualAudio suona sull'hardware (Scion) |
 | **Nick Wylynko**, `ios-flame` (`745c4341`, MIT): `HANDOFF.md` | la nota che senza dispositivo audio si ferma anche la riproduzione video |
+| **Nick Wylynko**, `ios-flame` (MIT): `HANDOFF.md` ("Black wallpaper fixed", "Lock screen black block = HEIC", elenco dei client Metal) | la causa dello sfondo nero (HEIC che senza HEVC hardware si decodifica vuoto) e il rimedio dei livelli riscritti come PNG con lo stesso nome, ripetuto in `scripts/root-wallpaper-png.sh`; l'elenco `* -chronod` in `/var/local/mtl2-clients`; il fatto che backboardd debba trovare `IOAcceleratorES` già all'avvio (flame lo pubblica subito; noi accendiamo la GPU a 5 s con `andrgpudelay=5`) |
 
 ## Wi-Fi e modem, primi passi (patch 0110)
 
