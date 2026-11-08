@@ -45,6 +45,7 @@
 #include <stdbool.h>
 #include <libkern/libkern.h>
 #include <mach/mach_time.h>
+#include <kern/sched_prim.h>	/* assert_wait_timeout: the fbsync wait sleeps */
 #include <vm/pmap.h>		/* VM_WIMG_WCOMB */
 #elif !defined(ANDR_MTL_HOST_TEST)	/* host syntax check: stubinc */
 #include <sys/param.h>
@@ -1366,16 +1367,82 @@ mt_fbsync_args(void)
 	}
 }
 
+/*
+ * The fence a frame needs (patch 0205): the framebuffer reads it at the swap,
+ * right after backboardd submitted the frame's GPU work. With the copy on its
+ * own thread (0202) the latest fence at copy time also covered the frames
+ * submitted since, so a copy waited for them too (2026-11-08, home screen:
+ * copies up to 146 ms, 327 frames overwritten in 30 s). 0 = not known.
+ */
+uint32_t andromeda_fbsync_mark(void);
+uint32_t
+andromeda_fbsync_mark(void)
+{
+	if (mt_get_state() != MT_READY || mt_g == NULL) {
+		return 0;
+	}
+	return __atomic_load_n(&mt_g->fence, __ATOMIC_ACQUIRE);
+}
+
+/* Sleep about US microseconds (the host test only advances its clock). */
+static void
+mt_nap_us(unsigned us)
+{
+#if defined(KERNEL)
+	static int chan;
+	(void)assert_wait_timeout((event_t)&chan, THREAD_UNINT, us, NSEC_PER_USEC);
+	(void)thread_block(THREAD_CONTINUE_NULL);
+#else
+	delay((int)us);
+#endif
+}
+
+/*
+ * mt_wait for the framebuffer copy: 200 us of short polls, then naps of
+ * 0.5 ms, instead of mt_wait's busy delay() loop that kept a core spinning
+ * for the whole wait. 0 done, 1 timeout, -1 Metal stopped.
+ */
+static int
+mt_wait_nap(uint32_t fence, uint64_t timeout_ns)
+{
+	uint64_t t0 = mach_absolute_time(), limit = mt_ns_to_abs(timeout_ns);
+	for (unsigned i = 0;; i++) {
+		if (mt_fence_done(fence)) {
+			return 0;
+		}
+		if (mt_get_state() != MT_READY) {
+			return -1;
+		}
+		if (mach_absolute_time() - t0 >= limit) {
+			return mt_fence_done(fence) ? 0 : 1;
+		}
+		if (i < 10) {
+			delay(20);
+		} else {
+			mt_nap_us(500);
+		}
+	}
+}
+
+void andromeda_fbsync_before_read(uintptr_t kva, uint64_t bytes);
+void andromeda_fbsync_before_read_fence(uintptr_t kva, uint64_t bytes, uint32_t fence);
+
 void
 andromeda_fbsync_before_read(uintptr_t kva, uint64_t bytes)
+{
+	andromeda_fbsync_before_read_fence(kva, bytes, 0);
+}
+
+void
+andromeda_fbsync_before_read_fence(uintptr_t kva, uint64_t bytes, uint32_t fence)
 {
 	mt_fbsync_args();
 	if (!__atomic_load_n(&mt_fbsync, __ATOMIC_RELAXED) || mt_get_state() != MT_READY || mt_g == NULL ||
 	    kva == 0 || bytes == 0 || bytes > 0x10000000ull) {
 		return;
 	}
-	uint32_t target = __atomic_load_n(&mt_g->fence, __ATOMIC_ACQUIRE);
-	int rc = mt_wait(target, (uint64_t)MT_FBSYNC_MS * 1000000ull);
+	uint32_t target = fence ? fence : __atomic_load_n(&mt_g->fence, __ATOMIC_ACQUIRE);
+	int rc = mt_wait_nap(target, (uint64_t)MT_FBSYNC_MS * 1000000ull);
 	uint64_t n = __atomic_add_fetch(&mt_fbsync_frames, 1, __ATOMIC_RELAXED);
 	if (rc == 1) {
 		uint64_t t = __atomic_add_fetch(&mt_fbsync_timeouts, 1, __ATOMIC_RELAXED);

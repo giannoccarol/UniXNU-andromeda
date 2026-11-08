@@ -1,0 +1,55 @@
+andromeda: the framebuffer copy waits for its own frame's GPU work: each swap
+records the GPU fence of the submits issued so far (andromeda_fbsync_mark),
+the copy waits for that fence instead of the latest one, which with the copy
+on its own thread (0202) also covered later frames. Applies to SweetFramebuffer
+(ios-sweet, dipa-studio; see CREDITS.md). Needs 0201, 0202 and 0203.
+
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -149,6 +149,9 @@
+ 	uint32_t      fSwapID;
+ 	bool          fConsolePaused;
+ 	uint8_t       fPending[SWEET_FB_SWAP_REC_SIZE];     /* latest swap, not yet shown */
++	/* andromeda (patch 0205): the GPU fence of the latest swap (fLock) and of the
++	 * frame being copied: the copy waits for its own frame's GPU work only. */
++	uint32_t      fPendingFence, fCopyFence;
+ 	bool          fDirty;
+ 	uint32_t      fFlushTicks;    /* vsync ticks between panel copies */
+ 	bool          fPowerOff;      /* RequestPowerChange(0) */
+@@ -392,6 +395,7 @@
+ 	} else if (flush) {
+ 		rec = fb->fPresentRecord;
+ 		memcpy(rec, fb->fPending, SWEET_FB_SWAP_REC_SIZE);
++		fb->fCopyFence = fb->fPendingFence;
+ 		fb->fDirty = false;
+ 	}
+ 	IOLockUnlock(fb->fLock);
+@@ -421,6 +425,7 @@
+ 			return;
+ 		}
+ 		memcpy(fAsyncRecord, fPending, SWEET_FB_SWAP_REC_SIZE);
++		fCopyFence = fPendingFence;
+ 		fDirty = false;
+ 		IOLockUnlock(fLock);
+ 		uint64_t begin = mach_absolute_time();
+@@ -531,9 +536,11 @@
+ void
+ AppleCLCD::swap(const uint8_t *rec)
+ {
++	uint32_t fence = andromeda_fbsync_mark();      /* this frame's GPU work, submitted before the swap */
+ 	IOLockLock(fLock);
+ 	++fSubmitted;
+ 	if (fDirty) { ++fOverwritten; }
++	fPendingFence = fence;
+ 	memcpy(fPending, rec, SWEET_FB_SWAP_REC_SIZE);
+ 	fDirty = true;
+ 	IOLockUnlock(fLock);
+@@ -588,7 +595,7 @@
+ 		}
+ 		uintptr_t src = s->kernelAddress();
+ 		if (src != 0) {
+-			andromeda_fbsync_before_read(src, (uint64_t)s->bytesPerRow * s->height);
++			andromeda_fbsync_before_read_fence(src, (uint64_t)s->bytesPerRow * s->height, fCopyFence);
+ 		}
+ 		uint32_t bpe = s->bytesPerElement ? s->bytesPerElement : 4;
+ 		if (w <= 0 || h <= 0) {

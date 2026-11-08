@@ -87,6 +87,8 @@ jobs:
           cp cepheus/xnu/0202-andromeda-fb-async.patch dxb/patches/
           # Frame floor of the CPU governor at every swap (0203, after 0202).
           cp cepheus/xnu/0203-andromeda-frame-boost.patch dxb/patches/
+          # The copy waits for its own frame's GPU fence (0205, after 0203).
+          cp cepheus/xnu/0205-andromeda-fb-fence.patch dxb/patches/
           # AMP scheduling (0204) only on request: the kernel then needs an ADT with
           # cluster types (ANDROMEDA_CLUSTERS=EEEEPPPP for build-boot.sh).
           if [ "${{ inputs.amp }}" = "true" ]; then
@@ -222,7 +224,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0137-|0140-|0200-|0201-|0202-|0203-|0204-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0137-|0140-|0200-|0201-|0202-|0203-|0204-|0205-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -362,6 +364,7 @@ jobs:
           grep -F 'Applying patch:' dxb/build.log | grep -F '0202-andromeda-fb-async.patch'
           grep -F 'thread_call_enter(fb->fPresentCall);' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
           grep -F 'andromeda_cpufreq_frame();' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
+          grep -F 'andromeda_fbsync_before_read_fence(src' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
           if [ "${{ inputs.amp }}" = "true" ]; then
             grep -F 'Applying patch:' dxb/build.log | grep -F '0204-andromeda-amp.patch'
             grep -F '#define __ARM_AMP__               1' dxb/xnu/pexpert/pexpert/arm64/SWEET.h

@@ -106,6 +106,13 @@ int andromeda_gpu_present_frame(uint32_t slot, const struct andr_present_src *sr
  * In andromeda_gpu_mtl.c.
  */
 void andromeda_fbsync_before_read(uintptr_t kva, uint64_t bytes);
+/*
+ * Patch 0205: the fence of the GPU submits issued so far (0 when Metal is not
+ * running), read at each swap; the copy then waits for that fence only
+ * (0 = the latest, as above), sleeping between polls.
+ */
+uint32_t andromeda_fbsync_mark(void);
+void andromeda_fbsync_before_read_fence(uintptr_t kva, uint64_t bytes, uint32_t fence);
 
 #ifdef __cplusplus
 }
