@@ -36,6 +36,9 @@
 #else
 #include <stddef.h>
 #include <stdint.h>
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
 #endif
 
 /* Surfaces the GPU keeps mapped at once (backboardd rotates three). */
@@ -119,6 +122,8 @@ void andromeda_fbsync_before_read_fence(uintptr_t kva, uint64_t bytes, uint32_t 
  * running or no fence (the frame is not known to be the GPU's).
  */
 int andromeda_fbsync_wait(uint32_t fence);
+/* Patch 0207: FENCE done already (true too when Metal is not running or FENCE is 0); never waits. */
+bool andromeda_fbsync_done(uint32_t fence);
 
 #ifdef __cplusplus
 }

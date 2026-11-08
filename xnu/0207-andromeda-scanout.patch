@@ -24,7 +24,16 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  
  #if defined(SWEET)
  #include <IOKit/IOService.h>
-@@ -95,6 +97,8 @@ enum {
+@@ -64,6 +66,8 @@ extern "C" uint64_t andromeda_pwr_fb_vsync, andromeda_pwr_fb_notify;
+ extern "C" unsigned andromeda_idle_fb_park;
+ /* bsd/dev/andromeda_cpufreq.c (patch 0203): frame floor of the CPU governor, one store per swap. */
+ extern "C" void andromeda_cpufreq_frame(void);
++/* bsd/dev/andromeda_gpu.c: the GPU governor's touch floor (499 MHz), also kept while frames come (0207). */
++extern "C" void andromeda_gpu_boost(void);
+ 
+ enum {
+ 	kSweetFBGetLayerDefaultSurface  = 3,
+@@ -95,6 +99,8 @@ enum {
  #define SWEET_FB_LOGICAL_W              1125
  #define SWEET_FB_LOGICAL_H              2436
  #define SWEET_FB_FORMAT_BGRA            0x42475241
@@ -33,10 +42,26 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  
  class IOMobileFramebuffer : public IOService {
  	OSDeclareDefaultStructors(IOMobileFramebuffer);
-@@ -188,6 +192,29 @@ public:
+@@ -188,6 +194,45 @@ public:
  	bool          fPresentBusy;
  	uint8_t       fAsyncRecord[SWEET_FB_SWAP_REC_SIZE];   // thread call-owned
  	void presentAsync(void);
++	/*
++	 * andrscanout (0207): the display takes a frame once its GPU work is
++	 * done, and the present path does not wait for it: waiting made the
++	 * shown rate the inverse of the GPU latency (2026-11-08: 37 frames/s
++	 * submitted, 26.5 shown, 23 ms per frame in the wait). fOlder: the swap
++	 * that fPending replaced before it was shown, when it is in another
++	 * surface; the display may take it while the newer one is still drawn.
++	 * fLock. andrgpuframe=1 (default): every swap also keeps the GPU's touch
++	 * floor (andromeda_gpu_boost, 499 MHz), as Android raises the GPU during
++	 * interaction; 0 leaves the GPU to its governor alone.
++	 */
++	uint8_t       fOlder[SWEET_FB_SWAP_REC_SIZE];
++	uint32_t      fOlderFence;
++	bool          fOlderValid;
++	uint8_t       fAsyncOlder[SWEET_FB_SWAP_REC_SIZE];    // thread call-owned
++	uint32_t      fScanNotYet, fScanOlderShown, fGpuFrame;
 +	/*
 +	 * andromeda, andrscanout (patch 0207): the display reads the frame
 +	 * itself (bsd/dev/andromeda_scanout.c) instead of the CPU copy into the
@@ -63,7 +88,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  
  	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
  	void addClient(IOMobileFramebufferUserClient *client);
-@@ -281,6 +308,7 @@ AppleCLCD::start(IOService *provider)
+@@ -281,6 +326,7 @@ AppleCLCD::start(IOService *provider)
  		}
  	}
  	fLock = IOLockAlloc();
@@ -71,7 +96,16 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  	fClients = OSArray::withCapacity(4);
  	fSurface = sweet_surface_create_physical(fPhys, fWidth, fHeight, fRowBytes, SWEET_FB_FORMAT_BGRA);
  	fPixels = fSurface != NULL ? fSurface->kernelAddress() : 0;
-@@ -345,6 +373,12 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+@@ -303,6 +349,8 @@ AppleCLCD::start(IOService *provider)
+ 	PE_parse_boot_argn("sweetfb_fixedtimer", &fFixedTimer, sizeof(fFixedTimer));
+ 	PE_parse_boot_argn("sweetfb_stats", &fPerfStats, sizeof(fPerfStats));
+ 	PE_parse_boot_argn("andrfbasync", &fAsync, sizeof(fAsync));
++	fGpuFrame = 1;
++	PE_parse_boot_argn("andrgpuframe", &fGpuFrame, sizeof(fGpuFrame));
+ 	if (fAsync) {
+ 		fPresentCall = thread_call_allocate_with_priority(&sweet_fb_present_call, this,
+ 		    THREAD_CALL_PRIORITY_HIGH);
+@@ -345,6 +393,12 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  	};
  
  	__atomic_fetch_add(&andromeda_pwr_fb_vsync, 1, __ATOMIC_RELAXED);
@@ -84,7 +118,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  	IOLockLock(fb->fLock);
  	for (unsigned int i = 0; i < fb->fClients->getCount(); i++) {
  		IOMobileFramebufferUserClient *client =
-@@ -384,6 +418,9 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+@@ -384,6 +438,9 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  		fb->finishTick(sender);
  		return;
  	}
@@ -94,7 +128,42 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  	bool flush = fb->fDirty && (count % fb->fFlushTicks) == 0;
  	uint8_t *rec = NULL;
  	bool kick = false;
-@@ -460,6 +497,21 @@ AppleCLCD::finishTick(IOTimerEventSource *sender)
+@@ -424,12 +481,30 @@ AppleCLCD::presentAsync(void)
+ 			IOLockUnlock(fLock);
+ 			return;
+ 		}
+-		memcpy(fAsyncRecord, fPending, SWEET_FB_SWAP_REC_SIZE);
+-		fCopyFence = fPendingFence;
+-		fDirty = false;
++		const uint8_t *rec = fAsyncRecord;
++		if (fScanOn && andromeda_scanout_mode() != 0 && !andromeda_scanout_copy_pending() &&
++		    !andromeda_fbsync_done(fPendingFence)) {
++			/* andrscanout: the newest frame is still being drawn; the one it replaced, if done, now */
++			if (!fOlderValid || !andromeda_fbsync_done(fOlderFence)) {
++				fScanNotYet++;
++				fPresentBusy = false;   /* the next vsync tick tries again */
++				IOLockUnlock(fLock);
++				return;
++			}
++			memcpy(fAsyncOlder, fOlder, SWEET_FB_SWAP_REC_SIZE);
++			fCopyFence = fOlderFence;
++			fOlderValid = false;
++			fScanOlderShown++;
++			rec = fAsyncOlder;      /* fPending stays dirty for a later tick */
++		} else {
++			memcpy(fAsyncRecord, fPending, SWEET_FB_SWAP_REC_SIZE);
++			fCopyFence = fPendingFence;
++			fDirty = false;
++			fOlderValid = false;
++		}
+ 		IOLockUnlock(fLock);
+ 		uint64_t begin = mach_absolute_time();
+-		present(fAsyncRecord);
++		present(rec);
+ 		uint64_t elapsed = mach_absolute_time() - begin;
+ 		IOLockLock(fLock);
+ 		fCopyTicks += elapsed;
+@@ -460,6 +535,22 @@ AppleCLCD::finishTick(IOTimerEventSource *sender)
  		IOLog("SWEET PERF: ms=%llu submitted=%llu presented=%llu overwritten=%llu copy_us=%llu max_us=%llu bytes=%llu missed=%llu off=%u\n",
  		    ns / 1000000, submitted, presented, overwritten, copy_ns / 1000,
  		    max_ns / 1000, copied, fMissed, off ? 1u : 0u);
@@ -106,17 +175,48 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 +			absolutetime_to_nanoseconds(fScanShowAbs, &show_ns);
 +			IOLog("SWEET SCANOUT: mode %u: %u frames read by the display, %u copied, %u refused so far; "
 +			    "%llu pipe updates, %llu waited for a frame, %llu SMMU faults; per frame %llu us GPU wait, "
-+			    "%llu us pipe; in use %s\n", andromeda_scanout_mode(),
-+			    fScanFrames, fScanCopies, fScanRefused, shows, waits, faults,
++			    "%llu us pipe; in use %s; %u ticks waited for the GPU, %u older frames shown\n",
++			    andromeda_scanout_mode(), fScanFrames, fScanCopies, fScanRefused, shows, waits, faults,
 +			    fScanFrames ? gpu_ns / 1000 / fScanFrames : 0, fScanFrames ? show_ns / 1000 / fScanFrames : 0,
-+			    fScanUse ? "counted" : "not counted");
++			    fScanUse ? "counted" : "not counted", fScanNotYet, fScanOlderShown);
 +			fScanFrames = fScanCopies = 0;
++			fScanNotYet = fScanOlderShown = 0;
 +			fScanGpuAbs = fScanShowAbs = 0;
 +		}
  		fMissed = 0;
  		fStatsAt = now;
  	}
-@@ -550,6 +602,283 @@ AppleCLCD::swap(const uint8_t *rec)
+@@ -539,17 +630,312 @@ AppleCLCD::swap(const uint8_t *rec)
+ 	uint32_t fence = andromeda_fbsync_mark();      /* this frame's GPU work, submitted before the swap */
+ 	IOLockLock(fLock);
+ 	++fSubmitted;
+-	if (fDirty) { ++fOverwritten; }
++	if (fDirty) {
++		++fOverwritten;
++		/* andrscanout: the frame replaced stays a candidate if the new one is in another surface */
++		bool same = false;
++		for (uint32_t l = 0; l < SWEET_FB_LAYERS; l++) {
++			const uint32_t was = get32(fPending, 0x54 + 4 * l), now = get32(rec, 0x54 + 4 * l);
++			same |= was != 0 && was == now;
++		}
++		fOlderValid = fScanOn && !same;
++		if (fOlderValid) {
++			memcpy(fOlder, fPending, SWEET_FB_SWAP_REC_SIZE);
++			fOlderFence = fPendingFence;
++		}
++	} else {
++		fOlderValid = false;
++	}
+ 	fPendingFence = fence;
+ 	memcpy(fPending, rec, SWEET_FB_SWAP_REC_SIZE);
+ 	fDirty = true;
+ 	IOLockUnlock(fLock);
+ 	andromeda_cpufreq_frame();      /* andrgovframe: clocks up while frames are drawn */
++	if (fGpuFrame) {
++		andromeda_gpu_boost();  /* andrgpuframe: the GPU's touch floor while frames are drawn */
++	}
+ 	if ((++sweet_fb_swap_count % 1000) == 0) {
+ 		IOLog("SWEET FB: %llu swaps\n", sweet_fb_swap_count);
  	}
  }
  
@@ -400,7 +500,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  void
  AppleCLCD::present(const uint8_t *rec)
  {
-@@ -566,6 +895,15 @@ AppleCLCD::present(const uint8_t *rec)
+@@ -566,6 +952,15 @@ AppleCLCD::present(const uint8_t *rec)
  		}
  	}
  
