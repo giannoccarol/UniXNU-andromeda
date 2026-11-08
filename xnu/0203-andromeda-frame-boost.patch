@@ -1,0 +1,25 @@
+andromeda: every framebuffer swap starts the CPU governor's frame floor
+(andromeda_cpufreq_frame, boot-args andrgovframe/andrgovframelittle/
+andrgovframems), so the clocks stay up while Core Animation draws frames.
+Applies to SweetFramebuffer (ios-sweet, dipa-studio; see CREDITS.md).
+Needs 0202.
+
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -62,6 +62,8 @@
+ extern "C" uint64_t andromeda_pwr_fb_vsync, andromeda_pwr_fb_notify;
+ /* andrfbpark, also set at run time by "idle fb 0|1" (andromeda_ctl.c, andrctl=1). */
+ extern "C" unsigned andromeda_idle_fb_park;
++/* bsd/dev/andromeda_cpufreq.c (patch 0203): frame floor of the CPU governor, one store per swap. */
++extern "C" void andromeda_cpufreq_frame(void);
+ 
+ enum {
+ 	kSweetFBGetLayerDefaultSurface  = 3,
+@@ -535,6 +537,7 @@
+ 	memcpy(fPending, rec, SWEET_FB_SWAP_REC_SIZE);
+ 	fDirty = true;
+ 	IOLockUnlock(fLock);
++	andromeda_cpufreq_frame();      /* andrgovframe: clocks up while frames are drawn */
+ 	if ((++sweet_fb_swap_count % 1000) == 0) {
+ 		IOLog("SWEET FB: %llu swaps\n", sweet_fb_swap_count);
+ 	}

@@ -23,6 +23,15 @@
  *                   T ms after the last change, 0..2000 (default 160)
  *   andrgovboost=M  touch floor for Gold/Prime, MHz (default 1804, 0 = off)
  *   andrgovboostms=T  length of the touch floor, 0..2000 ms (default 200)
+ *   andrgovframe=M  frame floor for Gold/Prime while frames are drawn, MHz
+ *                   (default 1804, 0 = off); andrgovframelittle=M the same
+ *                   for Silver (default 1209); andrgovframems=T how long a
+ *                   frame keeps it, 0..1000 ms (default 100). Set by every
+ *                   swap of the framebuffer (andromeda_cpufreq_frame()):
+ *                   Core Animation's work comes in bursts the averaged load
+ *                   misses (2026-11-08: Gold sat at 710 MHz, its lowest
+ *                   entry, 91 % of a scrolling test while frames came at
+ *                   20/s), as Android raises the clocks of the top app.
  *   andrcpuhot=C    above C degrees (default 80) Gold/Prime drop to the
  *                   highest entry <= 1.4 GHz ("cool" index)
  *   andrcpucool=C   back to full speed below C degrees (default 70)
@@ -109,6 +118,7 @@ static unsigned ac_sleep_chan;
 static unsigned ac_want, ac_hot_c = 80, ac_cool_c = 70;
 static unsigned ac_gov_on, ac_gov_ms = 40, ac_gov_hold_ms = 160;
 static unsigned ac_boost_mhz = 1804, ac_boost_ms = 200;
+static unsigned ac_frame_mhz = 1804, ac_frame_little_mhz = 1209, ac_frame_ms = 100;
 
 static void
 ac_wait(unsigned ms)
@@ -318,7 +328,7 @@ struct ac_gov {
 	bool on;
 	unsigned applied;                /* level written; t.n = not a level */
 	uint32_t cur_khz;                /* clock of the index written */
-	unsigned boost_level, cool_level;
+	unsigned boost_level, cool_level, frame_level;
 	unsigned ncpu;
 	int cpu[AC_GOV_CPUS];            /* XNU logical CPU numbers */
 	bool up[AC_GOV_CPUS];            /* running at the last full sample */
@@ -326,13 +336,15 @@ struct ac_gov {
 	uint64_t sample_khz_ns, win_ns, win_khz_ns;
 	/* summary */
 	uint64_t tis_ns[AGOV_MAX_LEVELS];
-	uint64_t st_ns, st_khz_ns, st_busy, st_busy_ns, st_boost_ns, st_hot_ns;
+	uint64_t st_ns, st_khz_ns, st_busy, st_busy_ns, st_boost_ns, st_hot_ns, st_frame_ns;
 	unsigned st_trans, busy_now;
 };
 static struct ac_gov gov[AC_N];
 
 static uint64_t ac_boost_abs;        /* touch floor length, Mach time; 0 = off */
 static uint64_t ac_boost_stamp;      /* last touch, Mach time; 0 = never */
+static uint64_t ac_frame_abs;        /* frame floor length, Mach time; 0 = off */
+static uint64_t ac_frame_stamp;      /* last framebuffer swap, Mach time; 0 = never */
 static bool ac_gov_running;
 
 /*
@@ -347,6 +359,23 @@ andromeda_cpufreq_boost(void)
 	uint64_t prev = __atomic_exchange_n(&ac_boost_stamp, now, __ATOMIC_RELAXED);
 	if (__atomic_load_n(&ac_gov_running, __ATOMIC_ACQUIRE) && ac_boost_abs &&
 	    !agov_boost_active(now, prev, ac_boost_abs)) {
+		thread_wakeup(&ac_sleep_chan);
+	}
+}
+
+/*
+ * Frame activity, called by the framebuffer at every swap (SweetFramebuffer,
+ * patch 0203): one store, the governor is woken only when a frame floor
+ * starts, as for touch.
+ */
+void andromeda_cpufreq_frame(void);
+void
+andromeda_cpufreq_frame(void)
+{
+	uint64_t now = mach_absolute_time();
+	uint64_t prev = __atomic_exchange_n(&ac_frame_stamp, now, __ATOMIC_RELAXED);
+	if (__atomic_load_n(&ac_gov_running, __ATOMIC_ACQUIRE) && ac_frame_abs &&
+	    !agov_boost_active(now, prev, ac_frame_abs)) {
 		thread_wakeup(&ac_sleep_chan);
 	}
 }
@@ -420,6 +449,8 @@ ac_gov_setup(void)
 		g->boost_level = (c->big && ac_boost_mhz) ?
 		    agov_level_at_least(&g->t, (uint64_t)ac_boost_mhz * 1000u) : 0;
 		g->cool_level = c->big ? agov_level_at_most(&g->t, AC_COOL_KHZ) : top;
+		unsigned frame_mhz = c->big ? ac_frame_mhz : ac_frame_little_mhz;
+		g->frame_level = frame_mhz ? agov_level_at_least(&g->t, (uint64_t)frame_mhz * 1000u) : 0;
 		g->cur_khz = ac_khz(ac_rd(c->va, OSM_FREQ(c->current)));
 		g->s.level = agov_level_at_least(&g->t, g->cur_khz);
 		g->s.window_ns = 0;
@@ -435,10 +466,10 @@ ac_gov_setup(void)
 		for (unsigned k = 0; k < g->ncpu && len >= 0 && (size_t)len < sizeof(cpus) - 4; ++k) {
 			len += snprintf(cpus + len, sizeof(cpus) - (size_t)len, "%s%d", k ? "," : "", g->cpu[k]);
 		}
-		printf(AC_TAG " gov %s: cpus %s, %u levels %u-%u MHz, hispeed %u, touch floor %u, hot cap %u MHz\n",
+		printf(AC_TAG " gov %s: cpus %s, %u levels %u-%u MHz, hispeed %u, touch floor %u, frame floor %u, hot cap %u MHz\n",
 		    ac_short[n], g->ncpu ? cpus : "none", g->t.n, g->t.khz[0] / 1000u, g->t.khz[top] / 1000u,
 		    g->p.hispeed_khz / 1000u, c->big && ac_boost_mhz ? g->t.khz[g->boost_level] / 1000u : 0,
-		    g->t.khz[g->cool_level] / 1000u);
+		    frame_mhz ? g->t.khz[g->frame_level] / 1000u : 0, g->t.khz[g->cool_level] / 1000u);
 		g->on = true;
 		++usable;
 	}
@@ -502,12 +533,12 @@ ac_gov_summary(unsigned n, uint64_t secs)
 	uint64_t ns = g->st_ns;
 	char line[320];
 	int len = snprintf(line, sizeof(line),
-	    AC_TAG " gov %s %llus: avg %llu MHz util %u%% now %u%% trans %u boost %u%% hot %u%%%s |",
+	    AC_TAG " gov %s %llus: avg %llu MHz util %u%% now %u%% trans %u boost %u%% frame %u%% hot %u%%%s |",
 	    ac_short[n], (unsigned long long)secs,
 	    (unsigned long long)(ns ? g->st_khz_ns / ns / 1000u : 0),
 	    g->st_busy_ns ? (unsigned)((g->st_busy / g->st_busy_ns + 5u) / 10u) : 0u,
 	    (g->busy_now + 5u) / 10u, g->st_trans, agov_percent(g->st_boost_ns, ns),
-	    agov_percent(g->st_hot_ns, ns), g->on ? "" : " STOPPED");
+	    agov_percent(g->st_frame_ns, ns), agov_percent(g->st_hot_ns, ns), g->on ? "" : " STOPPED");
 	for (unsigned l = 0; l < g->t.n && len > 0 && (size_t)len < sizeof(line) - 16; ++l) {
 		unsigned pct = agov_percent(g->tis_ns[l], ns);
 		if (pct) {
@@ -516,7 +547,7 @@ ac_gov_summary(unsigned n, uint64_t secs)
 		g->tis_ns[l] = 0;
 	}
 	printf("%s\n", line);
-	g->st_ns = g->st_khz_ns = g->st_busy = g->st_busy_ns = g->st_boost_ns = g->st_hot_ns = 0;
+	g->st_ns = g->st_khz_ns = g->st_busy = g->st_busy_ns = g->st_boost_ns = g->st_hot_ns = g->st_frame_ns = 0;
 	g->st_trans = 0;
 }
 
@@ -538,6 +569,11 @@ ac_gov_run(void)
 		nanoseconds_to_absolutetime((uint64_t)ac_boost_ms * NSEC_PER_MSEC, &boost_abs);
 	}
 	ac_boost_abs = boost_abs;
+	uint64_t frame_abs = 0;
+	if (ac_frame_ms) {
+		nanoseconds_to_absolutetime((uint64_t)ac_frame_ms * NSEC_PER_MSEC, &frame_abs);
+	}
+	ac_frame_abs = frame_abs;
 
 	for (unsigned n = 0; n < AC_N; ++n) {
 		for (unsigned k = 0; k < gov[n].ncpu; ++k) {
@@ -552,7 +588,7 @@ ac_gov_run(void)
 	printf(AC_TAG " temperature %s %d mC; hot>=%u C cool<%u C; tick %llu us\n",
 	    valid ? "max" : "UNREADABLE (fail safe)", mc, ac_hot_c, ac_cool_c,
 	    (unsigned long long)(tick_ns / 1000u));
-	bool boost = false, cost_logged = false;
+	bool boost = false, frame = false, cost_logged = false;
 	unsigned samples = 0, wakes = 0, unreadable = 0;
 	uint64_t prev_sample_ns = 0, cost_sum = 0, cost_max = 0, run_ns = 0;
 	uint64_t t_prev = mach_absolute_time(), t_sample = t_prev, t_temp = t_prev, t_log = t_prev;
@@ -590,6 +626,7 @@ ac_gov_run(void)
 				g->tis_ns[g->applied] += dt_ns;
 			}
 			g->st_boost_ns += boost && ac[n].big ? dt_ns : 0;
+			g->st_frame_ns += frame && g->frame_level ? dt_ns : 0;
 			g->st_hot_ns += hot && ac[n].big ? dt_ns : 0;
 		}
 		run_ns += dt_ns;
@@ -607,6 +644,7 @@ ac_gov_run(void)
 			}
 		}
 		boost = agov_boost_active(now, __atomic_load_n(&ac_boost_stamp, __ATOMIC_RELAXED), boost_abs);
+		frame = agov_boost_active(now, __atomic_load_n(&ac_frame_stamp, __ATOMIC_RELAXED), frame_abs);
 		bool full = !first && sample_ns >= min_sample_ns;
 
 		bool any = false;
@@ -628,6 +666,9 @@ ac_gov_run(void)
 			}
 			unsigned hi = hot && c->big ? g->cool_level : g->t.n - 1u;
 			unsigned lo = boost && c->big ? g->boost_level : 0u;
+			if (frame && g->frame_level > lo) {
+				lo = g->frame_level;
+			}
 			unsigned want = agov_clamp(g->s.level, lo, hi);
 			if (want != g->applied) {
 				ac_set(c, g->t.index[want]);
@@ -744,6 +785,12 @@ andromeda_cpufreq_init(void)
 	(void)PE_parse_boot_argn("andrgovdown", &ac_gov_hold_ms, sizeof(ac_gov_hold_ms));
 	(void)PE_parse_boot_argn("andrgovboost", &ac_boost_mhz, sizeof(ac_boost_mhz));
 	(void)PE_parse_boot_argn("andrgovboostms", &ac_boost_ms, sizeof(ac_boost_ms));
+	(void)PE_parse_boot_argn("andrgovframe", &ac_frame_mhz, sizeof(ac_frame_mhz));
+	(void)PE_parse_boot_argn("andrgovframelittle", &ac_frame_little_mhz, sizeof(ac_frame_little_mhz));
+	(void)PE_parse_boot_argn("andrgovframems", &ac_frame_ms, sizeof(ac_frame_ms));
+	if (ac_frame_ms > 1000) {
+		ac_frame_ms = 100;
+	}
 	if (started) {
 		return;
 	}

@@ -493,6 +493,8 @@ extern int andromeda_rpmh_ddr_vote(bool on, char *why, size_t len);   /* sweet_r
  * sets it at start (not passed: unchanged).
  */
 extern boolean_t mach_timer_coalescing_enabled;
+extern void andromeda_cpufreq_boost(void);  /* andromeda_cpufreq.c: touch floor */
+extern void andromeda_gpu_boost(void);      /* andromeda_gpu.c: touch floor */
 
 /*
  * dpu: read-only dump of the display controller as the UEFI left it, to plan
@@ -719,11 +721,16 @@ ctl_swipe(unsigned x1, unsigned y1, unsigned x2, unsigned y2, unsigned ms)
 		ms = 16u;
 	}
 	unsigned steps = ms / 16u;
+	/* the touch driver's boosts (CPU and GPU floors), as a finger gets them */
+	andromeda_cpufreq_boost();
+	andromeda_gpu_boost();
 	sweet_hid_touch(CTL_FINGER, 1, (int)x1, (int)y1);
 	for (unsigned i = 1; i <= steps; ++i) {
 		ctl_sleep_ms(16);
 		int x = (int)x1 + ((int)x2 - (int)x1) * (int)i / (int)steps;
 		int y = (int)y1 + ((int)y2 - (int)y1) * (int)i / (int)steps;
+		andromeda_cpufreq_boost();
+		andromeda_gpu_boost();
 		sweet_hid_touch(CTL_FINGER, 1, x, y);
 	}
 	sweet_hid_touch(CTL_FINGER, 0, (int)x2, (int)y2);

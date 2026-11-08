@@ -80,6 +80,8 @@ jobs:
           # Frame copies on a thread call (0202, andrfbasync) straight into dxb/patches: it changes
           # SweetFramebuffer.cpp after 0094/0102/0120/0201, which the 0083 generator does not see.
           cp cepheus/xnu/0202-andromeda-fb-async.patch dxb/patches/
+          # Frame floor of the CPU governor at every swap (0203, after 0202).
+          cp cepheus/xnu/0203-andromeda-frame-boost.patch dxb/patches/
           cp cepheus/xnu/andromeda_gpu_present.c cepheus/xnu/andromeda_gpu_present.h cepheus/xnu/0120-andromeda-gpu-present.patch dxb/patches/
           # F5/F6 (patch 0200, andrmtl=N): user client + IOAcceleratorES; patch and stage script come with build-kernel-patches.sh.
           cp cepheus/xnu/andromeda_gpu_mtl.c cepheus/xnu/andromeda_gpu_mtl.h cepheus/xnu/SweetAccelerator.cpp cepheus/xnu/NativeAdrenoABI.h dxb/patches/
@@ -210,7 +212,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0137-|0140-|0200-|0201-|0202-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0137-|0140-|0200-|0201-|0202-|0203-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -349,6 +351,7 @@ jobs:
           # andromeda: frame copies on a thread call (patch 0202, andrfbasync).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0202-andromeda-fb-async.patch'
           grep -F 'thread_call_enter(fb->fPresentCall);' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
+          grep -F 'andromeda_cpufreq_frame();' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrfbasync", b"andrgpulevel", b"perf vote %u MHz (level %u)", b"andrgpugov", b"gov 60s: util", b"membw: copy %llu MB/s", b"DDR vote %s: %u of 3 BCM votes"))'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrfbsync", b"fbsync: the CPU copy waits", b"ANDROMEDA SHOT begin"))'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA MTL:", b"andrmtl", b"andrmtlpool", b"IOAcceleratorES", b"SweetAcceleratorUserClient", b"SweetMTL2Device", b"present: not attached (%s)"))'
