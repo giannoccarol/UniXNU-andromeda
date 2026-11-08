@@ -15,10 +15,12 @@ done
 docker build -q -t unixnu-firmware -f build/Dockerfile.firmware build/ >/dev/null
 # Test images next to the normal one: ANDROMEDA_OWNED=0x... (another kernel
 # window) and/or ANDROMEDA_ARGS="a=1 b=2" (kernel args added or replaced),
+# and/or ANDROMEDA_CLUSTERS=EEEEPPPP (AMP cluster types in the ADT, for a
+# kernel built with amp=true; see scripts/mkadt.py),
 # named boot-<name>-xnu-<ANDROMEDA_TAG or OWNED>.img.
 TAG="${ANDROMEDA_TAG:-${ANDROMEDA_OWNED:-}}"
 SUFFIX="${TAG:+-$TAG}"
-exec docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e ANDROMEDA_OWNED="${ANDROMEDA_OWNED:-}" -e ANDROMEDA_ARGS="${ANDROMEDA_ARGS:-}" -v "$PWD:/work" -w /work unixnu-firmware bash -c "
+exec docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e ANDROMEDA_OWNED="${ANDROMEDA_OWNED:-}" -e ANDROMEDA_ARGS="${ANDROMEDA_ARGS:-}" -e ANDROMEDA_CLUSTERS="${ANDROMEDA_CLUSTERS:-}" -v "$PWD:/work" -w /work unixnu-firmware bash -c "
   set -euo pipefail
   bash scripts/get-dtb.sh
   python3 scripts/build-payload.py

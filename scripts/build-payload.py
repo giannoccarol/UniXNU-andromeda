@@ -52,6 +52,10 @@ if len(_line) > BOOT_LINE_MAX:
                      f"{BOOT_LINE_MAX} (the rest would overwrite bootFlags/memSizeActual); "
                      "leave default =0 switches out")
 print(f"payload: kernel args {len(_line)}/{BOOT_LINE_MAX} characters")
+if os.environ.get("ANDROMEDA_CLUSTERS"):
+    # AMP cluster types for the ADT tool (scripts/mkadt.py reads the variable)
+    os.environ["UNIXNU_ADT_CLUSTERS"] = os.environ["ANDROMEDA_CLUSTERS"]
+    print(f"payload: ADT cluster types {os.environ['ANDROMEDA_CLUSTERS']} (AMP kernel needed)")
 if os.environ.get("ANDROMEDA_OWNED"):
     board["payload"]["adt"]["owned_memory_size"] = os.environ["ANDROMEDA_OWNED"]
     print(f"payload: owned_memory_size overridden to {os.environ['ANDROMEDA_OWNED']}")

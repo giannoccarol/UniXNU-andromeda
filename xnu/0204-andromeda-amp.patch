@@ -1,0 +1,37 @@
+andromeda: AMP scheduling for SWEET (applied only when the kernel workflow
+runs with amp=true): __ARM_AMP__ in SWEET.h instead of NO_ECORE, and two
+CPU clusters (E: Cortex-A55, P: Cortex-A76) in board_config.h, so XNU's
+own AMP scheduler places threads by QoS as on an iPhone. Must boot with an
+ADT that types the cores (scripts/mkadt.py, UNIXNU_ADT_CLUSTERS). Applies to
+ios-sweet's patch 0004 (dipa-studio/ios-sweet; see CREDITS.md).
+
+--- a/pexpert/pexpert/arm64/SWEET.h
++++ b/pexpert/pexpert/arm64/SWEET.h
+@@ -13,7 +13,15 @@
+ #define _PEXPERT_ARM64_SWEET_H
+ 
+ #define NO_MONITOR                1
+-#define NO_ECORE                  1
++/*
++ * andromeda (patch 0204, kernel built with amp=true): asymmetric cores as
++ * an iPhone's E and P clusters, so XNU's AMP scheduler (sched_amp: threads at
++ * or below utility QoS on E cores, the rest on P cores, spill when P is
++ * busy) places them. The ADT names the cluster of each core with
++ * cluster-type 'E' (Cortex-A55) or 'P' (Cortex-A76), see scripts/mkadt.py
++ * UNIXNU_ADT_CLUSTERS; one cluster per type (no HAS_CLUSTER).
++ */
++#define __ARM_AMP__               1
+ 
+ #define SWEET                     1
+ 
+--- a/pexpert/pexpert/arm64/board_config.h
++++ b/pexpert/pexpert/arm64/board_config.h
+@@ -102,7 +102,7 @@
+ 
+ #define MAX_L2_CLINE                   6
+ #define MAX_CPUS                       8
+-#define MAX_CPU_CLUSTERS               1
++#define MAX_CPU_CLUSTERS               2
+ 
+ #define CORE_NCTRS                     8 /* Placeholder; KPC is not enabled for this target */
+ 

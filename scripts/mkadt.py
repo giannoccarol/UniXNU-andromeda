@@ -153,8 +153,19 @@ def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, 
     # SWEET SMP: all cores in physical-core order as one homogeneous cluster
     # (sweet: 0-5 A55 + 6-7 A76; guacamole/cepheus: 0-3 A55 + 4-7 A76). The
     # kernel defaults to one and uses cpus=N to select an initial prefix.
+    # andromeda: UNIXNU_ADT_CLUSTERS="EEEEPPPP" (one letter per core) names
+    # each core's cluster E or P, the asymmetric topology XNU's AMP scheduler
+    # reads (osfmk/arm64/machine_routines.c ml_parse_cpu_topology: cluster-type
+    # 'E'/'P'; without HAS_CLUSTER one cluster per type). Only for a kernel
+    # built with __ARM_AMP__ (patch 0204, kernel workflow amp=true); unset,
+    # the homogeneous SMP cluster above.
+    amp = os.environ.get('UNIXNU_ADT_CLUSTERS', '')
+    ncores = 1 if qemu else dev['cpus']
+    if amp and (len(amp) != ncores or set(amp) - set('EP') or 'E' not in amp or 'P' not in amp):
+        raise SystemExit(f'UNIXNU_ADT_CLUSTERS={amp!r}: need {ncores} letters E/P with both kinds')
     cpu_nodes = []
-    for core in range(1 if qemu else dev['cpus']):
+    for core in range(ncores):
+        kind = amp[core] if amp else ''
         cpu_nodes.append(node(f'cpu{core}', [
             ph(),
             ('device_type', cstr('cpu')),
@@ -173,8 +184,8 @@ def build(seed=None, qemu=False, highmem=False, device='sweet', dram_size=None, 
                 + cstr('ARM,v8')),
             ('reg', u32(dev['cpu_regs'][core])),  # actual MPIDR Aff1:Aff0, NOT logical ID
             ('cpu-id', u32(core)),   # descriptive: XNU assigns IDs by DT order
-            ('cluster-id', u32(0)),  # descriptive; see ml_parse_cpu_topology
-            ('cluster-type', u32(0)),  # homogeneous CLUSTER_TYPE_SMP, not AMP
+            ('cluster-id', u32(1 if kind == 'P' else 0)),  # descriptive; see ml_parse_cpu_topology
+            ('cluster-type', u32(ord(kind) if kind else 0)),  # 0: CLUSTER_TYPE_SMP; 'E'/'P' with AMP
             ('die-cluster-id', u32(0)),
             ('cluster-core-id', u32(core)),
             ('l2-cache-id', u32(core)),  # distinct per-core L2 nodes in live FDT
