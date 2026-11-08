@@ -113,6 +113,12 @@ void andromeda_fbsync_before_read(uintptr_t kva, uint64_t bytes);
  */
 uint32_t andromeda_fbsync_mark(void);
 void andromeda_fbsync_before_read_fence(uintptr_t kva, uint64_t bytes, uint32_t fence);
+/*
+ * Patch 0207 (scanout): wait for FENCE only, no cache maintenance (the display
+ * reads memory, which the GPU wrote). 0 done, 1 timed out, -1 Metal not
+ * running or no fence (the frame is not known to be the GPU's).
+ */
+int andromeda_fbsync_wait(uint32_t fence);
 
 #ifdef __cplusplus
 }

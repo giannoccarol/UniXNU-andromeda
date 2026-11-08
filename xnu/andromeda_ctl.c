@@ -497,6 +497,10 @@ extern void andromeda_cpufreq_boost(void);  /* andromeda_cpufreq.c: touch floor 
 extern void andromeda_gpu_boost(void);      /* andromeda_gpu.c: touch floor */
 extern int andromeda_cpufreq_little(unsigned on, char *why, size_t len);   /* andromeda_cpufreq.c */
 extern void andromeda_sched_dump(char *out, size_t len);   /* osfmk/kern/processor.c, patch 0206 */
+/* andromeda_scanout.c, patch 0207: the display reads frames itself (andrscanout); the shot needs a copied frame. */
+extern int andromeda_scanout_ctl(unsigned mode, char *why, size_t len);
+extern unsigned andromeda_scanout_mode(void);
+extern void andromeda_scanout_copy_frames(unsigned n);
 
 /*
  * dpu: read-only dump of the display controller as the UEFI left it, to plan
@@ -657,6 +661,11 @@ ctl_shot(unsigned block)
 		snprintf(ctl_why, sizeof(ctl_why), "panel framebuffer not mapped");
 		return false;
 	}
+	/* andrscanout: the panel memory holds an old frame; the framebuffer copies the next ones there. */
+	if (andromeda_scanout_mode() != 0) {
+		andromeda_scanout_copy_frames(3);
+		ctl_sleep_ms(150);
+	}
 	unsigned cols = CTL_PANEL_W / block, rows = CTL_PANEL_H / block;
 	static unsigned shot_no;
 	unsigned no = ++shot_no;
@@ -809,6 +818,8 @@ ctl_execute(const struct andr_cmd *c)
 	case ANDR_V_SCHED:
 		andromeda_sched_dump(ctl_why, sizeof(ctl_why));
 		return true;
+	case ANDR_V_SCANOUT:
+		return andromeda_scanout_ctl(c->value, ctl_why, sizeof(ctl_why)) == 0;
 	default:
 		snprintf(ctl_why, sizeof(ctl_why), "unknown command");
 		return false;

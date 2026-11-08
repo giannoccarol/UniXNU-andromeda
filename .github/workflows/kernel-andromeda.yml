@@ -91,6 +91,10 @@ jobs:
           cp cepheus/xnu/0205-andromeda-fb-fence.patch dxb/patches/
           # Scheduler dump for andctl sched (0206, osfmk/kern/processor.c).
           cp cepheus/xnu/0206-andromeda-sched-dump.patch dxb/patches/
+          # The display reads iOS's frames itself (0207, andrscanout, after 0205): driver,
+          # shared header, stage script and the SweetFramebuffer/bsd conf patch.
+          cp cepheus/xnu/andromeda_scanout.c cepheus/xnu/andromeda_scanout.h cepheus/xnu/0207-stage-andromeda-scanout.sh \
+            cepheus/xnu/0207-andromeda-scanout.patch dxb/patches/
           # AMP scheduling (0204) only on request: the kernel then needs an ADT with
           # cluster types (ANDROMEDA_CLUSTERS=EEEEPPPP for build-boot.sh).
           if [ "${{ inputs.amp }}" = "true" ]; then
@@ -168,6 +172,8 @@ jobs:
           /tmp/slider-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_ctl.c -o /tmp/ctl-test
           /tmp/ctl-test
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_scanout.c -o /tmp/scanout-test
+          /tmp/scanout-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_gpu_present.c -o /tmp/present-test
           /tmp/present-test
           cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined cepheus/xnu/test_andromeda_gpu_mtl.c -o /tmp/mtl-test
@@ -226,7 +232,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0137-|0140-|0200-|0201-|0202-|0203-|0204-|0205-|0206-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0137-|0140-|0200-|0201-|0202-|0203-|0204-|0205-|0206-|0207-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -371,6 +377,14 @@ jobs:
           # andromeda: scheduler dump for andctl sched (patch 0206).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0206-andromeda-sched-dump.patch'
           grep -F 'andromeda_sched_dump(char *out, size_t len)' dxb/xnu/osfmk/kern/processor.c
+          # andromeda: the display reads the frames itself (patch 0207, andrscanout).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0207-andromeda-scanout.patch'
+          grep -E '^bsd/dev/andromeda_scanout.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
+          cmp cepheus/xnu/andromeda_scanout.c dxb/xnu/bsd/dev/andromeda_scanout.c
+          cmp cepheus/xnu/andromeda_scanout.h dxb/xnu/bsd/dev/andromeda_scanout.h
+          cmp cepheus/xnu/andromeda_scanout.h dxb/xnu/iokit/Kernel/arm/andromeda_scanout.h
+          grep -F 'if (scanPresent(rec)) {' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrscanout", b"ANDROMEDA SCANOUT:", b"SWEET SCANOUT: mode %u", b"scanout maps surface"))'
           if [ "${{ inputs.amp }}" = "true" ]; then
             grep -F 'Applying patch:' dxb/build.log | grep -F '0204-andromeda-amp.patch'
             grep -F '#define __ARM_AMP__               1' dxb/xnu/pexpert/pexpert/arm64/SWEET.h

@@ -12,8 +12,9 @@ caps the page-dot fade after each home swipe at 20-30 fps, found by Scion's
 inject_sb.c, so home swipes understate what CA can do), then waits for the next
 "SWEET PERF" lines (one every 10 s) and sums those that fall inside the run:
 frames backboardd submitted and frames shown per second, mean copy time per
-shown frame, vsync ticks missed. The last "gov 60s" line of the GPU governor
-is printed too. Nothing is written on the phone.
+shown frame, vsync ticks missed; with the scanout of patch 0207 (andrscanout)
+also how many frames the display read itself. The last "gov 60s" line of the
+GPU governor is printed too. Nothing is written on the phone.
 """
 import argparse
 import re
@@ -27,6 +28,8 @@ HERE = Path(__file__).resolve().parent
 PERF = re.compile(r"^(\d\d:\d\d:\d\d) .*SWEET PERF: ms=(\d+) submitted=(\d+) presented=(\d+) "
                   r"overwritten=(\d+) copy_us=(\d+) max_us=(\d+) bytes=(\d+) missed=(\d+)")
 GOV = re.compile(r"ANDROMEDA GPU: gov 60s: (.*)")
+# patch 0207 (andrscanout): frames the display read itself / copied, per 10 s window
+SCAN = re.compile(r"^(\d\d:\d\d:\d\d) .*SWEET SCANOUT: mode (\d+): (\d+) frames read by the display, (\d+) copied")
 
 
 def ctl(*args):
@@ -67,6 +70,7 @@ def main():
     end = secs(time.strftime('%H:%M:%S'))
     time.sleep(12)          # the 10 s window that holds the end of the run
     rows = []
+    scan = [0, 0]
     gov = None
     for line in log.read_text(errors='replace').splitlines():
         m = PERF.match(line)
@@ -75,6 +79,10 @@ def main():
             # a line reports the 10 s before it: keep windows fully inside the run
             if t - 10 >= start - 1 and t <= end + 1:
                 rows.append(tuple(int(x) for x in m.groups()[1:]))
+        sm = SCAN.match(line)
+        if sm and secs(sm.group(1)) - 10 >= start - 1 and secs(sm.group(1)) <= end + 1:
+            scan[0] += int(sm.group(3))
+            scan[1] += int(sm.group(4))
         g = GOV.search(line)
         if g:
             gov = g.group(1)
@@ -87,6 +95,8 @@ def main():
           f'submitted {sub * 1000 / ms:.1f}/s, shown {shown * 1000 / ms:.1f}/s, '
           f'copy {copy_us / max(shown, 1) / 1000:.1f} ms (max {mx / 1000:.0f}), '
           f'overwritten {over}, missed vsync {missed}')
+    if scan[0] or scan[1]:
+        print(f'scanout: {scan[0]} frames read by the display, {scan[1]} copied')
     if gov:
         print(f'last GPU governor line: {gov}')
 

@@ -1460,6 +1460,25 @@ andromeda_fbsync_before_read_fence(uintptr_t kva, uint64_t bytes, uint32_t fence
 	}
 }
 
+/* Patch 0207: the display reads the frame itself; only its GPU work must be done. */
+int andromeda_fbsync_wait(uint32_t fence);
+int
+andromeda_fbsync_wait(uint32_t fence)
+{
+	if (fence == 0 || mt_get_state() != MT_READY || mt_g == NULL) {
+		return -1;
+	}
+	int rc = mt_wait_nap(fence, (uint64_t)MT_FBSYNC_MS * 1000000ull);
+	if (rc == 1) {
+		uint64_t t = __atomic_add_fetch(&mt_fbsync_timeouts, 1, __ATOMIC_RELAXED);
+		if (t <= 5 || (t % 1000) == 0) {
+			printf(MT_TAG " scanout: GPU not done after %u ms (fence %u, done %u); %llu waits timed out\n",
+			    MT_FBSYNC_MS, fence, mt_fence_read(), (unsigned long long)t);
+		}
+	}
+	return rc;
+}
+
 int
 andromeda_fbsync_ctl(unsigned on, char *why, size_t len)
 {

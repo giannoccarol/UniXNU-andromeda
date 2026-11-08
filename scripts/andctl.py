@@ -36,6 +36,7 @@ Commands (the phone checks them again; see xnu/andromeda_ctl.h):
   dpu                           read-only dump of the display controller and its SMMU entry
   little 0|1                    Silver (A55) cores out of / back in the scheduler (cpu0 stays)
   sched                         scheduler's view of each CPU (pset, cluster type, state) in the log
+  scanout 0|1|2                 0 CPU copy of frames, 1 the display reads them (patch 0207), 2 also clean caches
 
 One datagram per command. Only "status", "help" and "idle" without a value
 are sent again when no answer comes; a command that starts something is
@@ -80,7 +81,8 @@ def main(argv=None):
         description="andromeda runtime control (andrctl=1): one command, one answer",
         epilog="commands: status, help, gpu N, bt N, hap 1, cam 1, wlan N, bl N, pwr 0|1, "
                "idle [NAME VALUE], slider 1, slidercam N, fastboot, shot N, fbsync 0|1, key N, "
-               "touch X Y, swipe X1 Y1 X2 Y2 [MS], membw, ddr 0|1, tcoal 0|1, dpu, little 0|1, sched")
+               "touch X Y, swipe X1 Y1 X2 Y2 [MS], membw, ddr 0|1, tcoal 0|1, dpu, little 0|1, sched, "
+               "scanout 0|1|2")
     parser.add_argument("--phone", default="192.168.7.2", help="phone address (default 192.168.7.2)")
     parser.add_argument("--port", type=int, default=PORT, help=f"UDP port (default {PORT})")
     parser.add_argument("--timeout", type=float, default=3.0, help="seconds to wait for the answer")

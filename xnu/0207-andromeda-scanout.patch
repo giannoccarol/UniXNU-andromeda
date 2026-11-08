@@ -1,0 +1,397 @@
+andromeda: the display reads iOS frames itself (andrscanout, default 0)
+
+bsd/dev/andromeda_scanout.c (staged by 0207-stage-andromeda-scanout.sh) owns the
+hardware; SweetFramebuffer.cpp gives the pipe each frame it can take and copies
+the others as before. Design: data-a-live 0217-pandora-scanout (see
+andromeda_scanout.h and CREDITS.md).
+
+diff --git a/bsd/conf/files b/bsd/conf/files
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -119,2 +119,3 @@
+ bsd/dev/andromeda_gpu_mtl.c		standard
++bsd/dev/andromeda_scanout.c		standard
+ bsd/dev/andromeda_backlight.c		standard
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -39,6 +39,8 @@
+ extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
+ /* bsd/dev/andromeda_gpu_present.c (andromeda F4, patch 0120): the GPU copies the fitted frame. */
+ #include "andromeda_gpu_present.h"
++/* bsd/dev/andromeda_scanout.c (andromeda, patch 0207): the display reads the frames itself. */
++#include "andromeda_scanout.h"
+ 
+ #if defined(SWEET)
+ #include <IOKit/IOService.h>
+@@ -95,6 +97,8 @@ enum {
+ #define SWEET_FB_LOGICAL_W              1125
+ #define SWEET_FB_LOGICAL_H              2436
+ #define SWEET_FB_FORMAT_BGRA            0x42475241
++#define SWEET_SCAN_MAPS                 6       /* surfaces kept mapped for the display (0207) */
++#define SWEET_SURFACE_STATE_USE         0x18    /* u64 in the state page: IOSurfaceIsInUse reads it (0207) */
+ 
+ class IOMobileFramebuffer : public IOService {
+ 	OSDeclareDefaultStructors(IOMobileFramebuffer);
+@@ -188,6 +192,27 @@ public:
+ 	bool          fPresentBusy;
+ 	uint8_t       fAsyncRecord[SWEET_FB_SWAP_REC_SIZE];   // thread call-owned
+ 	void presentAsync(void);
++	/*
++	 * andromeda, andrscanout (patch 0207): the display reads the frame
++	 * itself (bsd/dev/andromeda_scanout.c) instead of the CPU copy into the
++	 * panel memory. The surface the pipe reads (shown) and the one it was
++	 * just given (queued) are retained and counted as in use, as
++	 * IOSurfaceIsInUse reads it, until a later flush has been taken; maps of
++	 * surfaces into the display's address space stay while they keep being
++	 * swapped (fScanMaps, present path only). fScanLock: shown/queued, taken
++	 * by the present path and the vsync tick.
++	 */
++	struct { SweetSurface *s; uint32_t iova, pages; uint64_t used; } fScanMaps[SWEET_SCAN_MAPS];
++	SweetSurface *fScanShown, *fScanQueued;
++	IOLock       *fScanLock;
++	uint64_t      fScanClock;
++	bool          fScanOn, fScanTried, fScanToPanel;
++	uint32_t      fScanFrames, fScanCopies, fScanRefused;
++	uint32_t scanIova(SweetSurface *s);
++	bool scanPresent(const uint8_t *rec);
++	bool scanRefuse(uint32_t why, uint32_t id);
++	void scanPanel(void);
++	void scanTick(void);
+ 
+ 	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
+ 	void addClient(IOMobileFramebufferUserClient *client);
+@@ -281,6 +306,7 @@ AppleCLCD::start(IOService *provider)
+ 		}
+ 	}
+ 	fLock = IOLockAlloc();
++	fScanLock = IOLockAlloc();      /* NULL: no scanout, the CPU copy as before */
+ 	fClients = OSArray::withCapacity(4);
+ 	fSurface = sweet_surface_create_physical(fPhys, fWidth, fHeight, fRowBytes, SWEET_FB_FORMAT_BGRA);
+ 	fPixels = fSurface != NULL ? fSurface->kernelAddress() : 0;
+@@ -345,6 +371,12 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 	};
+ 
+ 	__atomic_fetch_add(&andromeda_pwr_fb_vsync, 1, __ATOMIC_RELAXED);
++	/* andrscanout: let go of what the pipe no longer reads; before the blank of display off, the
++	 * pipe back on the panel memory (the blank and the console go there). */
++	fb->scanTick();
++	if (fb->fPowerOff && !fb->fBlanked) {
++		fb->scanPanel();
++	}
+ 	IOLockLock(fb->fLock);
+ 	for (unsigned int i = 0; i < fb->fClients->getCount(); i++) {
+ 		IOMobileFramebufferUserClient *client =
+@@ -384,6 +416,9 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 		fb->finishTick(sender);
+ 		return;
+ 	}
++	if (fb->fScanOn && !fb->fDirty && andromeda_scanout_copy_pending()) {
++		fb->fDirty = true;      /* andctl shot with andrscanout: the last frame again, copied */
++	}
+ 	bool flush = fb->fDirty && (count % fb->fFlushTicks) == 0;
+ 	uint8_t *rec = NULL;
+ 	bool kick = false;
+@@ -460,6 +495,14 @@ AppleCLCD::finishTick(IOTimerEventSource *sender)
+ 		IOLog("SWEET PERF: ms=%llu submitted=%llu presented=%llu overwritten=%llu copy_us=%llu max_us=%llu bytes=%llu missed=%llu off=%u\n",
+ 		    ns / 1000000, submitted, presented, overwritten, copy_ns / 1000,
+ 		    max_ns / 1000, copied, fMissed, off ? 1u : 0u);
++		if (fScanOn) {
++			uint64_t shows = 0, waits = 0, faults = 0;
++			andromeda_scanout_counts(&shows, &waits, &faults);
++			IOLog("SWEET SCANOUT: mode %u: %u frames read by the display, %u copied, %u refused so far; "
++			    "%llu pipe updates, %llu waited for a frame, %llu SMMU faults\n", andromeda_scanout_mode(),
++			    fScanFrames, fScanCopies, fScanRefused, shows, waits, faults);
++			fScanFrames = fScanCopies = 0;
++		}
+ 		fMissed = 0;
+ 		fStatsAt = now;
+ 	}
+@@ -550,6 +593,271 @@ AppleCLCD::swap(const uint8_t *rec)
+ 	}
+ }
+ 
++/* andrscanout (0207): the use count of S as IOSurfaceIsInUse reads it (data-a-live's 0217 found the field). */
++static void
++sweet_scan_use(SweetSurface *s, int delta)
++{
++	if (s->state == NULL) {
++		return;
++	}
++	uint64_t *use = (uint64_t *)((uint8_t *)s->state->getBytesNoCopy() + SWEET_SURFACE_STATE_USE);
++	if (delta > 0) {
++		__atomic_add_fetch(use, 1, __ATOMIC_RELEASE);
++		return;
++	}
++	uint64_t old = __atomic_load_n(use, __ATOMIC_ACQUIRE);
++	while (old != 0 && !__atomic_compare_exchange_n(use, &old, old - 1, true, __ATOMIC_ACQ_REL,
++	    __ATOMIC_ACQUIRE)) {
++	}
++}
++
++static void
++sweet_scan_hold(SweetSurface *s)
++{
++	s->retain();
++	sweet_scan_use(s, 1);
++}
++
++static void
++sweet_scan_drop(SweetSurface **s)
++{
++	if (*s != NULL) {
++		sweet_scan_use(*s, -1);
++		(*s)->release();
++		*s = NULL;
++	}
++}
++
++/* andrscanout: the IOVA of S for the display (mapped on first use, kept while swapped), or 0. Present path only. */
++uint32_t
++AppleCLCD::scanIova(SweetSurface *s)
++{
++	static uint64_t pages[(16u << 20) / 4096];
++	unsigned slot = SWEET_SCAN_MAPS;
++	fScanClock++;
++	for (unsigned i = 0; i < SWEET_SCAN_MAPS; i++) {
++		if (fScanMaps[i].s == s) {
++			fScanMaps[i].used = fScanClock;
++			return fScanMaps[i].iova;
++		}
++	}
++	/* A free slot, else the one longest unused that the pipe does not hold. */
++	IOLockLock(fScanLock);
++	for (unsigned i = 0; i < SWEET_SCAN_MAPS; i++) {
++		SweetSurface *t = fScanMaps[i].s;
++		if (t == NULL) {
++			slot = i;
++			break;
++		}
++		if (t != fScanShown && t != fScanQueued &&
++		    (slot == SWEET_SCAN_MAPS || fScanMaps[i].used < fScanMaps[slot].used)) {
++			slot = i;
++		}
++	}
++	IOLockUnlock(fScanLock);
++	if (slot == SWEET_SCAN_MAPS) {
++		return 0;
++	}
++	if (fScanMaps[slot].s != NULL) {
++		andromeda_scanout_unmap(fScanMaps[slot].iova, fScanMaps[slot].pages);
++		fScanMaps[slot].s->memory->complete();
++		OSSafeReleaseNULL(fScanMaps[slot].s);
++	}
++	const uint64_t len = s->memory->getLength();
++	if (len == 0 || len > sizeof(pages) / sizeof(pages[0]) * 4096) {
++		return 0;
++	}
++	/* iOS surfaces must be prepare()d before getPhysicalSegment (as mapGPUSurface). */
++	if (s->memory->prepare() != kIOReturnSuccess) {
++		return 0;
++	}
++	const uint32_t n = (uint32_t)((len + 4095) / 4096);
++	bool ok = true;
++	for (uint32_t i = 0; i < n && ok; i++) {
++		IOByteCount seg = 0;
++		const addr64_t pa = s->memory->getPhysicalSegment((IOByteCount)i * 4096, &seg, kIOMemoryMapperNone);
++		ok = pa != 0 && (pa & 0xfff) == 0;
++		pages[i] = pa;
++	}
++	const uint32_t iova = ok ? andromeda_scanout_map(pages, n) : 0;
++	if (iova == 0) {
++		s->memory->complete();
++		return 0;
++	}
++	s->retain();
++	fScanMaps[slot].s = s;
++	fScanMaps[slot].iova = iova;
++	fScanMaps[slot].pages = n;
++	fScanMaps[slot].used = fScanClock;
++	IOLog("SWEET FB: scanout maps surface %u (%ux%u, %u pages) at iova %#x\n", s->id, s->width, s->height, n, iova);
++	return iova;
++}
++
++bool
++AppleCLCD::scanRefuse(uint32_t why, uint32_t id)
++{
++	if (fScanRefused++ < 12) {
++		IOLog("SWEET FB: scanout refused surface %u (reason %u), copied\n", id, why);
++	}
++	return false;
++}
++
++/*
++ * andrscanout: a frame the pipe takes as it is: one layer showing the whole
++ * presented display from a BGRA surface of exactly that size, drawn by
++ * Metal (its GPU fence known and done), display on. True when the pipe has
++ * it; else the frame is copied as before.
++ */
++bool
++AppleCLCD::scanPresent(const uint8_t *rec)
++{
++	const unsigned mode = andromeda_scanout_mode();
++	if (mode == 0 || fPowerOff || fScanLock == NULL || andromeda_scanout_take_copy()) {
++		return false;
++	}
++	if (!fScanOn) {
++		/* Set the display up at the first frame Metal drew (mode 1), once. */
++		if (fScanTried || (mode == 1 && fCopyFence == 0)) {
++			return false;
++		}
++		fScanTried = true;
++		fScanOn = andromeda_scanout_init(fPhys, fRowBytes, fWidth, fHeight) == 0;
++		IOLog("SWEET FB: scanout %s\n", fScanOn ? "on: the display reads the frames itself" :
++		    "refused: CPU copy for this boot");
++		if (!fScanOn) {
++			return false;
++		}
++	}
++	uint32_t mask = get32(rec, 0x104), layer = 0;
++	if (mask == 0 || (mask & (mask - 1)) != 0) {
++		return scanRefuse(1, 0);
++	}
++	while (!(mask & (1u << layer))) {
++		layer++;
++	}
++	if (layer >= SWEET_FB_LAYERS) {
++		return scanRefuse(1, 0);
++	}
++	const uint32_t id = get32(rec, 0x54 + 4 * layer);
++	const uint8_t *a = rec + 0x64 + 16 * layer;
++	const uint8_t *b = rec + 0xc4 + 16 * layer;
++	int32_t sx = (int32_t)get32(a, 0), sy = (int32_t)get32(a, 4);
++	int32_t dx = (int32_t)get32(b, 0), dy = (int32_t)get32(b, 4);
++	int32_t w = (int32_t)get32(b, 8), h = (int32_t)get32(b, 12);
++	SweetSurface *s = id != 0 ? sweet_surface_copy(id) : NULL;
++	if (s == NULL || s == fSurface || s->memory == NULL) {
++		OSSafeReleaseNULL(s);
++		return scanRefuse(2, id);
++	}
++	if (w <= 0 || h <= 0) {
++		w = (int32_t)s->width;
++		h = (int32_t)s->height;
++	}
++	const uint64_t bytes = (uint64_t)s->bytesPerRow * s->height;
++	const uint32_t bpe = s->bytesPerElement ? s->bytesPerElement : 4;
++	if (sx != 0 || sy != 0 || dx != 0 || dy != 0 || w != (int32_t)fLogicalW || h != (int32_t)fLogicalH ||
++	    s->width != fLogicalW || s->height != fLogicalH || s->pixelFormat != SWEET_FB_FORMAT_BGRA || bpe != 4 ||
++	    s->elementWidth != 1 || s->elementHeight != 1 || s->planeCount > 1 || s->bytesPerRow < s->width * 4 ||
++	    s->bytesPerRow > 0xffff || (s->offset & 0xf) != 0 || s->offset + bytes > s->memory->getLength()) {
++		s->release();
++		return scanRefuse(3, id);
++	}
++	/* The frame's GPU work done (mode 2: and the CPU caches cleaned, for frames the CPU may have drawn). */
++	if (mode == 2) {
++		const uintptr_t kva = s->kernelAddress();
++		if (kva == 0) {
++			s->release();
++			return scanRefuse(4, id);
++		}
++		andromeda_fbsync_before_read_fence(kva + s->offset, bytes, fCopyFence);
++	} else if (andromeda_fbsync_wait(fCopyFence) != 0) {
++		s->release();
++		return scanRefuse(4, id);
++	}
++	const uint32_t iova = scanIova(s);
++	if (iova == 0) {
++		s->release();
++		return scanRefuse(5, id);
++	}
++	struct andr_scan_frame f;
++	f.iova = iova + s->offset;
++	f.stride = s->bytesPerRow;
++	if (fFit) {
++		/* 0094's fit: the whole presented display scaled by panel width / logical width, by QSEED3 */
++		f.src_x = f.src_y = 0;
++		f.src_w = fLogicalW;
++		f.src_h = fLogicalH;
++		f.dst_x = 0;
++		f.dst_y = (uint32_t)fFitOffY;
++		f.dst_w = (uint32_t)fFitW;
++		f.dst_h = (uint32_t)fFitH;
++	} else {
++		/* the centred panel-sized part, unscaled */
++		f.src_x = (uint32_t)(fOffX > 0 ? fOffX : 0);
++		f.src_y = (uint32_t)(fOffY > 0 ? fOffY : 0);
++		f.src_w = fWidth;
++		f.src_h = fHeight;
++		f.dst_x = f.dst_y = 0;
++		f.dst_w = fWidth;
++		f.dst_h = fHeight;
++	}
++	const int rc = andromeda_scanout_show(&f);
++	if (rc != 0) {
++		s->release();
++		return scanRefuse(6, id);      /* the earlier flush not taken in 25 ms, or the frame refused */
++	}
++	/* show() waited for the earlier flush: the pipe reads the frame queued before, the one before that no more. */
++	IOLockLock(fScanLock);
++	if (fScanQueued != NULL) {
++		sweet_scan_drop(&fScanShown);
++		fScanShown = fScanQueued;
++		fScanQueued = NULL;
++	}
++	sweet_scan_hold(s);
++	fScanQueued = s;
++	fScanToPanel = false;
++	IOLockUnlock(fScanLock);
++	s->release();
++	return true;
++}
++
++/* andrscanout: the pipe back on the panel memory; the holds go once that is on screen (scanTick). */
++void
++AppleCLCD::scanPanel(void)
++{
++	if (!fScanOn || fScanLock == NULL) {
++		return;
++	}
++	IOLockLock(fScanLock);
++	const bool held = fScanShown != NULL || fScanQueued != NULL, going = fScanToPanel;
++	IOLockUnlock(fScanLock);
++	if (held && !going && andromeda_scanout_panel() == 0) {
++		IOLockLock(fScanLock);
++		fScanToPanel = true;
++		IOLockUnlock(fScanLock);
++	}
++}
++
++/* andrscanout, every vsync tick: once the last flush has been taken, let go of what the pipe no longer reads. */
++void
++AppleCLCD::scanTick(void)
++{
++	if (!fScanOn || fScanLock == NULL || !andromeda_scanout_latched()) {
++		return;
++	}
++	IOLockLock(fScanLock);
++	if (fScanToPanel) {
++		sweet_scan_drop(&fScanShown);
++		sweet_scan_drop(&fScanQueued);
++		fScanToPanel = false;
++	} else if (fScanQueued != NULL) {
++		sweet_scan_drop(&fScanShown);
++		fScanShown = fScanQueued;
++		fScanQueued = NULL;
++	}
++	IOLockUnlock(fScanLock);
++}
++
+ void
+ AppleCLCD::present(const uint8_t *rec)
+ {
+@@ -566,6 +874,15 @@ AppleCLCD::present(const uint8_t *rec)
+ 		}
+ 	}
+ 
++	if (scanPresent(rec)) {
++		fScanFrames++;
++		return;         /* andrscanout: the display reads this frame itself */
++	}
++	if (fScanOn) {
++		fScanCopies++;
++		scanPanel();    /* the pipe back on the panel memory, then the copy below */
++	}
++
+ 	if (presentGPU(rec)) {
+ 		return;         /* andrgpupresent=1: the GPU copied (and fenced) this frame */
+ 	}

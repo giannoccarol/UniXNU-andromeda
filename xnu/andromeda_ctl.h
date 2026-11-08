@@ -251,6 +251,7 @@ enum andr_verb {
 	ANDR_V_DPU,
 	ANDR_V_LITTLE,
 	ANDR_V_SCHED,
+	ANDR_V_SCANOUT,
 	ANDR_V_COUNT
 };
 
@@ -297,6 +298,7 @@ static const struct andr_range andr_verbs[ANDR_V_COUNT] __attribute__((unused)) 
 	[ANDR_V_DPU]       = { "dpu",       0, 0, false, false, 0, 0 },   /* display controller dump, read only */
 	[ANDR_V_LITTLE]    = { "little",    1, 1, true, true, 0, 0 },     /* Silver cores out (0) / in (1) */
 	[ANDR_V_SCHED]     = { "sched",     0, 0, false, false, 0, 0 },   /* scheduler's view of each CPU, read only */
+	[ANDR_V_SCANOUT]   = { "scanout",   1, 2, true, true, 0, 0 },     /* 0 CPU copy, 1 display reads frames, 2 + clean */
 };
 
 /* The clamps of the boot-args of patches 0101-0105, as accepted ranges. */
