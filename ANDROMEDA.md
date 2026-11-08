@@ -136,6 +136,14 @@ La politica `Sandbox` del kernel (patch 0050 di ios-sweet) risponde `ENOENT` all
 
 **Fluidità, 8 novembre mattina (misure con `scripts/andfps.py`, kernel `5fe3dd0`, root nuova):** pagine della Home 25 fotogrammi/s prodotti, 23,7 mostrati, copia 21,7 ms; scorrimento nelle Impostazioni 20,3/s tutti mostrati (≈ 60/3), GPU al 20 % e quasi sempre tra 257 e 427 MHz. "Riduci trasparenza" acceso: 24,2/23,4/s, nessuna differenza (le sfocature non sono il limite; rimesso spento). Durante lo scorrimento il governor della CPU teneva Gold a 710 MHz (il minimo) il 91 % del tempo e Prime a 825 MHz il 93 %: il lavoro di Core Animation arriva a scatti e la media non sale; gli swipe dal PC non davano la spinta del tocco. **Pronti, non ancora provati:** `andctl tcoal 0|1` (timer coalescing di XNU, kernel `42432390683`), la soglia di frequenza della CPU a ogni swap (patch 0203, `andrgovframe`), le spinte del tocco anche per gli swipe dal PC e la sonda in sola lettura del display `andctl dpu` (kernel della build `42433696624`). Poi: scanout diretto dei buffer di iOS (progetto della 0217 di data-a-live) e frontend Metal più recente (AdrenoMetal).
 
+**Fluidità, 8 novembre pomeriggio (scorrimento nelle Impostazioni, `scripts/andfps.py --mode settings`, 30 s):**
+- soglia della CPU sui fotogrammi (patch 0203) e spinte del tocco anche per gli swipe dal PC: **20,3 → 24,5 fotogrammi/s**, copia 24 → 18,4 ms; Gold e Prime restano a 1804 MHz durante le animazioni;
+- `tcoal 0` (timer coalescing spento): 23,4/s, nessun effetto, lasciato acceso;
+- con la soglia Gold/Prime lavorano poco (33 % e 8 %) mentre Silver è al 78 %: il device tree descrive gli 8 core come un solo cluster omogeneo e lo scheduler Clutch mette i thread dell'interfaccia sugli A55 quanto sugli A76;
+- **`little 0` (Silver fuori dallo scheduler tranne cpu0): 25,8 → 37,0 fotogrammi/s (+43 %)**, copia 14,3 ms, GPU al 30 %. Conferma che il limite era la CPU lenta, non la GPU;
+- prossimo passo, in prova: lo scheduler per CPU asimmetriche di XNU (patch 0204, workflow `amp=true`, device tree `ANDROMEDA_CLUSTERS=EEEEPPPP`): sfondo e utility sui core E (A55), il resto sui P (A76), come su un iPhone.
+- `andctl dpu` (sola lettura): il buffer del pannello `0x9c000000` lo legge VIG0 (1080×2340, stride 4320, ARGB8888, senza scalatura), CTL0 → LM0 → INTF1 (DSI0) in modalità comando; i pingpong leggono zero (su DPU 5 tear check e autorefresh stanno in INTF, 0x280-0x2bc, letti dalla prossima versione della sonda); flusso del display SID 0x800 (`smr3 84200800`) → context bank 2 (`s2cr 00000002`), come nel caso di data-a-live.
+
 **Prove dal PC con `andctl`, 7 novembre sera** (avvio con GPU e copia via GPU attive):
 - **Luminosità** (`bl 1`): 1023 → 256 → 1023 via DCS 0x51, nessun errore DSI; l'utente vede il cambio.
 - **Bluetooth** (`bt 1`, B1): **PASS**. Il WCN3990 risponde alla versione EDL (SoC `0x40010224`, ROM `0x1001`, patch
