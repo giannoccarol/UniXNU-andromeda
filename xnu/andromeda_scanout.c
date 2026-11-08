@@ -330,7 +330,7 @@ sc_mode_args(void)
 	if (__atomic_exchange_n(&sc_mode_parsed, 1u, __ATOMIC_ACQ_REL) == 0) {
 		unsigned v = 0;
 		(void)PE_parse_boot_argn("andrscanout", &v, sizeof(v));
-		__atomic_store_n(&sc_mode, v > 2 ? 0u : v, __ATOMIC_RELAXED);
+		__atomic_store_n(&sc_mode, v > 3 ? 0u : v, __ATOMIC_RELAXED);
 		if (v) {
 			printf(SC_TAG " andrscanout=%u: the display reads Metal frames itself from the first one\n", v);
 		}
@@ -731,13 +731,14 @@ int
 andromeda_scanout_ctl(unsigned mode, char *why, size_t len)
 {
 	sc_mode_args();
-	if (mode > 2) {
-		snprintf(why, len, "scanout: mode 0, 1 or 2");
+	if (mode > 3) {
+		snprintf(why, len, "scanout: mode 0, 1, 2 or 3");
 		return EINVAL;
 	}
 	__atomic_store_n(&sc_mode, mode, __ATOMIC_RELAXED);
 	snprintf(why, len, "scanout %u (%s; hardware %s, %llu pipe updates, %llu waited for a frame, %llu SMMU faults)",
-	    mode, mode == 0 ? "CPU copy" : mode == 1 ? "the display reads Metal frames" : "scanout with cache clean",
+	    mode, mode == 0 ? "CPU copy" : mode == 1 ? "the display reads Metal frames" : mode == 2 ?
+	    "scanout with cache clean" : "scanout, surfaces not marked in use",
 	    sc.ready ? "set up" : sc.tried ? "refused, CPU copy" : "not set up yet", (unsigned long long)sc.shows,
 	    (unsigned long long)sc.waits, (unsigned long long)sc.faults);
 	printf(SC_TAG " %s\n", why);

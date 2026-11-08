@@ -298,7 +298,7 @@ static const struct andr_range andr_verbs[ANDR_V_COUNT] __attribute__((unused)) 
 	[ANDR_V_DPU]       = { "dpu",       0, 0, false, false, 0, 0 },   /* display controller dump, read only */
 	[ANDR_V_LITTLE]    = { "little",    1, 2, true, true, 0, 0 },     /* Silver cores out (0) / in (1) / out while drawing (2) */
 	[ANDR_V_SCHED]     = { "sched",     0, 0, false, false, 0, 0 },   /* scheduler's view of each CPU, read only */
-	[ANDR_V_SCANOUT]   = { "scanout",   1, 2, true, true, 0, 0 },     /* 0 CPU copy, 1 display reads frames, 2 + clean */
+	[ANDR_V_SCANOUT]   = { "scanout",   1, 3, true, true, 0, 0 },     /* 0 CPU copy, 1 display reads frames, 2 + clean, 3 no in-use */
 };
 
 /* The clamps of the boot-args of patches 0101-0105, as accepted ranges. */

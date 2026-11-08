@@ -33,6 +33,8 @@
  *   1  scan out every frame the pipe can take; any other frame is copied
  *   2  as 1, and the CPU caches of the frame are cleaned first (for frames
  *      the CPU may have drawn; Metal frames are in memory already)
+ *   3  as 1, but the surfaces the display holds are not counted as in use
+ *      (IOSurfaceIsInUse): to see whether Core Animation waits for them
  * The first frame with mode 1/2 sets the hardware up: a stream match or bank
  * not as expected, or any SMMU fault in the first 50 ms, leaves the CPU copy
  * for the rest of the boot. Nothing is written before that frame.
@@ -59,7 +61,7 @@ struct andr_scan_frame {
 	uint32_t dst_x, dst_y, dst_w, dst_h;
 };
 
-/* andrscanout / "andctl scanout N": 0, 1 or 2 (see above). */
+/* andrscanout / "andctl scanout N": 0 to 3 (see above). */
 unsigned andromeda_scanout_mode(void);
 int andromeda_scanout_ctl(unsigned mode, char *why, size_t len);
 
