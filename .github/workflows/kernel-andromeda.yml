@@ -361,12 +361,16 @@ jobs:
           grep -F 'andromeda_gpu_mtl_attach(&gpu, ag_pool_size)' dxb/xnu/bsd/dev/andromeda_gpu.c
           # andromeda: frame sync before the framebuffer's CPU copy of Metal frames (patch 0201, andrfbsync).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0201-andromeda-fbsync.patch'
-          grep -F 'andromeda_fbsync_before_read(src, (uint64_t)s->bytesPerRow * s->height);' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
+          # 0205 turns this call into andromeda_fbsync_before_read_fence (checked below).
+          grep -F 'andromeda_fbsync_before_read' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
           # andromeda: frame copies on a thread call (patch 0202, andrfbasync).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0202-andromeda-fb-async.patch'
           grep -F 'thread_call_enter(fb->fPresentCall);' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
           grep -F 'andromeda_cpufreq_frame();' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
           grep -F 'andromeda_fbsync_before_read_fence(src' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
+          # andromeda: scheduler dump for andctl sched (patch 0206).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0206-andromeda-sched-dump.patch'
+          grep -F 'andromeda_sched_dump(char *out, size_t len)' dxb/xnu/osfmk/kern/processor.c
           if [ "${{ inputs.amp }}" = "true" ]; then
             grep -F 'Applying patch:' dxb/build.log | grep -F '0204-andromeda-amp.patch'
             grep -F '#define __ARM_AMP__               1' dxb/xnu/pexpert/pexpert/arm64/SWEET.h
