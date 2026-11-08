@@ -494,6 +494,91 @@ extern int andromeda_rpmh_ddr_vote(bool on, char *why, size_t len);   /* sweet_r
  */
 extern boolean_t mach_timer_coalescing_enabled;
 
+/*
+ * dpu: read-only dump of the display controller as the UEFI left it, to plan
+ * scan-out of iOS's own frames (as data-a-live's patch 0217 and UniXNU's
+ * sheng-dpu-scanout do; see CREDITS.md). SM8150 DPU 5.0 block offsets from
+ * Linux dpu_5_0_sm8150.h, relative to the MDP block at 0x0ae01000 (DT
+ * mdp@ae01000); SSPP register names from dpu_hw_sspp.c. The apps SMMU
+ * (0x15000000) is read for the display stream (DT iommus <0x800 0x420>):
+ * stream-match entries that cover SID 0x800 and their S2CR. Reads only.
+ */
+#define CTL_MDP_PA   0x0ae01000u
+#define CTL_MDP_LEN  0x00090000u
+#define CTL_SMMU_PA  0x15000000u
+
+static void
+ctl_dump(vm_offset_t base, const char *name, uint32_t off, unsigned words)
+{
+	char line[200];
+	int n = snprintf(line, sizeof(line), "ANDROMEDA DPU: %s +%#x:", name, off);
+	for (unsigned i = 0; i < words && n > 0 && (size_t)n < sizeof(line); ++i) {
+		n += snprintf(line + n, sizeof(line) - (size_t)n, " %08x",
+		    *(volatile uint32_t *)(base + off + 4u * i));
+	}
+	printf("%s\n", line);
+}
+
+static bool
+ctl_dpu(void)
+{
+	static const struct { const char *name; uint32_t off; } sspp[] = {
+		{"vig0", 0x4000}, {"vig1", 0x6000}, {"vig2", 0x8000}, {"vig3", 0xa000},
+		{"dma0", 0x24000}, {"dma1", 0x26000}, {"dma2", 0x28000}, {"dma3", 0x2a000},
+	};
+	vm_offset_t mdp = andromeda_io_map(CTL_MDP_PA, CTL_MDP_LEN);
+	if (!mdp) {
+		snprintf(ctl_why, sizeof(ctl_why), "dpu: MDP not mapped");
+		return false;
+	}
+	char name[16];
+	int found = -1;
+	ctl_dump(mdp, "top", 0x0, 24);
+	for (unsigned i = 0; i < sizeof(sspp) / sizeof(sspp[0]); ++i) {
+		/* SRC_SIZE..SRC_OP_MODE (0x00-0x38), FETCH_CONFIG 0x48, SRC_ADDR_SW_STATUS 0x70 */
+		ctl_dump(mdp, sspp[i].name, sspp[i].off, 15);
+		ctl_dump(mdp, sspp[i].name, sspp[i].off + 0x48, 1);
+		ctl_dump(mdp, sspp[i].name, sspp[i].off + 0x70, 1);
+		if (*(volatile uint32_t *)(mdp + sspp[i].off + 0x14) == CTL_PANEL_PA && found < 0) {
+			found = (int)i;
+		}
+	}
+	for (unsigned i = 0; i < 6; ++i) {
+		snprintf(name, sizeof(name), "ctl%u", i);
+		ctl_dump(mdp, name, 0x1000 + 0x200 * i, 16);
+		ctl_dump(mdp, name, 0x1000 + 0x200 * i + 0xd0, 16);
+		snprintf(name, sizeof(name), "lm%u", i);
+		ctl_dump(mdp, name, 0x44000 + 0x1000 * i, 16);
+		snprintf(name, sizeof(name), "pp%u", i);
+		ctl_dump(mdp, name, 0x70000 + 0x800 * i, 16);
+	}
+	for (unsigned i = 0; i < 4; ++i) {
+		snprintf(name, sizeof(name), "intf%u", i);
+		ctl_dump(mdp, name, 0x6a000 + 0x800 * i, 16);
+	}
+	/* apps SMMU: SMR(i) 0x800 + 4i, S2CR(i) 0xc00 + 4i, NUMSMRG = IDR0[7:0] */
+	unsigned smr_hits = 0;
+	vm_offset_t smmu = andromeda_io_map(CTL_SMMU_PA, 0x1000);
+	if (smmu) {
+		uint32_t idr0 = *(volatile uint32_t *)(smmu + 0x20);
+		uint32_t idr1 = *(volatile uint32_t *)(smmu + 0x24);
+		unsigned nsmr = idr0 & 0xffu;
+		printf("ANDROMEDA DPU: smmu idr0 %08x idr1 %08x smr groups %u\n", idr0, idr1, nsmr);
+		for (unsigned i = 0; i < nsmr && i < 128; ++i) {
+			uint32_t smr = *(volatile uint32_t *)(smmu + 0x800 + 4u * i);
+			uint32_t id = smr & 0xffffu, mask = (smr >> 16) & 0x7fffu;
+			if ((smr & (1u << 31)) && ((id ^ 0x800u) & ~mask & 0x7fffu) == 0) {
+				printf("ANDROMEDA DPU: smmu smr%u %08x s2cr %08x\n", i, smr,
+				    *(volatile uint32_t *)(smmu + 0xc00 + 4u * i));
+				++smr_hits;
+			}
+		}
+	}
+	snprintf(ctl_why, sizeof(ctl_why), "dpu: dumped (panel memory 0x%x fetched by %s; %u SMMU entries for SID 0x800)",
+	    CTL_PANEL_PA, found >= 0 ? sspp[found].name : "no pipe", smr_hits);
+	return true;
+}
+
 static bool
 ctl_tcoal(unsigned on)
 {
@@ -704,6 +789,8 @@ ctl_execute(const struct andr_cmd *c)
 		return andromeda_rpmh_ddr_vote(c->value != 0, ctl_why, sizeof(ctl_why)) == 0;
 	case ANDR_V_TCOAL:
 		return ctl_tcoal(c->value);
+	case ANDR_V_DPU:
+		return ctl_dpu();
 	default:
 		snprintf(ctl_why, sizeof(ctl_why), "unknown command");
 		return false;
