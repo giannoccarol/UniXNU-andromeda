@@ -496,6 +496,7 @@ extern boolean_t mach_timer_coalescing_enabled;
 extern void andromeda_cpufreq_boost(void);  /* andromeda_cpufreq.c: touch floor */
 extern void andromeda_gpu_boost(void);      /* andromeda_gpu.c: touch floor */
 extern int andromeda_cpufreq_little(unsigned on, char *why, size_t len);   /* andromeda_cpufreq.c */
+extern void andromeda_sched_dump(char *out, size_t len);   /* osfmk/kern/processor.c, patch 0206 */
 
 /*
  * dpu: read-only dump of the display controller as the UEFI left it, to plan
@@ -805,6 +806,9 @@ ctl_execute(const struct andr_cmd *c)
 		return ctl_dpu();
 	case ANDR_V_LITTLE:
 		return andromeda_cpufreq_little(c->value, ctl_why, sizeof(ctl_why)) == 0;
+	case ANDR_V_SCHED:
+		andromeda_sched_dump(ctl_why, sizeof(ctl_why));
+		return true;
 	default:
 		snprintf(ctl_why, sizeof(ctl_why), "unknown command");
 		return false;

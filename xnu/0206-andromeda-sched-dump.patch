@@ -1,0 +1,44 @@
+andromeda: andromeda_sched_dump(), the scheduler's view of every processor
+(pset, cluster type, state, recommendation, idle map), printed on request by
+andctl "sched", to see how the AMP scheduler (patch 0204) treats the P cores.
+Appended to osfmk/kern/processor.c (xnu-8796.141.3, APSL 2.0). Reads only.
+
+--- a/osfmk/kern/processor.c
++++ b/osfmk/kern/processor.c
+@@ -1728,3 +1728,36 @@
+ }
+ 
+ #endif /* defined(__arm64__) */
++
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++/*
++ * andromeda (patch 0206): the scheduler's view of every processor, printed on
++ * request (andctl "sched", bsd/dev/andromeda_ctl.c), to see how the AMP
++ * scheduler (patch 0204) treats each cluster. Reads only.
++ */
++void andromeda_sched_dump(char *out, size_t len);
++void
++andromeda_sched_dump(char *out, size_t len)
++{
++	unsigned n = 0, busy = 0;
++	for (processor_t p = processor_list; p != PROCESSOR_NULL; p = p->processor_list) {
++		processor_set_t pset = p->processor_set;
++		thread_t t = p->active_thread;
++		bool idle = (t == THREAD_NULL || t == p->idle_thread);
++		n++;
++		busy += idle ? 0 : 1;
++		printf("ANDROMEDA SCHED: cpu %d pset %d type %d/%d node-type %d state %d recommended %d online %d "
++		    "cpus %llx rec %llx idle %llx running %s pri %d rec-type %d\n",
++		    p->cpu_id, pset ? pset->pset_id : -1, pset ? (int)pset->pset_cluster_type : -1,
++		    pset ? (int)pset->pset_type : -1,
++		    (pset && pset->node) ? (int)pset->node->pset_cluster_type : -1,
++		    (int)p->state, p->is_recommended ? 1 : 0, pset ? pset->online_processor_count : -1,
++		    pset ? (unsigned long long)pset->cpu_bitmask : 0ull,
++		    pset ? (unsigned long long)pset->recommended_bitmask : 0ull,
++		    pset ? (unsigned long long)pset->cpu_state_map[PROCESSOR_IDLE] : 0ull,
++		    idle ? "idle" : "a thread", t ? (int)t->sched_pri : -1,
++		    (int)p->current_recommended_pset_type);
++	}
++	snprintf(out, len, "sched: %u processors, %u running a thread (lines ANDROMEDA SCHED in the log)", n, busy);
++}
++#endif /* ARM64_BOARD_CONFIG_SWEET */
