@@ -1,13 +1,15 @@
-andromeda: IOSurfaceUnlock after CPU writes cleans the surface to memory (andrsurfclean)
+andromeda: new surfaces leave the CPU caches, and a write unlock cleans them (andrsurfclean)
 
-The Adreno 640 does not snoop the CPU caches: Core Animation read app content
-still in a CPU cache as black. Applies to ios-sweet SweetSurface.cpp (0046,
+The Adreno 640 does not snoop the CPU caches. A new surface, zeroed through the
+kernel's cacheable mapping, kept its last megabytes of zeros dirty in the
+caches; written back after the GPU had drawn the frame, they blanked the bottom
+of the screen when an app opened. Applies to ios-sweet SweetSurface.cpp (0046,
 0068; dipa-studio, see CREDITS.md).
 
 diff --git a/iokit/Kernel/arm/SweetSurface.cpp b/iokit/Kernel/arm/SweetSurface.cpp
 --- a/iokit/Kernel/arm/SweetSurface.cpp
 +++ b/iokit/Kernel/arm/SweetSurface.cpp
-@@ -39,6 +39,25 @@
+@@ -39,6 +39,32 @@
  #include <libkern/c++/OSNumber.h>
  #include <libkern/c++/OSUnserialize.h>
  #include <sys/proc.h>
@@ -24,30 +26,62 @@ diff --git a/iokit/Kernel/arm/SweetSurface.cpp b/iokit/Kernel/arm/SweetSurface.c
 + * with the CPU copy as with scanout). A write unlock now cleans the
 + * surface's lines to memory through the kernel's own cacheable mapping of
 + * it (the same physical pages; the data cache is physically tagged).
-+ * andrsurfclean=0 turns it off.
++ * And a new surface, zeroed here through that cacheable mapping, is
++ * cleaned and invalidated right after: the last megabytes of zeros stayed
++ * dirty in the CPU caches (about the L3's 2 MiB, the bottom fifth of an
++ * 11 MiB frame buffer) and, written back after the GPU had drawn the
++ * frame, blanked the bottom of the screen until the next frame.
++ * andrsurfclean=0 turns both off.
 + */
 +extern "C" void clean_dcache64(addr64_t addr, unsigned count, int phys);
++extern "C" void flush_dcache64(addr64_t addr, unsigned count, int phys);
 +static int sweet_surface_clean_on = -1;
 +static uint64_t sweet_surface_clean_count, sweet_surface_clean_bytes, sweet_surface_clean_abs;
 +static uint64_t sweet_surface_clean_logged;
++static void sweet_surface_flush_new(IOBufferMemoryDescriptor *mem, uint64_t len);
  
  enum {
  	kSweetSurfaceCreate             = 0,
-@@ -834,6 +853,43 @@ IOSurfaceRootUserClient::trapLock(void *id, __unused void *options, void *seedOu
+@@ -696,6 +722,7 @@ IOSurfaceRootUserClient::create(IOExternalMethodArguments *args)
+ 			ret = kIOReturnNoMemory;
+ 		} else {
+ 			bzero(mem->getBytesNoCopy(), s->allocSize);
++			sweet_surface_flush_new(mem, s->allocSize);     /* andromeda 0208 */
+ 			s->memory = mem;
+ 			s->mapCache = kIOMapDefaultCache;
+ 			if (!sweet_surface_publish(s)) {
+@@ -834,6 +861,60 @@ IOSurfaceRootUserClient::trapLock(void *id, __unused void *options, void *seedOu
  	return ret;
  }
  
-+/* andromeda (0208): the surface's CPU writes to memory, for a GPU that does not snoop the caches. */
 +static void
-+sweet_surface_clean(SweetSurface *s)
++sweet_surface_clean_args(void)
 +{
 +	if (__builtin_expect(sweet_surface_clean_on < 0, 0)) {
 +		int on = 1;
 +		PE_parse_boot_argn("andrsurfclean", &on, sizeof(on));
 +		sweet_surface_clean_on = on ? 1 : 0;
-+		IOLog("SWEET SURFACE: %s (andrsurfclean=%d)\n", on ? "a write unlock cleans the surface to memory" :
-+		    "no cache clean at unlock", on ? 1 : 0);
++		IOLog("SWEET SURFACE: %s (andrsurfclean=%d)\n", on ?
++		    "new surfaces are cleaned and invalidated, a write unlock cleans the surface to memory" :
++		    "no cache maintenance of surfaces", on ? 1 : 0);
 +	}
++}
++
++/* andromeda (0208): the zeros of a new surface out of the CPU caches, before anyone draws into it. */
++static void
++sweet_surface_flush_new(IOBufferMemoryDescriptor *mem, uint64_t len)
++{
++	sweet_surface_clean_args();
++	if (sweet_surface_clean_on && len != 0 && len <= SWEET_SURFACE_MAX_ALLOC) {
++		flush_dcache64((addr64_t)(uintptr_t)mem->getBytesNoCopy(), (unsigned)len, FALSE);
++	}
++}
++
++/* andromeda (0208): the surface's CPU writes to memory, for a GPU that does not snoop the caches. */
++static void
++sweet_surface_clean(SweetSurface *s)
++{
++	sweet_surface_clean_args();
 +	IOBufferMemoryDescriptor *buffer = OSDynamicCast(IOBufferMemoryDescriptor, s->memory);
 +	if (!sweet_surface_clean_on || buffer == NULL || s->mapCache != kIOMapDefaultCache) {
 +		return;     /* the panel memory and other physical surfaces are write-combined */
@@ -77,7 +111,7 @@ diff --git a/iokit/Kernel/arm/SweetSurface.cpp b/iokit/Kernel/arm/SweetSurface.c
  IOReturn
  IOSurfaceRootUserClient::trapUnlock(void *id, void *options, void *seedOut,
      void *, void *, void *)
-@@ -842,8 +898,11 @@ IOSurfaceRootUserClient::trapUnlock(void *id, void *options, void *seedOut,
+@@ -842,8 +923,11 @@ IOSurfaceRootUserClient::trapUnlock(void *id, void *options, void *seedOut,
  	if (s == NULL) {
  		return kIOReturnNotFound;
  	}
