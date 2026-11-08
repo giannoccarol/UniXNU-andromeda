@@ -24,7 +24,9 @@
  *   andrgovboost=M  touch floor for Gold/Prime, MHz (default 1804, 0 = off)
  *   andrgovboostms=T  length of the touch floor, 0..2000 ms (default 200)
  *   andrgovframe=M  frame floor for Gold/Prime while frames are drawn, MHz
- *                   (default 1804, 0 = off); andrgovframelittle=M the same
+ *                   (default 2419, Gold's top entry: scrolling Settings with
+ *                   the UI on the A76s went from 37.0 to 40.4 frames/s over
+ *                   1804; 0 = off); andrgovframelittle=M the same
  *                   for Silver (default 1209); andrgovframems=T how long a
  *                   frame keeps it, 0..1000 ms (default 100). Set by every
  *                   swap of the framebuffer (andromeda_cpufreq_frame()):
@@ -118,7 +120,7 @@ static unsigned ac_sleep_chan;
 static unsigned ac_want, ac_hot_c = 80, ac_cool_c = 70;
 static unsigned ac_gov_on, ac_gov_ms = 40, ac_gov_hold_ms = 160;
 static unsigned ac_boost_mhz = 1804, ac_boost_ms = 200;
-static unsigned ac_frame_mhz = 1804, ac_frame_little_mhz = 1209, ac_frame_ms = 100;
+static unsigned ac_frame_mhz = 2419, ac_frame_little_mhz = 1209, ac_frame_ms = 100;
 
 static void
 ac_wait(unsigned ms)
