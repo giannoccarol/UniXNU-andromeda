@@ -383,7 +383,8 @@ jobs:
           cmp cepheus/xnu/andromeda_scanout.c dxb/xnu/bsd/dev/andromeda_scanout.c
           cmp cepheus/xnu/andromeda_scanout.h dxb/xnu/bsd/dev/andromeda_scanout.h
           cmp cepheus/xnu/andromeda_scanout.h dxb/xnu/iokit/Kernel/arm/andromeda_scanout.h
-          grep -F 'if (scanPresent(rec)) {' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
+          grep -F 'fLastScanned = scanPresent(rec);' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
+          grep -F 'ret = fFB->swapWait(' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrscanout", b"ANDROMEDA SCANOUT:", b"SWEET SCANOUT: mode %u", b"scanout maps surface"))'
           if [ "${{ inputs.amp }}" = "true" ]; then
             grep -F 'Applying patch:' dxb/build.log | grep -F '0204-andromeda-amp.patch'
