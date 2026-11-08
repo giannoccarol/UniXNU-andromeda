@@ -157,6 +157,16 @@ La politica `Sandbox` del kernel (patch 0050 di ios-sweet) risponde `ENOENT` all
 
   Lo scanout si accende al primo colpo (banca 2: `sctlr 0x27`, nessun fault, flush preso; 795 frame letti dal display, 0 fault della SMMU). Con `little 2` iOS produce 37 frame/s, ma il thread che presenta aspettava la fence GPU di ogni frame (latenza circa 23 ms, GPU occupata solo al 41 % e a 257 MHz per il 45 % del tempo): i frame mostrati erano l'inverso della latenza, non della potenza. Da qui (kernel `42506286514`): a ogni vsync il display prende il frame più recente già finito dalla GPU, o quello che ha sostituito se finito, senza attese; e a ogni swap la GPU tiene la soglia del tocco (499 MHz, `andrgpuframe=1`). `scanout 3` per vedere se conta il segno "in uso" delle superfici.
 - **Glitch e sfondo nero con lo scanout** (visti dall'utente): Core Animation ha due buffer e disegnava in quello ancora letto dal display (all'inizio del disegno il buffer viene cancellato: il nero). Il nostro `SwapWait` (selettore 6 di IOMobileFramebuffer) rispondeva sempre "fatto"; ora la 0207 tiene la coda degli swap (in coda, in corso, sullo schermo) e risponde come `swap_wait_gated` di iOS 16 (modello: 0218 di data-a-live): un buffer torna a Core Animation solo quando lo swap che lo mostrava ha lasciato lo schermo. Il thread di presentazione parte subito a ogni swap, aspetta la GPU di quel frame, lo dà al display e aspetta che il flush sia preso (al massimo un refresh). Riga `SWEET SWAPS` nel log ogni 10 s.
+- **Con la coda degli swap** (kernel `42508566075`, stesse prove, GPU con la soglia del tocco a ogni swap: a 257 MHz solo l'8 % del tempo):
+
+  | prova | prodotti/s | mostrati/s | tempo per frame | scartati |
+  |---|---|---|---|---|
+  | copia CPU | 24,6 | 23,8 | 26,6 ms | 16 |
+  | copia CPU + `little 2` | 33,8 | 30,5 | 23,8 ms | 100 |
+  | `scanout 1` + `little 2` | 29,6 | 29,6 | 15,6 ms (GPU 15 ms, pipe 0,02 ms) | 0 |
+  | `scanout 3` + `little 2` | 30,4 | 30,4 | 15,0 ms | 0 |
+
+  Core Animation chiama davvero `SwapWait` (circa 270 volte al secondo, quasi sempre senza attesa: bit 31) e con lo scanout non perde più frame. Il pannello prende il frame in media 8,7 ms dopo il flush (al massimo un refresh, 16,7 ms). Per frame la catena è: GPU (15 ms) + presa del pannello (8,7 ms), e Core Animation, con due buffer, può cominciare il frame dopo solo quando il precedente è sullo schermo: il limite ora è questa serie, non più la copia. Il segno "in uso" (`scanout 1` contro `3`) non cambia nulla. Prossimo passo: un terzo buffer (Core Animation ne ha usato un terzo, la superficie 14, all'accensione dello scanout) e meno tempo GPU per frame.
 
 **Prove dal PC con `andctl`, 7 novembre sera** (avvio con GPU e copia via GPU attive):
 - **Luminosità** (`bl 1`): 1023 → 256 → 1023 via DCS 0x51, nessun errore DSI; l'utente vede il cambio.
