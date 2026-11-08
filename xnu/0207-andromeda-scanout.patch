@@ -42,26 +42,31 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  
  class IOMobileFramebuffer : public IOService {
  	OSDeclareDefaultStructors(IOMobileFramebuffer);
-@@ -188,6 +194,45 @@ public:
+@@ -188,6 +194,50 @@ public:
  	bool          fPresentBusy;
  	uint8_t       fAsyncRecord[SWEET_FB_SWAP_REC_SIZE];   // thread call-owned
  	void presentAsync(void);
 +	/*
-+	 * andrscanout (0207): the display takes a frame once its GPU work is
-+	 * done, and the present path does not wait for it: waiting made the
-+	 * shown rate the inverse of the GPU latency (2026-11-08: 37 frames/s
-+	 * submitted, 26.5 shown, 23 ms per frame in the wait). fOlder: the swap
-+	 * that fPending replaced before it was shown, when it is in another
-+	 * surface; the display may take it while the newer one is still drawn.
-+	 * fLock. andrgpuframe=1 (default): every swap also keeps the GPU's touch
-+	 * floor (andromeda_gpu_boost, 499 MHz), as Android raises the GPU during
-+	 * interaction; 0 leaves the GPU to its governor alone.
++	 * The swap queue of IOMFB (patch 0207, as data-a-live's 0218 has it):
++	 * a swap is queued (fPending while fDirty), active (taken by the
++	 * present path until it is on screen) and shown (the pipe reads its
++	 * surface; after a CPU copy nothing is, the panel memory has it).
++	 * SwapWait (sel 6) answers from these as iOS 16's swap_wait_gated, and
++	 * Core Animation draws into one of its two buffers only once the swap
++	 * that last showed it is off the screen. It used to be answered "done"
++	 * at once: with the display reading the surfaces CA drew into the one on
++	 * screen (2026-11-08, scanout: glitches and black flashes). fLock.
++	 * andrgpuframe=1 (default): every swap also keeps the GPU governor's
++	 * touch floor (499 MHz), as Android raises the GPU during interaction.
 +	 */
-+	uint8_t       fOlder[SWEET_FB_SWAP_REC_SIZE];
-+	uint32_t      fOlderFence;
-+	bool          fOlderValid;
-+	uint8_t       fAsyncOlder[SWEET_FB_SWAP_REC_SIZE];    // thread call-owned
-+	uint32_t      fScanNotYet, fScanOlderShown, fGpuFrame;
++	uint32_t      fSwapQueued, fSwapActive, fSwapShown;
++	uint32_t      fSwapWaits, fSwapBusy, fSwapSlept, fSwapTimeouts, fSwapLogged;
++	uint64_t      fLatchAbs, fLatchMaxAbs;
++	uint32_t      fLatchCount, fLatchLate, fGpuFrame;
++	bool          fLastScanned;   /* the last present() gave the frame to the pipe */
++	bool swapDone(uint32_t id, uint32_t type);
++	IOReturn swapWait(uint32_t id, uint32_t options, uint32_t timeoutMs);
++	bool scanSettle(void);
 +	/*
 +	 * andromeda, andrscanout (patch 0207): the display reads the frame
 +	 * itself (bsd/dev/andromeda_scanout.c) instead of the CPU copy into the
@@ -88,7 +93,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  
  	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
  	void addClient(IOMobileFramebufferUserClient *client);
-@@ -281,6 +326,7 @@ AppleCLCD::start(IOService *provider)
+@@ -281,6 +331,7 @@ AppleCLCD::start(IOService *provider)
  		}
  	}
  	fLock = IOLockAlloc();
@@ -96,7 +101,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  	fClients = OSArray::withCapacity(4);
  	fSurface = sweet_surface_create_physical(fPhys, fWidth, fHeight, fRowBytes, SWEET_FB_FORMAT_BGRA);
  	fPixels = fSurface != NULL ? fSurface->kernelAddress() : 0;
-@@ -303,6 +349,8 @@ AppleCLCD::start(IOService *provider)
+@@ -303,6 +354,8 @@ AppleCLCD::start(IOService *provider)
  	PE_parse_boot_argn("sweetfb_fixedtimer", &fFixedTimer, sizeof(fFixedTimer));
  	PE_parse_boot_argn("sweetfb_stats", &fPerfStats, sizeof(fPerfStats));
  	PE_parse_boot_argn("andrfbasync", &fAsync, sizeof(fAsync));
@@ -105,7 +110,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  	if (fAsync) {
  		fPresentCall = thread_call_allocate_with_priority(&sweet_fb_present_call, this,
  		    THREAD_CALL_PRIORITY_HIGH);
-@@ -345,6 +393,12 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+@@ -345,6 +398,12 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  	};
  
  	__atomic_fetch_add(&andromeda_pwr_fb_vsync, 1, __ATOMIC_RELAXED);
@@ -118,7 +123,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  	IOLockLock(fb->fLock);
  	for (unsigned int i = 0; i < fb->fClients->getCount(); i++) {
  		IOMobileFramebufferUserClient *client =
-@@ -384,6 +438,9 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+@@ -384,6 +443,9 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  		fb->finishTick(sender);
  		return;
  	}
@@ -128,42 +133,51 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
  	bool flush = fb->fDirty && (count % fb->fFlushTicks) == 0;
  	uint8_t *rec = NULL;
  	bool kick = false;
-@@ -424,12 +481,30 @@ AppleCLCD::presentAsync(void)
- 			IOLockUnlock(fLock);
- 			return;
- 		}
--		memcpy(fAsyncRecord, fPending, SWEET_FB_SWAP_REC_SIZE);
--		fCopyFence = fPendingFence;
--		fDirty = false;
-+		const uint8_t *rec = fAsyncRecord;
-+		if (fScanOn && andromeda_scanout_mode() != 0 && !andromeda_scanout_copy_pending() &&
-+		    !andromeda_fbsync_done(fPendingFence)) {
-+			/* andrscanout: the newest frame is still being drawn; the one it replaced, if done, now */
-+			if (!fOlderValid || !andromeda_fbsync_done(fOlderFence)) {
-+				fScanNotYet++;
-+				fPresentBusy = false;   /* the next vsync tick tries again */
-+				IOLockUnlock(fLock);
-+				return;
-+			}
-+			memcpy(fAsyncOlder, fOlder, SWEET_FB_SWAP_REC_SIZE);
-+			fCopyFence = fOlderFence;
-+			fOlderValid = false;
-+			fScanOlderShown++;
-+			rec = fAsyncOlder;      /* fPending stays dirty for a later tick */
-+		} else {
-+			memcpy(fAsyncRecord, fPending, SWEET_FB_SWAP_REC_SIZE);
-+			fCopyFence = fPendingFence;
-+			fDirty = false;
-+			fOlderValid = false;
-+		}
+@@ -397,6 +459,7 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 		memcpy(rec, fb->fPending, SWEET_FB_SWAP_REC_SIZE);
+ 		fb->fCopyFence = fb->fPendingFence;
+ 		fb->fDirty = false;
++		fb->fSwapActive = fb->fSwapQueued;
+ 	}
+ 	IOLockUnlock(fb->fLock);
+ 	if (kick) {
+@@ -409,6 +472,11 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 		fb->fCopyTicks += elapsed;
+ 		if (elapsed > fb->fCopyMax) { fb->fCopyMax = elapsed; }
+ 		++fb->fPresented;
++		IOLockLock(fb->fLock);
++		fb->fSwapActive = 0;    /* copied (no scanout without andrfbasync) */
++		fb->fSwapShown = 0;
++		IOLockWakeup(fb->fLock, &fb->fSwapShown, false);
++		IOLockUnlock(fb->fLock);
+ 	}
+ 	fb->finishTick(sender);
+ }
+@@ -427,16 +495,23 @@ AppleCLCD::presentAsync(void)
+ 		memcpy(fAsyncRecord, fPending, SWEET_FB_SWAP_REC_SIZE);
+ 		fCopyFence = fPendingFence;
+ 		fDirty = false;
++		const uint32_t id = fSwapQueued;
++		fSwapActive = id;
  		IOLockUnlock(fLock);
  		uint64_t begin = mach_absolute_time();
--		present(fAsyncRecord);
-+		present(rec);
+ 		present(fAsyncRecord);
  		uint64_t elapsed = mach_absolute_time() - begin;
++		/* on screen once the pipe took it (or, after a copy, once it left the surface it read) */
++		(void)scanSettle();
  		IOLockLock(fLock);
  		fCopyTicks += elapsed;
-@@ -460,6 +535,22 @@ AppleCLCD::finishTick(IOTimerEventSource *sender)
+ 		if (elapsed > fCopyMax) {
+ 			fCopyMax = elapsed;
+ 		}
+ 		++fPresented;
++		fSwapActive = 0;
++		fSwapShown = fLastScanned ? id : 0;
++		IOLockWakeup(fLock, &fSwapShown, false);        /* swapWait() */
+ 		IOLockUnlock(fLock);
+ 	}
+ }
+@@ -460,6 +535,34 @@ AppleCLCD::finishTick(IOTimerEventSource *sender)
  		IOLog("SWEET PERF: ms=%llu submitted=%llu presented=%llu overwritten=%llu copy_us=%llu max_us=%llu bytes=%llu missed=%llu off=%u\n",
  		    ns / 1000000, submitted, presented, overwritten, copy_ns / 1000,
  		    max_ns / 1000, copied, fMissed, off ? 1u : 0u);
@@ -175,42 +189,50 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 +			absolutetime_to_nanoseconds(fScanShowAbs, &show_ns);
 +			IOLog("SWEET SCANOUT: mode %u: %u frames read by the display, %u copied, %u refused so far; "
 +			    "%llu pipe updates, %llu waited for a frame, %llu SMMU faults; per frame %llu us GPU wait, "
-+			    "%llu us pipe; in use %s; %u ticks waited for the GPU, %u older frames shown\n",
++			    "%llu us pipe; in use %s\n",
 +			    andromeda_scanout_mode(), fScanFrames, fScanCopies, fScanRefused, shows, waits, faults,
 +			    fScanFrames ? gpu_ns / 1000 / fScanFrames : 0, fScanFrames ? show_ns / 1000 / fScanFrames : 0,
-+			    fScanUse ? "counted" : "not counted", fScanNotYet, fScanOlderShown);
++			    fScanUse ? "counted" : "not counted");
 +			fScanFrames = fScanCopies = 0;
-+			fScanNotYet = fScanOlderShown = 0;
 +			fScanGpuAbs = fScanShowAbs = 0;
++		}
++		IOLockLock(fLock);
++		const uint32_t sw = fSwapWaits, sb = fSwapBusy, ss = fSwapSlept, st = fSwapTimeouts;
++		fSwapWaits = fSwapBusy = fSwapSlept = fSwapTimeouts = 0;
++		IOLockUnlock(fLock);
++		if (sw != 0 || fLatchCount != 0) {
++			uint64_t lavg = 0, lmax = 0;
++			absolutetime_to_nanoseconds(fLatchCount ? fLatchAbs / fLatchCount : 0, &lavg);
++			absolutetime_to_nanoseconds(fLatchMaxAbs, &lmax);
++			IOLog("SWEET SWAPS: %u swap waits (%u busy, %u slept, %u timed out); pipe took %u frames in avg %llu us "
++			    "max %llu us, %u over 50 ms\n", sw, sb, ss, st, fLatchCount, lavg / 1000, lmax / 1000, fLatchLate);
++			fLatchAbs = fLatchMaxAbs = 0;
++			fLatchCount = fLatchLate = 0;
 +		}
  		fMissed = 0;
  		fStatsAt = now;
  	}
-@@ -539,17 +630,312 @@ AppleCLCD::swap(const uint8_t *rec)
+@@ -539,17 +642,394 @@ AppleCLCD::swap(const uint8_t *rec)
  	uint32_t fence = andromeda_fbsync_mark();      /* this frame's GPU work, submitted before the swap */
  	IOLockLock(fLock);
  	++fSubmitted;
 -	if (fDirty) { ++fOverwritten; }
-+	if (fDirty) {
-+		++fOverwritten;
-+		/* andrscanout: the frame replaced stays a candidate if the new one is in another surface */
-+		bool same = false;
-+		for (uint32_t l = 0; l < SWEET_FB_LAYERS; l++) {
-+			const uint32_t was = get32(fPending, 0x54 + 4 * l), now = get32(rec, 0x54 + 4 * l);
-+			same |= was != 0 && was == now;
-+		}
-+		fOlderValid = fScanOn && !same;
-+		if (fOlderValid) {
-+			memcpy(fOlder, fPending, SWEET_FB_SWAP_REC_SIZE);
-+			fOlderFence = fPendingFence;
-+		}
-+	} else {
-+		fOlderValid = false;
-+	}
++	if (fDirty) { ++fOverwritten; }        /* that swap is done, never shown */
  	fPendingFence = fence;
  	memcpy(fPending, rec, SWEET_FB_SWAP_REC_SIZE);
  	fDirty = true;
++	fSwapQueued = get32(rec, 0x50);
++	IOLockWakeup(fLock, &fSwapShown, false);        /* swapWait(): a swap taken over is done */
++	/* andrfbasync at 60 Hz: present now, not at the next vsync tick (CA waits on the swap queue) */
++	bool kick = false;
++	if (fAsync && fFlushTicks == 1 && !fPresentBusy && !fPowerOff) {
++		fPresentBusy = true;
++		kick = true;
++	}
  	IOLockUnlock(fLock);
++	if (kick) {
++		thread_call_enter(fPresentCall);
++	}
  	andromeda_cpufreq_frame();      /* andrgovframe: clocks up while frames are drawn */
 +	if (fGpuFrame) {
 +		andromeda_gpu_boost();  /* andrgpuframe: the GPU's touch floor while frames are drawn */
@@ -344,8 +366,8 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 +AppleCLCD::scanPresent(const uint8_t *rec)
 +{
 +	const unsigned mode = andromeda_scanout_mode();
-+	if (mode == 0 || fPowerOff || fScanLock == NULL || andromeda_scanout_take_copy()) {
-+		return false;
++	if (mode == 0 || !fAsync || fPowerOff || fScanLock == NULL || andromeda_scanout_take_copy()) {
++		return false;   /* (scanout needs andrfbasync: the present path waits for the pipe) */
 +	}
 +	if (!fScanOn) {
 +		/* Set the display up at the first frame Metal drew (mode 1), once. */
@@ -497,14 +519,101 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 +	IOLockUnlock(fScanLock);
 +}
 +
++/*
++ * andrscanout: after a frame went to the pipe (or the pipe went back to the panel memory), until the
++ * flush has been taken (at most a panel refresh); then the pipe no longer reads the frame before it
++ * and scanTick lets that go. False when that took over 50 ms.
++ */
++bool
++AppleCLCD::scanSettle(void)
++{
++	if (!fScanOn) {
++		return true;
++	}
++	const uint64_t t0 = mach_absolute_time();
++	const bool on = andromeda_scanout_wait_latched(50);
++	const uint64_t took = mach_absolute_time() - t0;
++	fLatchAbs += took;
++	fLatchMaxAbs = took > fLatchMaxAbs ? took : fLatchMaxAbs;
++	fLatchCount++;
++	fLatchLate += on ? 0 : 1;
++	scanTick();
++	return on;
++}
++
++/*
++ * swap_wait_gated's tests (iOS 16, as data-a-live's 0218 found them), fLock held. 0: the swap is off
++ * the screen (not queued, not active, not shown); 1: on screen or taken over (not queued, not
++ * active); 2: nothing queued or active. Display off: all done.
++ */
++bool
++AppleCLCD::swapDone(uint32_t id, uint32_t type)
++{
++	const bool queued = fDirty && id == fSwapQueued, active = fSwapActive != 0 && id == fSwapActive;
++	if (fPowerOff) {
++		return true;
++	}
++	switch (type) {
++	case 0:
++		return id == 0 || (!queued && !active && id != fSwapShown);
++	case 1:
++		return id == 0 || (!queued && !active);
++	default:
++		return !fDirty && fSwapActive == 0;
++	}
++}
++
++/*
++ * SwapWait (sel 6) [swap id, options, timeout ms]: options bit 31 asks without waiting (kIOReturnBusy
++ * while not done), the low bits are the test (swapDone; 3 asks whether the display is up: it is). A
++ * wait ends at its timeout (kIOReturnTimeout) or, given none, after 5 s (kIOReturnAborted).
++ */
++IOReturn
++AppleCLCD::swapWait(uint32_t id, uint32_t options, uint32_t timeoutMs)
++{
++	const uint32_t type = options & 0x7fffffffu;
++	IOReturn ret = type >= 4 ? kIOReturnBadArgument : kIOReturnSuccess;
++	IOLockLock(fLock);
++	fSwapWaits++;
++	if (type <= 2 && !swapDone(id, type)) {
++		if (options & 0x80000000u) {
++			ret = kIOReturnBusy;
++			fSwapBusy++;
++		} else {
++			uint64_t deadline;
++			nanoseconds_to_absolutetime((uint64_t)(timeoutMs ? timeoutMs : 5000) * NSEC_PER_MSEC, &deadline);
++			deadline += mach_absolute_time();
++			fSwapSlept++;
++			while (!swapDone(id, type)) {
++				if (mach_absolute_time() >= deadline) {
++					ret = timeoutMs ? kIOReturnTimeout : kIOReturnAborted;
++					fSwapTimeouts++;
++					break;
++				}
++				(void)IOLockSleepDeadline(fLock, &fSwapShown, *(AbsoluteTime *)&deadline, THREAD_UNINT);
++			}
++		}
++	}
++	const bool log = fSwapLogged < 24;
++	const uint32_t queued = fDirty ? fSwapQueued : 0, active = fSwapActive, shown = fSwapShown;
++	fSwapLogged += log ? 1 : 0;
++	IOLockUnlock(fLock);
++	if (log) {
++		IOLog("SWEET FB: swap wait %u options %#x timeout %u -> %#x (queued %u active %u shown %u)\n", id, options,
++		    timeoutMs, ret, queued, active, shown);
++	}
++	return ret;
++}
++
  void
  AppleCLCD::present(const uint8_t *rec)
  {
-@@ -566,6 +952,15 @@ AppleCLCD::present(const uint8_t *rec)
+@@ -566,6 +1046,16 @@ AppleCLCD::present(const uint8_t *rec)
  		}
  	}
  
-+	if (scanPresent(rec)) {
++	fLastScanned = scanPresent(rec);
++	if (fLastScanned) {
 +		fScanFrames++;
 +		return;         /* andrscanout: the display reads this frame itself */
 +	}
@@ -515,4 +624,26 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 +
  	if (presentGPU(rec)) {
  		return;         /* andrgpupresent=1: the GPU copied (and fenced) this frame */
+ 	}
+@@ -1078,6 +1568,8 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 				fFB->fPowerOff = off;
+ 				fFB->fBlanked = false;
+ 				fFB->fDirty = true;     /* on: redraw the latest frame */
++				fFB->fSwapQueued = get32(fFB->fPending, 0x50);
++				IOLockWakeup(fFB->fLock, &fFB->fSwapShown, false);
+ 				changed = true;
+ 			}
+ 			IOLockUnlock(fFB->fLock);
+@@ -1090,7 +1582,11 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 			IOLog("SWEET FB: display %s\n", off ? "off" : "on");
+ 		}
+ 		break;
+-	case kSweetFBSwapWait:
++	case kSweetFBSwapWait:  /* [swap id, options, timeout ms], as swap_wait_gated (0207) */
++		ret = fFB->swapWait(args->scalarInputCount > 0 ? (uint32_t)args->scalarInput[0] : 0,
++		    args->scalarInputCount > 1 ? (uint32_t)args->scalarInput[1] : 0,
++		    args->scalarInputCount > 2 ? (uint32_t)args->scalarInput[2] : 0);
++		break;
+ 	default:
+ 		break;
  	}

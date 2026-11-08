@@ -1460,17 +1460,6 @@ andromeda_fbsync_before_read_fence(uintptr_t kva, uint64_t bytes, uint32_t fence
 	}
 }
 
-/* Patch 0207: whether FENCE's GPU work is done, without waiting (true when Metal is not running or no fence). */
-bool andromeda_fbsync_done(uint32_t fence);
-bool
-andromeda_fbsync_done(uint32_t fence)
-{
-	if (fence == 0 || mt_get_state() != MT_READY || mt_g == NULL) {
-		return true;
-	}
-	return mt_fence_done(fence);
-}
-
 /* Patch 0207: the display reads the frame itself; only its GPU work must be done. */
 int andromeda_fbsync_wait(uint32_t fence);
 int

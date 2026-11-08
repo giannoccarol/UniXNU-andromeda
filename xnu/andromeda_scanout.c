@@ -719,6 +719,22 @@ andromeda_scanout_latched(void)
 	return (mdp_rd(SC_CTL0 + CT_FLUSH) & CT_FLUSH_BITS) == 0;
 }
 
+bool
+andromeda_scanout_wait_latched(unsigned max_ms)
+{
+	if (!andromeda_scanout_ready()) {
+		return true;
+	}
+	const unsigned polls = max_ms * 4;
+	for (unsigned i = 0; i < polls; i++) {
+		if (andromeda_scanout_latched()) {
+			return true;
+		}
+		sc_nap_us(250);
+	}
+	return andromeda_scanout_latched();
+}
+
 void
 andromeda_scanout_counts(uint64_t *shows, uint64_t *waits, uint64_t *faults)
 {

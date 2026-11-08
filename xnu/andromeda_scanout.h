@@ -83,6 +83,8 @@ int andromeda_scanout_panel(void);
 
 /* The last flush has been taken: the pipe reads what it was given last. */
 bool andromeda_scanout_latched(void);
+/* The same, waiting for it at most MAX_MS (naps of 250 us, thread context). */
+bool andromeda_scanout_wait_latched(unsigned max_ms);
 
 /* Frames shown, flushes that had to wait, SMMU faults seen (fault status read and cleared here). */
 void andromeda_scanout_counts(uint64_t *shows, uint64_t *waits, uint64_t *faults);
