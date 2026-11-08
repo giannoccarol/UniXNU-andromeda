@@ -122,16 +122,17 @@ static unsigned ac_gov_on, ac_gov_ms = 40, ac_gov_hold_ms = 160;
 static unsigned ac_boost_mhz = 1804, ac_boost_ms = 200;
 static unsigned ac_frame_mhz = 2419, ac_frame_little_mhz = 1209, ac_frame_ms = 100;
 /*
- * andrgovlittle=1 / andctl "little 2": the Silver cores (but the boot CPU)
+ * andrgovlittle=1 (default; 0 off) / andctl "little 2": the Silver cores (but the boot CPU)
  * leave the scheduler while frames are being drawn and come back
  * ac_little_ms after the last one, as Android keeps the top app on the big
  * cores during interaction and lets background work use the little ones
  * otherwise. The AMP scheduler (patch 0204) should do this by itself but
  * leaves the A76s idle (2026-11-08, andctl sched: P-recommended threads run
  * on the E cores, the P cores stay idle even with the E cores out); with
- * the Silver cores out the home pages went from 26 to 37 frames/s.
+ * the Silver cores out the home pages went from 26 to 37 frames/s; with
+ * scanout (0207) 29.6 against 22.5 frames/s.
  */
-static unsigned ac_little_auto, ac_little_ms = 500;
+static unsigned ac_little_auto = 1, ac_little_ms = 500;
 static bool ac_little_out;            /* Silver cores out now (auto mode), governor thread */
 static unsigned ac_little_switches;
 
@@ -381,18 +382,30 @@ andromeda_cpufreq_boost(void)
 /*
  * Frame activity, called by the framebuffer at every swap (SweetFramebuffer,
  * patch 0203): one store, the governor is woken only when a frame floor
- * starts, as for touch.
+ * starts, as for touch. Only an animation counts: a frame within
+ * andrgovframegap ms (70, at least about 14 frames/s) of the one before.
+ * 2026-11-08: iOS sends about 10 frames/s with nothing moving, which kept
+ * Gold and Prime at 2419 MHz and the Silver cores out all the time. True
+ * when the frame counted (the framebuffer then also raises the GPU, 0207).
  */
-void andromeda_cpufreq_frame(void);
-void
+static unsigned ac_frame_gap_ms = 70;
+static uint64_t ac_frame_gap_abs, ac_frame_last;
+bool andromeda_cpufreq_frame(void);
+bool
 andromeda_cpufreq_frame(void)
 {
 	uint64_t now = mach_absolute_time();
+	uint64_t last = __atomic_exchange_n(&ac_frame_last, now, __ATOMIC_RELAXED);
+	uint64_t gap = __atomic_load_n(&ac_frame_gap_abs, __ATOMIC_RELAXED);
+	if (gap == 0 || last == 0 || now - last > gap) {
+		return false;
+	}
 	uint64_t prev = __atomic_exchange_n(&ac_frame_stamp, now, __ATOMIC_RELAXED);
 	if (__atomic_load_n(&ac_gov_running, __ATOMIC_ACQUIRE) && ac_frame_abs &&
 	    !agov_boost_active(now, prev, ac_frame_abs)) {
 		thread_wakeup(&ac_sleep_chan);
 	}
+	return true;
 }
 
 /*
@@ -903,6 +916,13 @@ andromeda_cpufreq_init(void)
 	if (ac_little_ms < 50 || ac_little_ms > 5000) {
 		ac_little_ms = 500;
 	}
+	(void)PE_parse_boot_argn("andrgovframegap", &ac_frame_gap_ms, sizeof(ac_frame_gap_ms));
+	if (ac_frame_gap_ms < 10 || ac_frame_gap_ms > 500) {
+		ac_frame_gap_ms = 70;
+	}
+	uint64_t gap_abs = 0;
+	nanoseconds_to_absolutetime((uint64_t)ac_frame_gap_ms * NSEC_PER_MSEC, &gap_abs);
+	__atomic_store_n(&ac_frame_gap_abs, gap_abs, __ATOMIC_RELAXED);
 	if (ac_frame_ms > 1000) {
 		ac_frame_ms = 100;
 	}

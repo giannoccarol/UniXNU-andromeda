@@ -42,6 +42,7 @@
 #include <mach/mach_time.h>
 #include <vm/vm_kern.h>
 #include <vm/pmap.h>
+#include <kdp/kdp_callout.h>
 
 extern vm_offset_t andromeda_io_map(vm_offset_t, vm_size_t); /* andromeda_probe.c: shared, outside io_submap */
 extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
@@ -275,7 +276,7 @@ static struct {
 	uint64_t shows, waits, faults;
 } sc;
 
-static unsigned sc_mode, sc_mode_parsed, sc_copy_req;
+static unsigned sc_mode = 1, sc_mode_parsed, sc_copy_req;
 
 static inline uint32_t
 mdp_rd(uint32_t off)
@@ -328,12 +329,11 @@ static void
 sc_mode_args(void)
 {
 	if (__atomic_exchange_n(&sc_mode_parsed, 1u, __ATOMIC_ACQ_REL) == 0) {
-		unsigned v = 0;
+		unsigned v = 1;
 		(void)PE_parse_boot_argn("andrscanout", &v, sizeof(v));
-		__atomic_store_n(&sc_mode, v > 3 ? 0u : v, __ATOMIC_RELAXED);
-		if (v) {
-			printf(SC_TAG " andrscanout=%u: the display reads Metal frames itself from the first one\n", v);
-		}
+		__atomic_store_n(&sc_mode, v ? 1u : 0u, __ATOMIC_RELAXED);
+		printf(SC_TAG " andrscanout=%u: %s\n", v ? 1u : 0u, v ? "the display reads Metal frames itself from the first one" :
+		    "CPU copy of every frame");
 	}
 }
 
@@ -550,6 +550,29 @@ sc_init_locked(uint64_t panel_pa, uint32_t rowbytes, uint32_t w, uint32_t h)
 	return 0;
 }
 
+/*
+ * Panic: the panic screen and the console draw into the panel memory, so the pipe goes back to it
+ * (KDP_EVENT_PANICLOG comes only on the panic path, not for stackshots). Interrupts are off and the
+ * other CPUs stopped: register writes only, no lock.
+ */
+static void
+sc_panic_callout(void *arg, kdp_event_t event)
+{
+	(void)arg;
+	if (event != KDP_EVENT_PANICLOG || !sc.ready || sc.on_panel) {
+		return;
+	}
+	for (unsigned i = 0; i < SC_SAVED_SSPP; i++) {
+		mdp_wr(SC_VIG0 + sc_sspp_saved[i], sc.sspp[i]);
+	}
+	for (unsigned i = 0; i < SC_SAVED_QSEED; i++) {
+		mdp_wr(SC_QSEED + sc_qseed_saved[i], sc.qseed[i]);
+	}
+	__asm__ volatile ("dsb sy" ::: "memory");
+	mdp_wr(SC_CTL0 + CT_FLUSH, CT_FLUSH_BITS);
+	sc.on_panel = true;
+}
+
 int
 andromeda_scanout_init(uint64_t panel_pa, uint32_t rowbytes, uint32_t w, uint32_t h)
 {
@@ -559,6 +582,9 @@ andromeda_scanout_init(uint64_t panel_pa, uint32_t rowbytes, uint32_t w, uint32_
 		sc.tried = true;
 		sc.error = sc_init_locked(panel_pa, rowbytes, w, h);
 		sc.ready = sc.error == 0;
+		if (sc.ready) {
+			kdp_register_callout(sc_panic_callout, NULL);
+		}
 	}
 	const int error = sc.error;
 	lck_mtx_unlock(&sc.lock);
@@ -747,14 +773,13 @@ int
 andromeda_scanout_ctl(unsigned mode, char *why, size_t len)
 {
 	sc_mode_args();
-	if (mode > 3) {
-		snprintf(why, len, "scanout: mode 0, 1, 2 or 3");
+	if (mode > 1) {
+		snprintf(why, len, "scanout: 0 or 1");
 		return EINVAL;
 	}
 	__atomic_store_n(&sc_mode, mode, __ATOMIC_RELAXED);
 	snprintf(why, len, "scanout %u (%s; hardware %s, %llu pipe updates, %llu waited for a frame, %llu SMMU faults)",
-	    mode, mode == 0 ? "CPU copy" : mode == 1 ? "the display reads Metal frames" : mode == 2 ?
-	    "scanout with cache clean" : "scanout, surfaces not marked in use",
+	    mode, mode == 0 ? "CPU copy" : "the display reads Metal frames",
 	    sc.ready ? "set up" : sc.tried ? "refused, CPU copy" : "not set up yet", (unsigned long long)sc.shows,
 	    (unsigned long long)sc.waits, (unsigned long long)sc.faults);
 	printf(SC_TAG " %s\n", why);

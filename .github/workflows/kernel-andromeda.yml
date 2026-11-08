@@ -372,7 +372,7 @@ jobs:
           # andromeda: frame copies on a thread call (patch 0202, andrfbasync).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0202-andromeda-fb-async.patch'
           grep -F 'thread_call_enter(fb->fPresentCall);' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
-          grep -F 'andromeda_cpufreq_frame();' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
+          grep -F 'andromeda_cpufreq_frame()' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
           grep -F 'andromeda_fbsync_before_read_fence(src' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
           # andromeda: scheduler dump for andctl sched (patch 0206).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0206-andromeda-sched-dump.patch'

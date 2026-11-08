@@ -138,11 +138,34 @@ test_frames(void)
 	assert(!sc_frame_regs(&bad, 0x3000, &r));
 }
 
+/* SwapWait as Core Animation uses it: two buffers, swaps 1, 2, 3... alternating between them. */
+static void
+test_swap_wait(void)
+{
+	/* swap 5 queued, 4 going on screen, 3 on screen */
+	assert(!andr_swap_done(5, 0, true, 5, 4, 3, false));       /* queued: not off the screen */
+	assert(!andr_swap_done(4, 0, true, 5, 4, 3, false));       /* active */
+	assert(!andr_swap_done(3, 0, true, 5, 4, 3, false));       /* on screen: its buffer is read */
+	assert(andr_swap_done(2, 0, true, 5, 4, 3, false));        /* gone: its buffer may be drawn into */
+	assert(andr_swap_done(3, 1, true, 5, 4, 3, false));        /* on screen counts as done for test 1 */
+	assert(!andr_swap_done(4, 1, true, 5, 4, 3, false));
+	assert(!andr_swap_done(9, 2, true, 5, 4, 3, false) && !andr_swap_done(9, 2, false, 0, 4, 3, false));
+	assert(andr_swap_done(9, 2, false, 0, 0, 3, false));       /* nothing queued or active */
+	/* a swap taken over by a newer one (never shown) is done at once */
+	assert(andr_swap_done(5, 0, true, 6, 4, 3, false));
+	/* after a CPU copy nothing is on screen: the swap is done once copied */
+	assert(andr_swap_done(4, 0, false, 0, 0, 0, false));
+	/* id 0 and display off: done */
+	assert(andr_swap_done(0, 0, true, 5, 4, 3, false));
+	assert(andr_swap_done(3, 0, true, 5, 4, 3, true) && andr_swap_done(5, 2, true, 5, 4, 3, true));
+}
+
 int
 main(void)
 {
 	test_tables();
 	test_frames();
+	test_swap_wait();
 	puts("andromeda_scanout: ok");
 	return 0;
 }

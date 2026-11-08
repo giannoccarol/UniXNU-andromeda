@@ -317,6 +317,16 @@ kernel_args = [
   # sweetfb_hz=60): 19 frames/s shown instead of 12, no vsync tick missed
   # instead of 321-370 per 10 s, copy 31 ms instead of 53.
   "andrfbasync=1",
+  # Scanout (patch 0207, default on, not passed): the display reads iOS's
+  # frames itself and its scaler does the fit, instead of the CPU copy;
+  # SwapWait keeps Core Animation out of the buffer on screen. Verified
+  # 2026-11-08: 29.6-30.4 frames/s on the home pages, none dropped, no
+  # glitch. "andrscanout=0" (or andctl scanout 0) goes back to the CPU copy.
+  # Silver cores out of the scheduler while an animation runs (andrgovlittle,
+  # default on, not passed; andctl little 0|1|2): 29.6 against 22.5 frames/s.
+  # Frames count as an animation when they come at least every 70 ms
+  # (andrgovframegap); then the CPU floor (andrgovframe) and the GPU's touch
+  # floor (andrgpuframe) apply.
   # GPU frequency: the governor (andrgpugov=1, default on) moves the GMU vote
   # between 257 and 585 MHz (the levels of Android's device tree) from the
   # GPU-busy counter, raises it to 499 MHz on touch and caps it when hot.

@@ -27,17 +27,19 @@
  * iokit/Kernel/arm/SweetFramebuffer.cpp (which frame, C++);
  * 0207-stage-andromeda-scanout.sh installs this file in both directories.
  *
- * Boot-arg andrscanout=N (parsed by andromeda_scanout.c), also set at run
- * time by "andctl scanout N":
- *   0  CPU copy, as before (default)
- *   1  scan out every frame the pipe can take; any other frame is copied
- *   2  as 1, and the CPU caches of the frame are cleaned first (for frames
- *      the CPU may have drawn; Metal frames are in memory already)
- *   3  as 1, but the surfaces the display holds are not counted as in use
- *      (IOSurfaceIsInUse): to see whether Core Animation waits for them
- * The first frame with mode 1/2 sets the hardware up: a stream match or bank
- * not as expected, or any SMMU fault in the first 50 ms, leaves the CPU copy
- * for the rest of the boot. Nothing is written before that frame.
+ * Boot-arg andrscanout (parsed by andromeda_scanout.c), also set at run
+ * time by "andctl scanout 0|1":
+ *   1  (default) scan out every frame the pipe can take, drawn by Metal;
+ *      any other frame is copied by the CPU as before
+ *   0  CPU copy of every frame
+ * The first Metal frame sets the hardware up: a stream match or bank not as
+ * expected, a flush not taken or an SMMU fault within 100 ms leaves the CPU
+ * copy for the rest of the boot. Nothing is written before that frame. A
+ * panic puts the pipe back on the panel memory, where the panic screen goes.
+ *
+ * Measured 2026-11-08 (home pages swiped from the PC, Silver cores out while
+ * drawing): 29.6-30.4 frames/s, none dropped, against 23.8-30.5 with the CPU
+ * copy and 16-100 dropped per 30 s.
  */
 #ifndef ANDROMEDA_SCANOUT_H
 #define ANDROMEDA_SCANOUT_H
@@ -61,7 +63,7 @@ struct andr_scan_frame {
 	uint32_t dst_x, dst_y, dst_w, dst_h;
 };
 
-/* andrscanout / "andctl scanout N": 0 to 3 (see above). */
+/* andrscanout / "andctl scanout 0|1" (see above). */
 unsigned andromeda_scanout_mode(void);
 int andromeda_scanout_ctl(unsigned mode, char *why, size_t len);
 
@@ -97,6 +99,30 @@ void andromeda_scanout_counts(uint64_t *shows, uint64_t *waits, uint64_t *faults
 void andromeda_scanout_copy_frames(unsigned n);
 bool andromeda_scanout_take_copy(void);
 bool andromeda_scanout_copy_pending(void);
+
+/*
+ * SwapWait's test (iOS 16's swap_wait_gated, as data-a-live's 0218 found it), used by the framebuffer:
+ * whether swap ID is done for TYPE, given the swap queued (QUEUED_VALID: one is), the one being
+ * shown (ACTIVE, 0: none) and the one on screen (SHOWN, 0: none). 0: off the screen; 1: on screen or
+ * taken over; 2 and up: nothing queued or active. Display off: everything is done.
+ */
+static inline bool
+andr_swap_done(uint32_t id, uint32_t type, bool queued_valid, uint32_t queued, uint32_t active, uint32_t shown,
+    bool display_off)
+{
+	const bool q = queued_valid && id == queued, a = active != 0 && id == active;
+	if (display_off) {
+		return true;
+	}
+	switch (type) {
+	case 0:
+		return id == 0 || (!q && !a && id != shown);
+	case 1:
+		return id == 0 || (!q && !a);
+	default:
+		return !queued_valid && active == 0;
+	}
+}
 
 #ifdef __cplusplus
 }
