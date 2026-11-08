@@ -63,6 +63,8 @@
 #include <net/kpi_interface.h>
 #include <netinet/in.h>
 #include <pexpert/pexpert.h>
+#include <kern/kalloc.h>
+#include <kern/cpu_number.h>
 #include "andromeda_ctl.h"
 
 #define CTL_TAG "ANDROMEDA CTL:"
@@ -474,6 +476,68 @@ ctl_idle_show(void)
 extern vm_offset_t andromeda_io_map(vm_offset_t pa, vm_size_t size);
 static void ctl_sleep_ms(unsigned ms);
 
+/*
+ * membw: copy, read and write of 8 MiB buffers (four passes each, larger
+ * than the caches), cached kernel memory, on the CPU the control thread
+ * runs on. Tells whether the DDR runs slow (2026-11-08: the CPU copy of a
+ * frame went at about 1.2 GB/s).
+ */
+#define CTL_MEMBW_SIZE (8u << 20)
+extern int andromeda_rpmh_ddr_vote(bool on, char *why, size_t len);   /* sweet_rpmh.c, 0137 */
+
+static uint64_t
+ctl_mbps(uint64_t bytes, uint64_t abs)
+{
+	uint64_t ns = 0;
+	absolutetime_to_nanoseconds(abs, &ns);
+	return ns ? bytes * 1000 / ns : 0;
+}
+
+static bool
+ctl_membw(void)
+{
+	uint8_t *a = kalloc_data(CTL_MEMBW_SIZE, Z_WAITOK);
+	uint8_t *b = kalloc_data(CTL_MEMBW_SIZE, Z_WAITOK);
+	if (a == NULL || b == NULL) {
+		snprintf(ctl_why, sizeof(ctl_why), "membw: no memory for 2 x 8 MiB");
+		if (a) {
+			kfree_data(a, CTL_MEMBW_SIZE);
+		}
+		if (b) {
+			kfree_data(b, CTL_MEMBW_SIZE);
+		}
+		return false;
+	}
+	memset(a, 0x5a, CTL_MEMBW_SIZE);
+	memset(b, 0xa5, CTL_MEMBW_SIZE);
+	int cpu = cpu_number();
+	uint64_t t0 = mach_absolute_time();
+	for (unsigned i = 0; i < 4; ++i) {
+		memcpy(b, a, CTL_MEMBW_SIZE);
+	}
+	uint64_t t1 = mach_absolute_time();
+	const volatile uint64_t *p = (const volatile uint64_t *)a;
+	uint64_t sum = 0;
+	for (unsigned i = 0; i < 4; ++i) {
+		for (size_t k = 0; k < CTL_MEMBW_SIZE / 8; k += 4) {
+			sum += p[k] + p[k + 1] + p[k + 2] + p[k + 3];
+		}
+	}
+	uint64_t t2 = mach_absolute_time();
+	for (unsigned i = 0; i < 4; ++i) {
+		memset(b, (int)i, CTL_MEMBW_SIZE);
+	}
+	uint64_t t3 = mach_absolute_time();
+	kfree_data(a, CTL_MEMBW_SIZE);
+	kfree_data(b, CTL_MEMBW_SIZE);
+	snprintf(ctl_why, sizeof(ctl_why), "membw: copy %llu MB/s, read %llu MB/s, write %llu MB/s "
+	    "(4 x 8 MiB, CPU %d, check %llx)", ctl_mbps(4ull * CTL_MEMBW_SIZE, t1 - t0),
+	    ctl_mbps(4ull * CTL_MEMBW_SIZE, t2 - t1), ctl_mbps(4ull * CTL_MEMBW_SIZE, t3 - t2), cpu,
+	    (unsigned long long)(sum & 0xffff));
+	printf(CTL_TAG " %s\n", ctl_why);
+	return true;
+}
+
 static bool
 ctl_shot(unsigned block)
 {
@@ -616,6 +680,10 @@ ctl_execute(const struct andr_cmd *c)
 		return ctl_swipe(c->args[0], c->args[1], c->args[0], c->args[1], 80);
 	case ANDR_V_SWIPE:
 		return ctl_swipe(c->args[0], c->args[1], c->args[2], c->args[3], c->nargs > 4 ? c->args[4] : 300);
+	case ANDR_V_MEMBW:
+		return ctl_membw();
+	case ANDR_V_DDR:
+		return andromeda_rpmh_ddr_vote(c->value != 0, ctl_why, sizeof(ctl_why)) == 0;
 	default:
 		snprintf(ctl_why, sizeof(ctl_why), "unknown command");
 		return false;

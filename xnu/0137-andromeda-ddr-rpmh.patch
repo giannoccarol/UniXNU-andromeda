@@ -1,0 +1,122 @@
+andromeda: DDR bandwidth vote for measurements (andctl "ddr 0|1"): the
+highest vote on the BCMs MC0 and SH0 and ACV for the APPS RSC, or zero.
+Adds rh_lookup_bcm next to rh_lookup in sweet_rpmh.c (ios-sweet patch 0062,
+dipa-studio/ios-sweet; see CREDITS.md). Needs 0136.
+
+--- a/bsd/dev/sweet_rpmh.c
++++ b/bsd/dev/sweet_rpmh.c
+@@ -16,6 +16,7 @@
+ int andromeda_rpmh_bt_rail(const char *res, bool on);
+ int andromeda_rpmh_cam_rail(const char *res, bool on);
+ int andromeda_rpmh_touch_vdd(bool on);
++int andromeda_rpmh_ddr_vote(bool on, char *why, size_t len);
+ 
+ /* Live downstream DT has two positional reg entries, no reg-names. */
+ #define RH_RSC_PA       0x18220000u
+@@ -550,5 +551,106 @@
+ 	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
+ 	return error;
+ }
++
++/*
++ * andromeda: DDR bandwidth vote for measurements, patch 0137 (andctl "ddr
++ * 0|1", andrctl=1). Nothing in this kernel votes DDR bandwidth (the GMU
++ * table of the GPU bring-up votes 0), so the memory may run at its lowest
++ * level. on: the highest vote (x = y = 0x3fff) on the memory-controller BCM
++ * MC0 and the memory NoC BCM SH0, and ACV enabled for the APPS RSC (one-hot
++ * 0x8, as Linux sm8150 bcm_acv); off: zero votes. Command layout as Linux
++ * bcm-voter.h BCM_TCS_CMD: commit bit 30, valid bit 29, vote_x 27:14,
++ * vote_y 13:0. ACTIVE set only; same rh_lock, slot checks and quarantine as
++ * the rail votes. A completed vote is not proof of the DDR frequency.
++ */
++#define RH_BCM          5u
++#define RH_BCM_CMD(x, y) ((1u << 30) | (1u << 29) | (((x) & 0x3fffu) << 14) | ((y) & 0x3fffu))
++
++static int
++rh_lookup_bcm(const char *res, uint32_t *address)
++{
++	uint32_t key[2] = {0, 0};
++	for (unsigned i = 0; i < 8 && res[i]; ++i) {
++		key[i / 4] |= (uint32_t)(uint8_t)res[i] << (8u * (i % 4));
++	}
++	unsigned matches = 0;
++	for (unsigned i = 0; i < 8; ++i) {
++		uint32_t h = 8u + 16u * i;
++		unsigned slave = rh_db16(h);
++		if (!slave) {
++			break;
++		}
++		uint32_t entries = RH_DB_HEADER + rh_db16(h + 2);
++		uint32_t aux = RH_DB_HEADER + rh_db16(h + 4);
++		unsigned count = rh_db16(h + 6);
++		if (slave < 3 || slave > 5 || (entries & 3u) ||
++		    !rh_range(entries, count * RH_DB_ENTRY) || !rh_range(aux, 0)) {
++			printf("SWEET RPMH: malformed cmd-db slave header %u\n", i);
++			return EINVAL;
++		}
++		for (unsigned j = 0; j < count; ++j) {
++			uint32_t e = entries + RH_DB_ENTRY * j;
++			if (rh_read(rh_db, e) != key[0] || rh_read(rh_db, e + 4) != key[1]) {
++				continue;
++			}
++			uint32_t addr = rh_read(rh_db, e + 16);
++			uint32_t off = aux + rh_db16(e + 22), size = rh_db16(e + 20);
++			if (slave != RH_BCM || (addr >> 16) != RH_BCM || (addr & 3u) ||
++			    size != 8 || (off & 3u) || !rh_range(off, 8)) {
++				printf("SWEET RPMH: invalid BCM entry for %s\n", res);
++				return EINVAL;
++			}
++			*address = addr;
++			++matches;
++			printf("SWEET RPMH: %s addr=%#x BCM unit=%u width/vcd=%#x\n", res, addr,
++			    rh_read(rh_db, off), rh_read(rh_db, off + 4));
++		}
++	}
++	if (matches != 1) {
++		printf("SWEET RPMH: %s lookup matches=%u; refusing\n", res, matches);
++		return ENODEV;
++	}
++	return 0;
++}
++
++int
++andromeda_rpmh_ddr_vote(bool on, char *why, size_t len)
++{
++	static const struct { const char *res; uint32_t x, y; } bcm[] = {
++		{"MC0", 0x3fff, 0x3fff},    /* DDR */
++		{"SH0", 0x3fff, 0x3fff},    /* memory NoC */
++		{"ACV", 0, 0x8},            /* DDR active for APPS */
++	};
++	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
++		snprintf(why, len, "RPMh busy");
++		return EBUSY;
++	}
++	int error = EIO;
++	unsigned done = 0;
++	if (rh_poisoned) {
++		printf("SWEET RPMH: previous uncertain transaction; refusing further access\n");
++		goto out;
++	}
++	error = rh_map();
++	for (unsigned i = 0; !error && i < sizeof(bcm) / sizeof(bcm[0]); ++i) {
++		uint32_t address = 0;
++		error = rh_lookup_bcm(bcm[i].res, &address);
++		if (!error) {
++			const uint32_t offsets[1] = {0};
++			const uint32_t values[1] = {on ? RH_BCM_CMD(bcm[i].x, bcm[i].y) : RH_BCM_CMD(0, 0)};
++			error = rh_send_cmds(address, 1, offsets, values);
++		}
++		if (!error) {
++			++done;
++		}
++	}
++out:
++	printf("ANDROMEDA RPMH: DDR vote %s: %u of 3 BCM votes, result=%d%s\n", on ? "max" : "zero", done,
++	    error, rh_poisoned ? " (RPMh quarantined for this boot)" : "");
++	snprintf(why, len, "DDR vote %s: %u of 3 BCM votes (MC0, SH0, ACV), result %d", on ? "max" : "zero",
++	    done, error);
++	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
++	return error;
++}
+ #include "cepheus_arc_probe.h"
+ #endif /* ARM64_BOARD_CONFIG_SWEET */

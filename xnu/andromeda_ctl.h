@@ -245,6 +245,8 @@ enum andr_verb {
 	ANDR_V_KEY,
 	ANDR_V_TOUCH,
 	ANDR_V_SWIPE,
+	ANDR_V_MEMBW,
+	ANDR_V_DDR,
 	ANDR_V_COUNT
 };
 
@@ -285,6 +287,8 @@ static const struct andr_range andr_verbs[ANDR_V_COUNT] __attribute__((unused)) 
 	[ANDR_V_KEY]       = { "key",       1, 3, true, true, 0, 0 },   /* 0 power, 1 vol+, 2 vol-, 3 home */
 	[ANDR_V_TOUCH]     = { "touch",     1, 2399, true, true, 2, 2 },  /* X Y, HID canvas 1080x2400 */
 	[ANDR_V_SWIPE]     = { "swipe",     1, 2399, true, true, 4, 5 },  /* X1 Y1 X2 Y2 [MS] */
+	[ANDR_V_MEMBW]     = { "membw",     0, 0, false, false, 0, 0 },   /* memory bandwidth benchmark */
+	[ANDR_V_DDR]       = { "ddr",       1, 1, true, true, 0, 0 },     /* DDR vote: 0 zero, 1 max */
 };
 
 /* The clamps of the boot-args of patches 0101-0105, as accepted ranges. */

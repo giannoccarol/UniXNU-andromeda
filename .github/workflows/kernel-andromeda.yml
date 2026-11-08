@@ -64,6 +64,8 @@ jobs:
           cp cepheus/xnu/andromeda_cam.c cepheus/xnu/0098-andromeda-cam-rpmh.patch dxb/patches/
           # Touch vdd L1C at 1.8 V (patch 0136, needs 0084, 0092 and 0098 in sweet_rpmh.c).
           cp cepheus/xnu/0136-andromeda-touch-rpmh.patch dxb/patches/
+          # DDR bandwidth vote for measurements (patch 0137, andctl "ddr 0|1", needs 0136).
+          cp cepheus/xnu/0137-andromeda-ddr-rpmh.patch dxb/patches/
           cp cepheus/xnu/andromeda_wlan.c dxb/patches/
           cp cepheus/xnu/andromeda_haptics.c dxb/patches/
           # Runtime control from the PC (patch 0140, andrctl=1); its header is shared by the drivers.
@@ -208,7 +210,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0140-|0200-|0201-|0202-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0137-|0140-|0200-|0201-|0202-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -347,7 +349,7 @@ jobs:
           # andromeda: frame copies on a thread call (patch 0202, andrfbasync).
           grep -F 'Applying patch:' dxb/build.log | grep -F '0202-andromeda-fb-async.patch'
           grep -F 'thread_call_enter(fb->fPresentCall);' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
-          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrfbasync", b"andrgpulevel", b"perf vote %u MHz (level %u)", b"andrgpugov", b"gov 60s: util"))'
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrfbasync", b"andrgpulevel", b"perf vote %u MHz (level %u)", b"andrgpugov", b"gov 60s: util", b"membw: copy %llu MB/s", b"DDR vote %s: %u of 3 BCM votes"))'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrfbsync", b"fbsync: the CPU copy waits", b"ANDROMEDA SHOT begin"))'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"ANDROMEDA MTL:", b"andrmtl", b"andrmtlpool", b"IOAcceleratorES", b"SweetAcceleratorUserClient", b"SweetMTL2Device", b"present: not attached (%s)"))'
           # FEAT_SHA3/SM4 instructions (EOR3, BCAX, RAX1, XAR, SM3*, SM4*) are undefined on the A76/A55; ios-flame

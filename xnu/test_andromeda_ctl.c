@@ -162,6 +162,11 @@ test_parse_ok(void)
 	assert(parse("slidercam 0", &c) == ANDR_P_OK && c.verb == ANDR_V_SLIDERCAM && c.value == 0u);
 	assert(parse("slidercam 2", &c) == ANDR_P_OK && c.value == 2u);
 	assert(parse("fastboot", &c) == ANDR_P_OK && c.verb == ANDR_V_FASTBOOT);
+	assert(parse("membw", &c) == ANDR_P_OK && c.verb == ANDR_V_MEMBW);
+	assert(parse("ddr 1", &c) == ANDR_P_OK && c.verb == ANDR_V_DDR && c.value == 1);
+	assert(parse("ddr 0", &c) == ANDR_P_OK && c.verb == ANDR_V_DDR && c.value == 0);
+	assert(parse("ddr 2", &c) == ANDR_P_RANGE);
+	assert(parse("membw 1", &c) == ANDR_P_ARGS);
 	assert(parse("shot 12", &c) == ANDR_P_OK && c.verb == ANDR_V_SHOT && c.value == 12u);
 	assert(parse("shot 60", &c) == ANDR_P_OK && c.value == 60u);
 	assert(parse("shot 3", &c) == ANDR_P_RANGE);
