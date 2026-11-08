@@ -172,6 +172,8 @@ test_parse_ok(void)
 	assert(parse("dpu", &c) == ANDR_P_OK && c.verb == ANDR_V_DPU);
 	assert(parse("little 0", &c) == ANDR_P_OK && c.verb == ANDR_V_LITTLE && c.value == 0);
 	assert(parse("little 1", &c) == ANDR_P_OK && c.verb == ANDR_V_LITTLE && c.value == 1);
+	assert(parse("little 2", &c) == ANDR_P_OK && c.verb == ANDR_V_LITTLE && c.value == 2);
+	assert(parse("little 3", &c) == ANDR_P_RANGE);
 	assert(parse("sched", &c) == ANDR_P_OK && c.verb == ANDR_V_SCHED);
 	assert(parse("scanout 0", &c) == ANDR_P_OK && c.verb == ANDR_V_SCANOUT && c.value == 0);
 	assert(parse("scanout 2", &c) == ANDR_P_OK && c.verb == ANDR_V_SCANOUT && c.value == 2);

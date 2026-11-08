@@ -20,9 +20,9 @@ on:
         default: false
 permissions:
   contents: read
-# One kernel build at a time.
+# One kernel build at a time per commit and kind (SMP/AMP).
 concurrency:
-  group: kernel-andromeda-amp-${{ inputs.amp || false }}
+  group: kernel-andromeda-amp-${{ inputs.amp || false }}-${{ github.sha }}
   cancel-in-progress: false
 jobs:
   kernel:

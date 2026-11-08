@@ -121,6 +121,19 @@ static unsigned ac_want, ac_hot_c = 80, ac_cool_c = 70;
 static unsigned ac_gov_on, ac_gov_ms = 40, ac_gov_hold_ms = 160;
 static unsigned ac_boost_mhz = 1804, ac_boost_ms = 200;
 static unsigned ac_frame_mhz = 2419, ac_frame_little_mhz = 1209, ac_frame_ms = 100;
+/*
+ * andrgovlittle=1 / andctl "little 2": the Silver cores (but the boot CPU)
+ * leave the scheduler while frames are being drawn and come back
+ * ac_little_ms after the last one, as Android keeps the top app on the big
+ * cores during interaction and lets background work use the little ones
+ * otherwise. The AMP scheduler (patch 0204) should do this by itself but
+ * leaves the A76s idle (2026-11-08, andctl sched: P-recommended threads run
+ * on the E cores, the P cores stay idle even with the E cores out); with
+ * the Silver cores out the home pages went from 26 to 37 frames/s.
+ */
+static unsigned ac_little_auto, ac_little_ms = 500;
+static bool ac_little_out;            /* Silver cores out now (auto mode), governor thread */
+static unsigned ac_little_switches;
 
 static void
 ac_wait(unsigned ms)
@@ -393,9 +406,47 @@ andromeda_cpufreq_frame(void)
  */
 extern kern_return_t sched_processor_enable(processor_t processor, boolean_t enable);
 int andromeda_cpufreq_little(unsigned on, char *why, size_t len);
+/* The Silver cores in (ON) or out of the scheduler; how many changed (KEPT: refused, the boot CPU). */
+static unsigned
+ac_little_set(bool on, unsigned *kept_out)
+{
+	unsigned changed = 0, kept = 0;
+	for (unsigned n = 0; n < AC_N; ++n) {
+		if (ac[n].big) {
+			continue;
+		}
+		for (unsigned k = 0; k < gov[n].ncpu; ++k) {
+			processor_t p = cpu_to_processor(gov[n].cpu[k]);
+			if (p == PROCESSOR_NULL) {
+				continue;
+			}
+			if (sched_processor_enable(p, on ? TRUE : FALSE) == KERN_SUCCESS) {
+				++changed;
+			} else {
+				++kept;
+			}
+		}
+	}
+	if (kept_out) {
+		*kept_out = kept;
+	}
+	return changed;
+}
+
 int
 andromeda_cpufreq_little(unsigned on, char *why, size_t len)
 {
+	if (on == 2) {
+		/* automatic: the governor thread takes them out while frames are drawn */
+		__atomic_store_n(&ac_little_auto, 1u, __ATOMIC_RELEASE);
+		snprintf(why, len, "silver cores out of the scheduler while frames are drawn, back %u ms after the "
+		    "last one (governor %s)", ac_little_ms, __atomic_load_n(&ac_gov_running, __ATOMIC_ACQUIRE) ?
+		    "running" : "NOT running: no effect");
+		printf(AC_TAG " %s\n", why);
+		thread_wakeup(&ac_sleep_chan);
+		return 0;
+	}
+	__atomic_store_n(&ac_little_auto, 0u, __ATOMIC_RELEASE);
 	unsigned changed = 0, kept = 0;
 	for (unsigned n = 0; n < AC_N; ++n) {
 		if (ac[n].big) {
@@ -613,6 +664,8 @@ ac_gov_run(void)
 		nanoseconds_to_absolutetime((uint64_t)ac_frame_ms * NSEC_PER_MSEC, &frame_abs);
 	}
 	ac_frame_abs = frame_abs;
+	uint64_t little_abs = 0, st_little_ns = 0;
+	nanoseconds_to_absolutetime((uint64_t)ac_little_ms * NSEC_PER_MSEC, &little_abs);
 
 	for (unsigned n = 0; n < AC_N; ++n) {
 		for (unsigned k = 0; k < gov[n].ncpu; ++k) {
@@ -685,6 +738,17 @@ ac_gov_run(void)
 		boost = agov_boost_active(now, __atomic_load_n(&ac_boost_stamp, __ATOMIC_RELAXED), boost_abs);
 		frame = agov_boost_active(now, __atomic_load_n(&ac_frame_stamp, __ATOMIC_RELAXED), frame_abs);
 		bool full = !first && sample_ns >= min_sample_ns;
+		/* andrgovlittle: Silver out while frames come, back ac_little_ms after the last one. */
+		if (__atomic_load_n(&ac_little_auto, __ATOMIC_ACQUIRE)) {
+			bool out = agov_boost_active(now, __atomic_load_n(&ac_frame_stamp, __ATOMIC_RELAXED), little_abs);
+			if (out != ac_little_out && ac_little_set(!out, NULL) != 0) {
+				ac_little_out = out;
+				++ac_little_switches;
+			}
+		} else if (ac_little_out) {
+			ac_little_out = false;  /* andctl little 0|1 took over */
+		}
+		st_little_ns += ac_little_out ? dt_ns : 0;
 
 		bool any = false;
 		for (unsigned n = 0; n < AC_N; ++n) {
@@ -739,6 +803,13 @@ ac_gov_run(void)
 			}
 			printf(AC_TAG " gov %llus: %u samples, %u wakes, max %d mC%s\n", (unsigned long long)secs,
 			    samples, wakes, mc_max, unreadable ? ", sensors UNREADABLE at times (capped)" : "");
+			if (__atomic_load_n(&ac_little_auto, __ATOMIC_ACQUIRE) || ac_little_switches) {
+				printf(AC_TAG " gov %llus: silver out %u%% of the time, %u switches (andrgovlittle)\n",
+				    (unsigned long long)secs, agov_percent(st_little_ns, secs ? secs * NSEC_PER_SEC : 1),
+				    ac_little_switches);
+			}
+			st_little_ns = 0;
+			ac_little_switches = 0;
 			if (!cost_logged && wakes) {
 				/* Own cost, once: time from wake-up to going back to sleep. */
 				printf(AC_TAG " gov cost: avg %llu ns, max %llu ns per wake, %llu ppm of one CPU\n",
@@ -827,6 +898,11 @@ andromeda_cpufreq_init(void)
 	(void)PE_parse_boot_argn("andrgovframe", &ac_frame_mhz, sizeof(ac_frame_mhz));
 	(void)PE_parse_boot_argn("andrgovframelittle", &ac_frame_little_mhz, sizeof(ac_frame_little_mhz));
 	(void)PE_parse_boot_argn("andrgovframems", &ac_frame_ms, sizeof(ac_frame_ms));
+	(void)PE_parse_boot_argn("andrgovlittle", &ac_little_auto, sizeof(ac_little_auto));
+	(void)PE_parse_boot_argn("andrgovlittlems", &ac_little_ms, sizeof(ac_little_ms));
+	if (ac_little_ms < 50 || ac_little_ms > 5000) {
+		ac_little_ms = 500;
+	}
 	if (ac_frame_ms > 1000) {
 		ac_frame_ms = 100;
 	}

@@ -296,7 +296,7 @@ static const struct andr_range andr_verbs[ANDR_V_COUNT] __attribute__((unused)) 
 	[ANDR_V_DDR]       = { "ddr",       1, 1, true, true, 0, 0 },     /* DDR vote: 0 zero, 1 max */
 	[ANDR_V_TCOAL]     = { "tcoal",     1, 1, true, true, 0, 0 },     /* XNU timer coalescing 0|1 */
 	[ANDR_V_DPU]       = { "dpu",       0, 0, false, false, 0, 0 },   /* display controller dump, read only */
-	[ANDR_V_LITTLE]    = { "little",    1, 1, true, true, 0, 0 },     /* Silver cores out (0) / in (1) */
+	[ANDR_V_LITTLE]    = { "little",    1, 2, true, true, 0, 0 },     /* Silver cores out (0) / in (1) / out while drawing (2) */
 	[ANDR_V_SCHED]     = { "sched",     0, 0, false, false, 0, 0 },   /* scheduler's view of each CPU, read only */
 	[ANDR_V_SCANOUT]   = { "scanout",   1, 2, true, true, 0, 0 },     /* 0 CPU copy, 1 display reads frames, 2 + clean */
 };
