@@ -167,6 +167,8 @@ test_parse_ok(void)
 	assert(parse("ddr 0", &c) == ANDR_P_OK && c.verb == ANDR_V_DDR && c.value == 0);
 	assert(parse("ddr 2", &c) == ANDR_P_RANGE);
 	assert(parse("membw 1", &c) == ANDR_P_ARGS);
+	assert(parse("tcoal 0", &c) == ANDR_P_OK && c.verb == ANDR_V_TCOAL && c.value == 0);
+	assert(parse("tcoal 1", &c) == ANDR_P_OK && c.verb == ANDR_V_TCOAL && c.value == 1);
 	assert(parse("shot 12", &c) == ANDR_P_OK && c.verb == ANDR_V_SHOT && c.value == 12u);
 	assert(parse("shot 60", &c) == ANDR_P_OK && c.value == 60u);
 	assert(parse("shot 3", &c) == ANDR_P_RANGE);

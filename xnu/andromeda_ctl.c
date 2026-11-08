@@ -484,6 +484,24 @@ static void ctl_sleep_ms(unsigned ms);
  */
 #define CTL_MEMBW_SIZE (8u << 20)
 extern int andromeda_rpmh_ddr_vote(bool on, char *why, size_t len);   /* sweet_rpmh.c, 0137 */
+/*
+ * XNU timer coalescing (osfmk/kern/timer_call.c, also sysctl
+ * kern.timer.coalescing_enabled; on by default). With the iPhone X identity
+ * Core Animation paces frames with its own timer instead of the display's
+ * vsync, and Scion (Galaxy S9) measured CA at exactly 10 fps with
+ * coalescing on. "tcoal 0|1" switches it at run time; boot-arg andrtcoal
+ * sets it at start (not passed: unchanged).
+ */
+extern boolean_t mach_timer_coalescing_enabled;
+
+static bool
+ctl_tcoal(unsigned on)
+{
+	mach_timer_coalescing_enabled = on ? TRUE : FALSE;
+	snprintf(ctl_why, sizeof(ctl_why), "timer coalescing %s", on ? "on" : "off");
+	printf(CTL_TAG " %s\n", ctl_why);
+	return true;
+}
 
 static uint64_t
 ctl_mbps(uint64_t bytes, uint64_t abs)
@@ -684,6 +702,8 @@ ctl_execute(const struct andr_cmd *c)
 		return ctl_membw();
 	case ANDR_V_DDR:
 		return andromeda_rpmh_ddr_vote(c->value != 0, ctl_why, sizeof(ctl_why)) == 0;
+	case ANDR_V_TCOAL:
+		return ctl_tcoal(c->value);
 	default:
 		snprintf(ctl_why, sizeof(ctl_why), "unknown command");
 		return false;
@@ -908,6 +928,11 @@ andromeda_ctl_init(void)
 		return;
 	}
 	started = true;
+	unsigned tcoal = 2;
+	if (PE_parse_boot_argn("andrtcoal", &tcoal, sizeof(tcoal)) && tcoal <= 1) {
+		mach_timer_coalescing_enabled = tcoal ? TRUE : FALSE;
+		printf(CTL_TAG " andrtcoal=%u: timer coalescing %s\n", tcoal, tcoal ? "on" : "off");
+	}
 	(void)PE_parse_boot_argn("andrctl", &on, sizeof(on));
 	if (on == 0) {
 		return;
