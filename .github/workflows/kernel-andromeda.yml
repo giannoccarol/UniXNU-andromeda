@@ -95,6 +95,8 @@ jobs:
           # shared header, stage script and the SweetFramebuffer/bsd conf patch.
           cp cepheus/xnu/andromeda_scanout.c cepheus/xnu/andromeda_scanout.h cepheus/xnu/0207-stage-andromeda-scanout.sh \
             cepheus/xnu/0207-andromeda-scanout.patch dxb/patches/
+          # App CPU writes reach memory at IOSurfaceUnlock (0208, andrsurfclean; ios-sweet SweetSurface.cpp).
+          cp cepheus/xnu/0208-andromeda-surface-clean.patch dxb/patches/
           # AMP scheduling (0204) only on request: the kernel then needs an ADT with
           # cluster types (ANDROMEDA_CLUSTERS=EEEEPPPP for build-boot.sh).
           if [ "${{ inputs.amp }}" = "true" ]; then
@@ -232,7 +234,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -F 'Applying patch:' dxb/build.log | grep -F '0082-cepheus-touch.patch'
-          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0137-|0140-|0200-|0201-|0202-|0203-|0204-|0205-|0206-|0207-)'; then
+          if grep 'Skipping patch' dxb/build.log | grep -E '(0003-|0018-|0028-|0038-|0046-|0058-|0064-|0065-|0067-|0075-|0077-|0078-|0082-|0083-|0084-|0085-|0086-|0087-|0088-|0089-|0090-|0091-|0092-|0093-|0094-|0096-|0097-|0098-|0100-|0101-|0102-|0103-|0104-|0110-|0115-|0116-|0120-|0135-|0136-|0137-|0140-|0200-|0201-|0202-|0203-|0204-|0205-|0206-|0207-|0208-)'; then
             echo 'critical patch skipped' >&2; exit 1
           fi
           grep -E '^bsd/dev/cepheus_touch.c[[:space:]]+standard$' dxb/xnu/bsd/conf/files
@@ -385,6 +387,10 @@ jobs:
           cmp cepheus/xnu/andromeda_scanout.h dxb/xnu/iokit/Kernel/arm/andromeda_scanout.h
           grep -F 'fLastScanned = scanPresent(rec);' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
           grep -F 'ret = fFB->swapWait(' dxb/xnu/iokit/Kernel/arm/SweetFramebuffer.cpp
+          # andromeda: a write unlock cleans the surface to memory (patch 0208, andrsurfclean).
+          grep -F 'Applying patch:' dxb/build.log | grep -F '0208-andromeda-surface-clean.patch'
+          grep -F 'sweet_surface_clean(s);' dxb/xnu/iokit/Kernel/arm/SweetSurface.cpp
+          python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert b"andrsurfclean" in d and b"SWEET SURFACE: %llu unlocks cleaned" in d'
           python3 -c 'from pathlib import Path; d=Path("dxb/fakeroot/System/Library/Kernels/kernel.development.sweet").read_bytes(); assert all(s in d for s in (b"andrscanout", b"ANDROMEDA SCANOUT:", b"SWEET SCANOUT: mode %u", b"scanout maps surface"))'
           if [ "${{ inputs.amp }}" = "true" ]; then
             grep -F 'Applying patch:' dxb/build.log | grep -F '0204-andromeda-amp.patch'

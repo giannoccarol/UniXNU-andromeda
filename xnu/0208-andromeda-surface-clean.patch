@@ -1,0 +1,93 @@
+andromeda: IOSurfaceUnlock after CPU writes cleans the surface to memory (andrsurfclean)
+
+The Adreno 640 does not snoop the CPU caches: Core Animation read app content
+still in a CPU cache as black. Applies to ios-sweet SweetSurface.cpp (0046,
+0068; dipa-studio, see CREDITS.md).
+
+diff --git a/iokit/Kernel/arm/SweetSurface.cpp b/iokit/Kernel/arm/SweetSurface.cpp
+--- a/iokit/Kernel/arm/SweetSurface.cpp
++++ b/iokit/Kernel/arm/SweetSurface.cpp
+@@ -39,6 +39,25 @@
+ #include <libkern/c++/OSNumber.h>
+ #include <libkern/c++/OSUnserialize.h>
+ #include <sys/proc.h>
++#include <pexpert/pexpert.h>
++#include <kern/clock.h>
++
++/*
++ * andromeda (patch 0208, andrsurfclean=1 by default): an app's CPU writes
++ * into a surface reach memory at IOSurfaceUnlock. Surfaces are mapped
++ * cacheable into the apps (kIOMapDefaultCache), and the Adreno does not
++ * snoop the CPU caches as Apple's GPU does: Core Animation's GPU pass read
++ * memory where the newest lines were still in a CPU cache, and parts of the
++ * screen came out black for about a second when an app opened (2026-11-08,
++ * with the CPU copy as with scanout). A write unlock now cleans the
++ * surface's lines to memory through the kernel's own cacheable mapping of
++ * it (the same physical pages; the data cache is physically tagged).
++ * andrsurfclean=0 turns it off.
++ */
++extern "C" void clean_dcache64(addr64_t addr, unsigned count, int phys);
++static int sweet_surface_clean_on = -1;
++static uint64_t sweet_surface_clean_count, sweet_surface_clean_bytes, sweet_surface_clean_abs;
++static uint64_t sweet_surface_clean_logged;
+ 
+ enum {
+ 	kSweetSurfaceCreate             = 0,
+@@ -834,6 +853,43 @@ IOSurfaceRootUserClient::trapLock(void *id, __unused void *options, void *seedOu
+ 	return ret;
+ }
+ 
++/* andromeda (0208): the surface's CPU writes to memory, for a GPU that does not snoop the caches. */
++static void
++sweet_surface_clean(SweetSurface *s)
++{
++	if (__builtin_expect(sweet_surface_clean_on < 0, 0)) {
++		int on = 1;
++		PE_parse_boot_argn("andrsurfclean", &on, sizeof(on));
++		sweet_surface_clean_on = on ? 1 : 0;
++		IOLog("SWEET SURFACE: %s (andrsurfclean=%d)\n", on ? "a write unlock cleans the surface to memory" :
++		    "no cache clean at unlock", on ? 1 : 0);
++	}
++	IOBufferMemoryDescriptor *buffer = OSDynamicCast(IOBufferMemoryDescriptor, s->memory);
++	if (!sweet_surface_clean_on || buffer == NULL || s->mapCache != kIOMapDefaultCache) {
++		return;     /* the panel memory and other physical surfaces are write-combined */
++	}
++	const uint64_t len = buffer->getLength();
++	const uintptr_t kva = (uintptr_t)buffer->getBytesNoCopy();
++	if (kva == 0 || len == 0 || len > SWEET_SURFACE_MAX_ALLOC) {
++		return;
++	}
++	const uint64_t t0 = mach_absolute_time();
++	clean_dcache64((addr64_t)kva, (unsigned)len, FALSE);
++	const uint64_t t1 = mach_absolute_time();
++	const uint64_t n = (uint64_t)OSAddAtomic64(1, (volatile SInt64 *)&sweet_surface_clean_count) + 1;
++	OSAddAtomic64((SInt64)len, (volatile SInt64 *)&sweet_surface_clean_bytes);
++	OSAddAtomic64((SInt64)(t1 - t0), (volatile SInt64 *)&sweet_surface_clean_abs);
++	/* every 10 s at most: how many, how much, how long */
++	uint64_t period = 0, last = sweet_surface_clean_logged;
++	nanoseconds_to_absolutetime(10ull * NSEC_PER_SEC, &period);
++	if (t1 - last >= period && OSCompareAndSwap64(last, t1, (volatile UInt64 *)&sweet_surface_clean_logged)) {
++		uint64_t ns = 0;
++		absolutetime_to_nanoseconds(sweet_surface_clean_abs, &ns);
++		IOLog("SWEET SURFACE: %llu unlocks cleaned %llu MiB in %llu us so far\n", n,
++		    sweet_surface_clean_bytes >> 20, ns / 1000);
++	}
++}
++
+ IOReturn
+ IOSurfaceRootUserClient::trapUnlock(void *id, void *options, void *seedOut,
+     void *, void *, void *)
+@@ -842,8 +898,11 @@ IOSurfaceRootUserClient::trapUnlock(void *id, void *options, void *seedOut,
+ 	if (s == NULL) {
+ 		return kIOReturnNotFound;
+ 	}
+-	IOReturn ret = sweet_surface_seed_out(s, seedOut,
+-	    !((uintptr_t)options & kIOSurfaceLockReadOnly));
++	const bool wrote = !((uintptr_t)options & kIOSurfaceLockReadOnly);
++	if (wrote) {
++		sweet_surface_clean(s);         /* before the seed says the contents changed */
++	}
++	IOReturn ret = sweet_surface_seed_out(s, seedOut, wrote);
+ 	s->release();
+ 	return ret;
+ }
