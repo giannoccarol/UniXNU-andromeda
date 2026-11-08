@@ -495,6 +495,7 @@ extern int andromeda_rpmh_ddr_vote(bool on, char *why, size_t len);   /* sweet_r
 extern boolean_t mach_timer_coalescing_enabled;
 extern void andromeda_cpufreq_boost(void);  /* andromeda_cpufreq.c: touch floor */
 extern void andromeda_gpu_boost(void);      /* andromeda_gpu.c: touch floor */
+extern int andromeda_cpufreq_little(unsigned on, char *why, size_t len);   /* andromeda_cpufreq.c */
 
 /*
  * dpu: read-only dump of the display controller as the UEFI left it, to plan
@@ -558,6 +559,10 @@ ctl_dpu(void)
 		snprintf(name, sizeof(name), "intf%u", i);
 		ctl_dump(mdp, name, 0x6a000 + 0x800 * i, 16);
 	}
+	/* DSI0's interface: timing engine (0x06c) and, on DPU 5, the tear check and
+	 * autorefresh block (INTF_TEAR_*, 0x280-0x2bc in Linux dpu_hw_intf.c) */
+	ctl_dump(mdp, "intf1", 0x6a800 + 0x60, 4);
+	ctl_dump(mdp, "intf1-te", 0x6a800 + 0x280, 15);
 	/* apps SMMU: SMR(i) 0x800 + 4i, S2CR(i) 0xc00 + 4i, NUMSMRG = IDR0[7:0] */
 	unsigned smr_hits = 0;
 	vm_offset_t smmu = andromeda_io_map(CTL_SMMU_PA, 0x1000);
@@ -798,6 +803,8 @@ ctl_execute(const struct andr_cmd *c)
 		return ctl_tcoal(c->value);
 	case ANDR_V_DPU:
 		return ctl_dpu();
+	case ANDR_V_LITTLE:
+		return andromeda_cpufreq_little(c->value, ctl_why, sizeof(ctl_why)) == 0;
 	default:
 		snprintf(ctl_why, sizeof(ctl_why), "unknown command");
 		return false;

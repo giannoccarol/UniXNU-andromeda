@@ -249,6 +249,7 @@ enum andr_verb {
 	ANDR_V_DDR,
 	ANDR_V_TCOAL,
 	ANDR_V_DPU,
+	ANDR_V_LITTLE,
 	ANDR_V_COUNT
 };
 
@@ -293,6 +294,7 @@ static const struct andr_range andr_verbs[ANDR_V_COUNT] __attribute__((unused)) 
 	[ANDR_V_DDR]       = { "ddr",       1, 1, true, true, 0, 0 },     /* DDR vote: 0 zero, 1 max */
 	[ANDR_V_TCOAL]     = { "tcoal",     1, 1, true, true, 0, 0 },     /* XNU timer coalescing 0|1 */
 	[ANDR_V_DPU]       = { "dpu",       0, 0, false, false, 0, 0 },   /* display controller dump, read only */
+	[ANDR_V_LITTLE]    = { "little",    1, 1, true, true, 0, 0 },     /* Silver cores out (0) / in (1) */
 };
 
 /* The clamps of the boot-args of patches 0101-0105, as accepted ranges. */

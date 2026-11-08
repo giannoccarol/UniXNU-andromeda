@@ -380,6 +380,43 @@ andromeda_cpufreq_frame(void)
 	}
 }
 
+/*
+ * Silver (A55) cores in or out of the scheduler, andctl "little 0|1". This
+ * kernel's ADT describes the 8 cores as one homogeneous cluster (Clutch
+ * scheduler, no AMP), so Core Animation's threads land on the A55s as often
+ * as on the A76s (2026-11-08, scrolling: Silver 78 % busy, Gold 33 %,
+ * Prime 8 %). sched_processor_enable() (osfmk/kern/sched_prim.c, xnu-8796)
+ * takes a core out of the recommended set for normal threads; it refuses
+ * the boot processor, which stays. For measurements.
+ */
+extern kern_return_t sched_processor_enable(processor_t processor, boolean_t enable);
+int andromeda_cpufreq_little(unsigned on, char *why, size_t len);
+int
+andromeda_cpufreq_little(unsigned on, char *why, size_t len)
+{
+	unsigned changed = 0, kept = 0;
+	for (unsigned n = 0; n < AC_N; ++n) {
+		if (ac[n].big) {
+			continue;
+		}
+		for (unsigned k = 0; k < gov[n].ncpu; ++k) {
+			processor_t p = cpu_to_processor(gov[n].cpu[k]);
+			if (p == PROCESSOR_NULL) {
+				continue;
+			}
+			if (sched_processor_enable(p, on ? TRUE : FALSE) == KERN_SUCCESS) {
+				++changed;
+			} else {
+				++kept;
+			}
+		}
+	}
+	snprintf(why, len, "silver cores %s the scheduler: %u changed, %u kept (the boot CPU stays)",
+	    on ? "back in" : "out of", changed, kept);
+	printf(AC_TAG " %s\n", why);
+	return changed ? 0 : -1;
+}
+
 /* Cumulative idle ticks of a running CPU, as host_statistics() reads them;
  * false if the CPU is absent or not running (a CPU never started reports no
  * idle time at all and would look 100 % busy). */
