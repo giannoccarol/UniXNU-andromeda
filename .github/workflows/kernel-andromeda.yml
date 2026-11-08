@@ -22,7 +22,7 @@ permissions:
   contents: read
 # One kernel build at a time.
 concurrency:
-  group: kernel-andromeda
+  group: kernel-andromeda-amp-${{ inputs.amp || false }}
   cancel-in-progress: false
 jobs:
   kernel:
